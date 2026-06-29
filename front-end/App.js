@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { LanguageProvider, useLanguage } from "./context/LanguageContext";
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { storage } from "./utils/storageAdapter";
 
 // Import Screen Components
 import Auth from "./components/Auth";
@@ -75,15 +75,15 @@ function MainAppShell() {
     useEffect(() => {
         const loadSession = async () => {
             try {
-                const savedAuth = await AsyncStorage.getItem("bb_auth");
+                const savedAuth = await storage.getItem("bb_auth");
                 if (savedAuth === "true") {
                     setIsAuthenticated(true);
                     const savedParentName =
-                        await AsyncStorage.getItem("bb_parent_name");
+                        await storage.getItem("bb_parent_name");
                     const savedParentGender =
-                        await AsyncStorage.getItem("bb_parent_gender");
+                        await storage.getItem("bb_parent_gender");
                     const savedParentAvatar =
-                        await AsyncStorage.getItem("bb_parent_avatar");
+                        await storage.getItem("bb_parent_avatar");
 
                     if (savedParentName) setParentName(savedParentName);
                     if (savedParentGender) setParentGender(savedParentGender);
@@ -101,9 +101,9 @@ function MainAppShell() {
         setParentName(name);
         setParentGender(gender);
         try {
-            await AsyncStorage.setItem("bb_auth", "true");
-            await AsyncStorage.setItem("bb_parent_name", name);
-            await AsyncStorage.setItem("bb_parent_gender", gender);
+            await storage.setItem("bb_auth", "true");
+            await storage.setItem("bb_parent_name", name);
+            await storage.setItem("bb_parent_gender", gender);
         } catch (e) {
             console.log(e);
         }
@@ -112,7 +112,7 @@ function MainAppShell() {
     const handleLogOut = async () => {
         setIsAuthenticated(false);
         try {
-            await AsyncStorage.removeItem("bb_auth");
+            await storage.removeItem("bb_auth");
         } catch (e) {
             console.log(e);
         }

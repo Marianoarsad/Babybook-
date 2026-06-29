@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { storage } from "../utils/storageAdapter";
 import { translations } from "../translations";
 
 const LanguageContext = createContext();
@@ -10,7 +10,7 @@ export const LanguageProvider = ({ children }) => {
     useEffect(() => {
         const loadSavedLanguage = async () => {
             try {
-                const saved = await AsyncStorage.getItem("bb_language");
+                const saved = await storage.getItem("bb_language");
                 if (saved === "en" || saved === "fil" || saved === "tag") {
                     setLanguageState(saved);
                 }
@@ -24,7 +24,7 @@ export const LanguageProvider = ({ children }) => {
     const setLanguage = async (lang) => {
         try {
             setLanguageState(lang);
-            await AsyncStorage.setItem("bb_language", lang);
+            await storage.setItem("bb_language", lang);
         } catch (e) {
             console.log("Error saving language:", e);
         }

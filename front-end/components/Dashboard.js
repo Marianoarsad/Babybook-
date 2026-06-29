@@ -19,7 +19,7 @@ import {
     EmptyStateCard,
 } from "./common/Cards";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { storage } from "../utils/storageAdapter";
 
 export default function Dashboard({
     profile,
@@ -56,7 +56,7 @@ export default function Dashboard({
     useEffect(() => {
         const loadTemp = async () => {
             try {
-                const saved = await AsyncStorage.getItem(
+                const saved = await storage.getItem(
                     `bb_temp_${profile.id}`,
                 );
                 if (saved) {
@@ -84,7 +84,7 @@ export default function Dashboard({
         }
         try {
             setBodyTemp(tempInput);
-            await AsyncStorage.setItem(`bb_temp_${profile.id}`, tempInput);
+            await storage.setItem(`bb_temp_${profile.id}`, tempInput);
             setShowTempModal(false);
         } catch (e) {
             console.log(e);

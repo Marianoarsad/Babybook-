@@ -12,7 +12,7 @@ import {
 import { useLanguage } from "../context/LanguageContext";
 import { SectionContainerCard } from "./common/Cards";
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { storage } from "../utils/storageAdapter";
 
 const PREDEFINED_AVATARS = [
     "https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop",
@@ -41,12 +41,12 @@ export default function UserProfile({
         const loadProfileData = async () => {
             try {
                 const savedEmail =
-                    await AsyncStorage.getItem("bb_parent_email");
+                    await storage.getItem("bb_parent_email");
                 const savedPhone =
-                    await AsyncStorage.getItem("bb_parent_phone");
-                const savedCity = await AsyncStorage.getItem("bb_parent_city");
+                    await storage.getItem("bb_parent_phone");
+                const savedCity = await storage.getItem("bb_parent_city");
                 const savedPremium =
-                    await AsyncStorage.getItem("bb_parent_premium");
+                    await storage.getItem("bb_parent_premium");
 
                 if (savedEmail) setEmail(savedEmail);
                 if (savedPhone) setPhone(savedPhone);
@@ -65,9 +65,9 @@ export default function UserProfile({
             return;
         }
         try {
-            await AsyncStorage.setItem("bb_parent_email", email);
-            await AsyncStorage.setItem("bb_parent_phone", phone);
-            await AsyncStorage.setItem("bb_parent_city", city);
+            await storage.setItem("bb_parent_email", email);
+            await storage.setItem("bb_parent_phone", phone);
+            await storage.setItem("bb_parent_city", city);
             Alert.alert("Success", "Profile settings updated successfully!");
         } catch (e) {
             console.log(e);
@@ -78,7 +78,7 @@ export default function UserProfile({
         const nextState = !isPremium;
         setIsPremium(nextState);
         try {
-            await AsyncStorage.setItem("bb_parent_premium", String(nextState));
+            await storage.setItem("bb_parent_premium", String(nextState));
             Alert.alert(
                 nextState ? "Premium Activated" : "Plan Adjusted",
                 nextState
