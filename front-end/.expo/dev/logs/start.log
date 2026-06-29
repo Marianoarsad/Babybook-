@@ -1,0 +1,246 @@
+{"_e":"root:init","_t":1782386228184,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1782386228186,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1782386228193,"mode":"development","files":[],"env":{}}
+{"_e":"devserver:start","_t":1782386228846,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../..\\..\\app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1782386229774,"serverRoot":"../..\\..","projectRoot":"../..\\..","exporting":false,"flags":{"autolinkingModuleResolution":false,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:instantiate","_t":1782386236784,"atlas":false,"workers":8,"host":"::","port":8081}
+{"_e":"metro:bundling:started","_t":1782386276774,"id":"1","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:progress","_t":1782386276775,"id":"1","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782386276783,"id":"1","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782386278121,"id":"1","progress":0.010000000000000002,"total":1,"current":1}
+{"_e":"metro:bundling:progress","_t":1782386278221,"id":"1","progress":0.010000000000000002,"total":3,"current":1}
+{"_e":"metro:bundling:progress","_t":1782386278388,"id":"1","progress":0.04000000000000001,"total":3,"current":2}
+{"_e":"metro:bundling:progress","_t":1782386278495,"id":"1","progress":0.04000000000000001,"total":26,"current":3}
+{"_e":"metro:bundling:progress","_t":1782386278609,"id":"1","progress":0.04000000000000001,"total":37,"current":4}
+{"_e":"metro:bundling:progress","_t":1782386278626,"id":"1","progress":0.04000000000000001,"total":37,"current":5}
+{"_e":"metro:bundling:progress","_t":1782386278883,"id":"1","progress":0.04000000000000001,"total":43,"current":5}
+{"_e":"metro:bundling:progress","_t":1782386278896,"id":"1","progress":0.04000000000000001,"total":43,"current":6}
+{"_e":"metro:bundling:progress","_t":1782386278999,"id":"1","progress":0.04000000000000001,"total":46,"current":7}
+{"_e":"metro:bundling:progress","_t":1782386279103,"id":"1","progress":0.04000000000000001,"total":52,"current":8}
+{"_e":"metro:bundling:progress","_t":1782386279297,"id":"1","progress":0.04000000000000001,"total":52,"current":9}
+{"_e":"metro:bundling:progress","_t":1782386279401,"id":"1","progress":0.04000000000000001,"total":53,"current":9}
+{"_e":"metro:bundling:progress","_t":1782386279513,"id":"1","progress":0.04000000000000001,"total":53,"current":10}
+{"_e":"metro:bundling:progress","_t":1782386279626,"id":"1","progress":0.04000000000000001,"total":54,"current":10}
+{"_e":"metro:bundling:progress","_t":1782386279701,"id":"1","progress":0.041495198902606306,"total":54,"current":11}
+{"_e":"metro:bundling:progress","_t":1782386279863,"id":"1","progress":0.04938271604938271,"total":54,"current":12}
+{"_e":"metro:bundling:progress","_t":1782386279966,"id":"1","progress":0.05586776859504132,"total":55,"current":13}
+{"_e":"metro:bundling:progress","_t":1782386280150,"id":"1","progress":0.05586776859504132,"total":82,"current":15}
+{"_e":"metro:bundling:progress","_t":1782386280249,"id":"1","progress":0.0667844969069562,"total":89,"current":23}
+{"_e":"metro:bundling:progress","_t":1782386280357,"id":"1","progress":0.10868252626494385,"total":91,"current":30}
+{"_e":"metro:bundling:progress","_t":1782386280460,"id":"1","progress":0.14549899032840896,"total":97,"current":37}
+{"_e":"metro:bundling:progress","_t":1782386280561,"id":"1","progress":0.16324864809713294,"total":99,"current":40}
+{"_e":"metro:bundling:progress","_t":1782386280671,"id":"1","progress":0.20036281179138324,"total":105,"current":47}
+{"_e":"metro:bundling:progress","_t":1782386280774,"id":"1","progress":0.24526077097505672,"total":105,"current":52}
+{"_e":"metro:bundling:progress","_t":1782386280886,"id":"1","progress":0.2775031887755102,"total":112,"current":59}
+{"_e":"metro:bundling:progress","_t":1782386280990,"id":"1","progress":0.2775031887755102,"total":128,"current":65}
+{"_e":"metro:bundling:progress","_t":1782386281089,"id":"1","progress":0.2775031887755102,"total":148,"current":74}
+{"_e":"metro:bundling:progress","_t":1782386281193,"id":"1","progress":0.2839768005540167,"total":152,"current":81}
+{"_e":"metro:bundling:progress","_t":1782386281312,"id":"1","progress":0.30391190006574625,"total":156,"current":86}
+{"_e":"metro:bundling:progress","_t":1782386281411,"id":"1","progress":0.34316025349252477,"total":169,"current":99}
+{"_e":"metro:bundling:progress","_t":1782386281513,"id":"1","progress":0.45938271604938274,"total":180,"current":122}
+{"_e":"metro:bundling:progress","_t":1782386281617,"id":"1","progress":0.6557478733459358,"total":184,"current":149}
+{"_e":"metro:bundling:progress","_t":1782386281721,"id":"1","progress":0.7105342507058467,"total":191,"current":161}
+{"_e":"metro:bundling:progress","_t":1782386281824,"id":"1","progress":0.7105342507058467,"total":208,"current":169}
+{"_e":"metro:bundling:progress","_t":1782386281923,"id":"1","progress":0.7105342507058467,"total":218,"current":183}
+{"_e":"metro:bundling:progress","_t":1782386282027,"id":"1","progress":0.7686245074122724,"total":219,"current":192}
+{"_e":"metro:bundling:progress","_t":1782386282204,"id":"1","progress":0.7901234567901234,"total":225,"current":200}
+{"_e":"metro:bundling:progress","_t":1782386282334,"id":"1","progress":0.8651436852844148,"total":229,"current":213}
+{"_e":"metro:bundling:progress","_t":1782386282499,"id":"1","progress":0.8651436852844148,"total":254,"current":221}
+{"_e":"metro:bundling:progress","_t":1782386282500,"id":"1","progress":0.8651436852844148,"total":254,"current":222}
+{"_e":"metro:bundling:progress","_t":1782386282607,"id":"1","progress":0.8651436852844148,"total":284,"current":240}
+{"_e":"metro:bundling:progress","_t":1782386282707,"id":"1","progress":0.8651436852844148,"total":290,"current":267}
+{"_e":"metro:bundling:progress","_t":1782386282808,"id":"1","progress":0.8694302410518627,"total":296,"current":276}
+{"_e":"metro:bundling:progress","_t":1782386282909,"id":"1","progress":0.9049692190925958,"total":308,"current":293}
+{"_e":"metro:bundling:progress","_t":1782386283024,"id":"1","progress":0.9257232134860532,"total":317,"current":305}
+{"_e":"metro:bundling:progress","_t":1782386283138,"id":"1","progress":0.9257232134860532,"total":327,"current":314}
+{"_e":"metro:bundling:progress","_t":1782386283239,"id":"1","progress":0.9759768530772811,"total":331,"current":327}
+{"_e":"metro:bundling:progress","_t":1782386283348,"id":"1","progress":0.9940209401556169,"total":334,"current":333}
+{"_e":"metro:bundling:progress","_t":1782386284378,"id":"1","progress":0.999,"total":334,"current":334}
+{"_e":"metro:bundling:progress","_t":1782386284486,"id":"1","progress":0.999,"total":336,"current":336}
+{"_e":"metro:bundling:done","_t":1782386284620,"id":"1","total":336,"ms":7845.6924}
+{"_e":"metro:bundling:started","_t":1782386291875,"id":"2","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:progress","_t":1782386291875,"id":"2","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782386291877,"id":"2","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:done","_t":1782386291940,"id":"2","total":1,"ms":64.4621}
+{"_e":"metro:client_log","_t":1782386292239,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1782386292240,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1782386314948,"level":"warn","data":["props.pointerEvents is deprecated. Use style.pointerEvents"]}
+{"_e":"metro:client_log","_t":1782386316167,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782386316171,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782386343453,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782386343459,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782386344282,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782386344288,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782386368444,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782386368446,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782386393421,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782386393426,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:bundling:started","_t":1782391446623,"id":"9","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:progress","_t":1782391446623,"id":"9","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782391446625,"id":"9","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782391446727,"id":"9","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782391446770,"id":"9","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782391446869,"id":"9","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782391446969,"id":"9","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782391447069,"id":"9","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:done","_t":1782391447171,"id":"9","total":1,"ms":547.757}
+{"_e":"metro:client_log","_t":1782391447395,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1782391447396,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1782391447417,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782391447420,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782391614759,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782391614762,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782391750891,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782391750897,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:bundling:started","_t":1782391822250,"id":"e","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:progress","_t":1782391822250,"id":"e","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:done","_t":1782391822297,"id":"e","total":1,"ms":47.1009}
+{"_e":"metro:client_log","_t":1782391822510,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1782391822511,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1782391822522,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782391822526,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:bundling:started","_t":1782391823174,"id":"i","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:progress","_t":1782391823174,"id":"i","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:done","_t":1782391823203,"id":"i","total":1,"ms":28.4138}
+{"_e":"metro:client_log","_t":1782391823330,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1782391823330,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1782391823340,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782391823341,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:bundling:started","_t":1782391829242,"id":"m","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:progress","_t":1782391829242,"id":"m","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:done","_t":1782391829272,"id":"m","total":1,"ms":30.3522}
+{"_e":"metro:client_log","_t":1782391829419,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1782391829419,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1782391829428,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782391829432,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:bundling:started","_t":1782391923029,"id":"q","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:progress","_t":1782391923030,"id":"q","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:done","_t":1782391923072,"id":"q","total":1,"ms":42.6045}
+{"_e":"metro:client_log","_t":1782391923225,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1782391923227,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1782391923236,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782391923238,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782391965915,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782391965922,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:bundling:started","_t":1782392109840,"id":"u","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:progress","_t":1782392109840,"id":"u","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:done","_t":1782392109869,"id":"u","total":1,"ms":28.681}
+{"_e":"metro:client_log","_t":1782392110099,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1782392110100,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1782392110113,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782392110117,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:bundling:started","_t":1782392111769,"id":"y","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:progress","_t":1782392111770,"id":"y","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:done","_t":1782392111816,"id":"y","total":1,"ms":46.9632}
+{"_e":"metro:client_log","_t":1782392111948,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1782392111949,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1782392111958,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782392111960,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782392138931,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782392138952,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:bundling:started","_t":1782451755806,"id":"13","platform":"web","environment":null,"entry":"translations.js"}
+{"_e":"metro:bundling:started","_t":1782468656355,"id":"14","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:progress","_t":1782468656355,"id":"14","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782468656356,"id":"14","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782468656458,"id":"14","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782468656558,"id":"14","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782468656658,"id":"14","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782468656759,"id":"14","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782468656859,"id":"14","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:done","_t":1782468657007,"id":"14","total":1,"ms":651.8252}
+{"_e":"metro:client_log","_t":1782468658761,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1782468658761,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1782468658785,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782468658789,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"root:init","_t":1782488403569,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1782488403571,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1782488403575,"mode":"development","files":[],"env":{}}
+{"_e":"devserver:start","_t":1782488404239,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../..\\..\\app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1782488405409,"serverRoot":"../..\\..","projectRoot":"../..\\..","exporting":false,"flags":{"autolinkingModuleResolution":false,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:instantiate","_t":1782488412150,"atlas":false,"workers":8,"host":"::","port":8081}
+{"_e":"metro:bundling:started","_t":1782488418609,"id":"1","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:progress","_t":1782488418610,"id":"1","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782488418619,"id":"1","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782488418719,"id":"1","progress":0.04674945215485757,"total":37,"current":8}
+{"_e":"metro:bundling:progress","_t":1782488418822,"id":"1","progress":0.07217643127645355,"total":67,"current":18}
+{"_e":"metro:bundling:progress","_t":1782488418921,"id":"1","progress":0.0729,"total":100,"current":27}
+{"_e":"metro:bundling:progress","_t":1782488419025,"id":"1","progress":0.15858720338319368,"total":113,"current":45}
+{"_e":"metro:bundling:progress","_t":1782488419144,"id":"1","progress":0.26910156250000006,"total":160,"current":83}
+{"_e":"metro:bundling:progress","_t":1782488419245,"id":"1","progress":0.3283676303497033,"total":178,"current":102}
+{"_e":"metro:bundling:progress","_t":1782488419352,"id":"1","progress":0.6093554768846314,"total":196,"current":153}
+{"_e":"metro:bundling:progress","_t":1782488419466,"id":"1","progress":0.672853532672174,"total":217,"current":178}
+{"_e":"metro:bundling:progress","_t":1782488419573,"id":"1","progress":0.6811655002765012,"total":229,"current":189}
+{"_e":"metro:bundling:progress","_t":1782488419679,"id":"1","progress":0.7842753519103706,"total":236,"current":209}
+{"_e":"metro:bundling:progress","_t":1782488419779,"id":"1","progress":0.7842753519103706,"total":261,"current":219}
+{"_e":"metro:bundling:progress","_t":1782488419879,"id":"1","progress":0.7842753519103706,"total":290,"current":246}
+{"_e":"metro:bundling:progress","_t":1782488420045,"id":"1","progress":0.7842753519103706,"total":307,"current":257}
+{"_e":"metro:bundling:progress","_t":1782488420162,"id":"1","progress":0.8441015624999999,"total":320,"current":294}
+{"_e":"metro:bundling:progress","_t":1782488420262,"id":"1","progress":0.9283820363817777,"total":329,"current":317}
+{"_e":"metro:bundling:progress","_t":1782488420377,"id":"1","progress":0.9523878647118595,"total":332,"current":324}
+{"_e":"metro:bundling:progress","_t":1782488424163,"id":"1","progress":0.9582758745826679,"total":332,"current":325}
+{"_e":"metro:bundling:progress","_t":1782488424308,"id":"1","progress":0.9583998412827243,"total":333,"current":326}
+{"_e":"metro:bundling:progress","_t":1782488424418,"id":"1","progress":0.9642886129372615,"total":333,"current":327}
+{"_e":"metro:bundling:progress","_t":1782488424523,"id":"1","progress":0.9703720204945421,"total":335,"current":330}
+{"_e":"metro:bundling:progress","_t":1782488424770,"id":"1","progress":0.976261973713522,"total":335,"current":331}
+{"_e":"metro:bundling:progress","_t":1782488424883,"id":"1","progress":0.9880953441746493,"total":335,"current":333}
+{"_e":"metro:bundling:progress","_t":1782488424997,"id":"1","progress":0.999,"total":336,"current":336}
+{"_e":"metro:bundling:done","_t":1782488425068,"id":"1","total":336,"ms":6458.6759}
+{"_e":"metro:client_log","_t":1782488425377,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1782488425378,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1782488425703,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782488425704,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782488455531,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782488455534,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782488480182,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782488480184,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782488914828,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782488914831,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"root:init","_t":1782709045005,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1782709045007,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1782709045012,"mode":"development","files":[],"env":{}}
+{"_e":"devserver:start","_t":1782709045685,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../..\\..\\app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1782709046708,"serverRoot":"../..\\..","projectRoot":"../..\\..","exporting":false,"flags":{"autolinkingModuleResolution":false,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:instantiate","_t":1782709053069,"atlas":false,"workers":8,"host":"::","port":8081}
+{"_e":"metro:bundling:started","_t":1782709201084,"id":"1","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:progress","_t":1782709201084,"id":"1","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782709201091,"id":"1","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782709201192,"id":"1","progress":0.06059171597633137,"total":65,"current":16}
+{"_e":"metro:bundling:progress","_t":1782709201293,"id":"1","progress":0.39310909549004786,"total":126,"current":79}
+{"_e":"metro:bundling:progress","_t":1782709201392,"id":"1","progress":0.4444444444444444,"total":210,"current":140}
+{"_e":"metro:bundling:progress","_t":1782709201492,"id":"1","progress":0.7825443786982248,"total":234,"current":207}
+{"_e":"metro:bundling:progress","_t":1782709201603,"id":"1","progress":0.7825443786982248,"total":297,"current":249}
+{"_e":"metro:bundling:progress","_t":1782709201704,"id":"1","progress":0.999,"total":336,"current":336}
+{"_e":"metro:bundling:done","_t":1782709201727,"id":"1","total":336,"ms":643.0985}
+{"_e":"metro:client_log","_t":1782709201948,"level":"info","data":["%cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools","font-weight:bold"]}
+{"_e":"metro:client_log","_t":1782709201949,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1782709201949,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:bundling:started","_t":1782709219544,"id":"4","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:progress","_t":1782709219544,"id":"4","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782709219546,"id":"4","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782709219647,"id":"4","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782709219747,"id":"4","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782709219847,"id":"4","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:done","_t":1782709219935,"id":"4","total":1,"ms":390.9551}
+{"_e":"metro:client_log","_t":1782709220184,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1782709220184,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1782709220223,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782709220230,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782709222509,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782709222509,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782709223028,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782709223029,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782709226324,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782709226324,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782709227928,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782709227929,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782709409886,"level":"error","data":["Project is incompatible with this version of Expo Go\n\nThe project you requested requires a newer version of Expo Go.\n\nHow to fix this error:\n\nDownload the latest version of Expo Go from the App Store."]}
+{"_e":"metro:client_log","_t":1782709469723,"level":"error","data":["Project is incompatible with this version of Expo Go\n\nThe project you requested requires a newer version of Expo Go.\n\nHow to fix this error:\n\nDownload the latest version of Expo Go from the App Store."]}
+{"_e":"metro:client_log","_t":1782709485309,"level":"error","data":["Project is incompatible with this version of Expo Go\n\nThe project you requested requires a newer version of Expo Go.\n\nHow to fix this error:\n\nDownload the latest version of Expo Go from the App Store."]}
+{"_e":"root:init","_t":1782709780975,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1782709780977,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1782709780980,"mode":"development","files":[],"env":{}}
+{"_e":"devserver:start","_t":1782709781378,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../..\\..\\app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1782709781828,"serverRoot":"../..\\..","projectRoot":"../..\\..","exporting":false,"flags":{"autolinkingModuleResolution":false,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:instantiate","_t":1782709786915,"atlas":false,"workers":8,"host":"::","port":8081}
+{"_e":"metro:client_log","_t":1782709791297,"level":"error","data":["Project is incompatible with this version of Expo Go\n\nThe project you requested requires a newer version of Expo Go.\n\nHow to fix this error:\n\nDownload the latest version of Expo Go from the App Store."]}
+{"_e":"metro:client_log","_t":1782709797149,"level":"error","data":["Project is incompatible with this version of Expo Go\n\nThe project you requested requires a newer version of Expo Go.\n\nHow to fix this error:\n\nDownload the latest version of Expo Go from the App Store."]}
