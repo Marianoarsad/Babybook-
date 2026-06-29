@@ -244,3 +244,41 @@
 {"_e":"metro:instantiate","_t":1782709786915,"atlas":false,"workers":8,"host":"::","port":8081}
 {"_e":"metro:client_log","_t":1782709791297,"level":"error","data":["Project is incompatible with this version of Expo Go\n\nThe project you requested requires a newer version of Expo Go.\n\nHow to fix this error:\n\nDownload the latest version of Expo Go from the App Store."]}
 {"_e":"metro:client_log","_t":1782709797149,"level":"error","data":["Project is incompatible with this version of Expo Go\n\nThe project you requested requires a newer version of Expo Go.\n\nHow to fix this error:\n\nDownload the latest version of Expo Go from the App Store."]}
+{"_e":"root:init","_t":1782718223852,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1782718223854,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1782718223860,"mode":"development","files":[],"env":{}}
+{"_e":"devserver:start","_t":1782718224302,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../..\\..\\app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1782718225004,"serverRoot":"../..\\..","projectRoot":"../..\\..","exporting":false,"flags":{"autolinkingModuleResolution":false,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:instantiate","_t":1782718231543,"atlas":false,"workers":8,"host":"::","port":8081}
+{"_e":"metro:bundling:started","_t":1782718234118,"id":"1","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:progress","_t":1782718234119,"id":"1","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782718234126,"id":"1","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1782718234227,"id":"1","progress":0.46137415450338193,"total":53,"current":36}
+{"_e":"metro:bundling:progress","_t":1782718234339,"id":"1","progress":0.6232686980609419,"total":95,"current":75}
+{"_e":"metro:bundling:progress","_t":1782718234439,"id":"1","progress":0.9540292049756625,"total":129,"current":126}
+{"_e":"metro:bundling:progress","_t":1782718235547,"id":"1","progress":0.9692326182320773,"total":129,"current":127}
+{"_e":"metro:bundling:progress","_t":1782718235651,"id":"1","progress":0.9692326182320773,"total":189,"current":141}
+{"_e":"metro:bundling:progress","_t":1782718235753,"id":"1","progress":0.9692326182320773,"total":245,"current":209}
+{"_e":"metro:bundling:progress","_t":1782718235853,"id":"1","progress":0.9692326182320773,"total":307,"current":279}
+{"_e":"metro:bundling:progress","_t":1782718235959,"id":"1","progress":0.981846065723709,"total":329,"current":326}
+{"_e":"metro:bundling:progress","_t":1782718237015,"id":"1","progress":0.9878788998623443,"total":329,"current":327}
+{"_e":"metro:bundling:progress","_t":1782718237115,"id":"1","progress":0.9881306689342404,"total":336,"current":334}
+{"_e":"metro:bundling:progress","_t":1782718237237,"id":"1","progress":0.999,"total":337,"current":337}
+{"_e":"metro:bundling:done","_t":1782718237339,"id":"1","total":337,"ms":3220.037}
+{"_e":"metro:client_log","_t":1782718237595,"level":"info","data":["%cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools","font-weight:bold"]}
+{"_e":"metro:client_log","_t":1782718237596,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1782718237597,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1782718253756,"level":"warn","data":["props.pointerEvents is deprecated. Use style.pointerEvents"]}
+{"_e":"metro:client_log","_t":1782718254971,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782718254974,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782718257281,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782718257284,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782718258569,"level":"warn","data":["\"plus\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"metro:client_log","_t":1782718258571,"level":"warn","data":["\"plus-circle\" is not a valid icon name for family \"ionicons\""]}
+{"_e":"root:init","_t":1782718274870,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1782718274872,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1782718274878,"mode":"development","files":[],"env":{}}
+{"_e":"devserver:start","_t":1782718275457,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../..\\..\\app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1782718276302,"serverRoot":"../..\\..","projectRoot":"../..\\..","exporting":false,"flags":{"autolinkingModuleResolution":false,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:instantiate","_t":1782718282065,"atlas":false,"workers":8,"host":"::","port":8081}
+{"_e":"metro:client_log","_t":1782718297058,"level":"error","data":["Project is incompatible with this version of Expo Go\n\nThe project you requested requires a newer version of Expo Go.\n\nHow to fix this error:\n\nDownload the latest version of Expo Go from the App Store."]}
