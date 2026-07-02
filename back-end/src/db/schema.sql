@@ -1,0 +1,301 @@
+-- BabyBook+ database schema (PostgreSQL)
+-- Refined from the Chapter 3 ERD: the paper's 12 tables, built with structured
+-- columns, constraints, cascades and indexes, plus daily-tracker tables
+-- (feed/sleep/temperature) and a password-reset table.
+--
+-- Safe to re-run: drops and recreates everything.
+
+DROP TABLE IF EXISTS access_logs CASCADE;
+DROP TABLE IF EXISTS shared_records CASCADE;
+DROP TABLE IF EXISTS reminders CASCADE;
+DROP TABLE IF EXISTS memories CASCADE;
+DROP TABLE IF EXISTS temperature_logs CASCADE;
+DROP TABLE IF EXISTS sleep_logs CASCADE;
+DROP TABLE IF EXISTS feed_logs CASCADE;
+DROP TABLE IF EXISTS nutrition_records CASCADE;
+DROP TABLE IF EXISTS milestones CASCADE;
+DROP TABLE IF EXISTS growth_records CASCADE;
+DROP TABLE IF EXISTS medical_history CASCADE;
+DROP TABLE IF EXISTS checkups CASCADE;
+DROP TABLE IF EXISTS vaccinations CASCADE;
+DROP TABLE IF EXISTS children CASCADE;
+DROP TABLE IF EXISTS password_resets CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+
+-- Auto-update updated_at on row changes.
+CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- =========================================================
+-- USERS (parents / guardians) — the only account-holding actor.
+-- Healthcare professionals access via QR only and have no account.
+-- =========================================================
+CREATE TABLE users (
+    id            SERIAL PRIMARY KEY,
+    full_name     VARCHAR(100) NOT NULL,
+    email         VARCHAR(100) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    phone_number  VARCHAR(20),
+    gender        VARCHAR(10),
+    avatar_url    TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TRIGGER trg_users_updated BEFORE UPDATE ON users
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TABLE password_resets (
+    id         SERIAL PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token      VARCHAR(255) NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    used       BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_password_resets_token ON password_resets(token);
+
+-- =========================================================
+-- CHILDREN — structured birth + healthcare info.
+-- =========================================================
+CREATE TABLE children (
+    id                      SERIAL PRIMARY KEY,
+    user_id                 INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    first_name              VARCHAR(50) NOT NULL,
+    last_name               VARCHAR(50),
+    date_of_birth           DATE,
+    time_of_birth           TIME,
+    sex                     VARCHAR(10),
+    blood_type              VARCHAR(5),
+    birth_weight            DECIMAL(5,2),
+    birth_length            DECIMAL(5,2),
+    place_of_birth          VARCHAR(150),
+    hospital                VARCHAR(150),
+    obgyne_name             VARCHAR(100),
+    pediatrician_name       VARCHAR(100),
+    emergency_contact       VARCHAR(100),
+    preferred_health_center VARCHAR(150),
+    avatar_url              TEXT,
+    allergies               JSONB NOT NULL DEFAULT '[]',
+    hereditary_conditions   JSONB NOT NULL DEFAULT '[]',
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_children_user ON children(user_id);
+CREATE TRIGGER trg_children_updated BEFORE UPDATE ON children
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =========================================================
+-- VACCINATIONS — supports scheduled/due vs. completed.
+-- =========================================================
+CREATE TABLE vaccinations (
+    id            SERIAL PRIMARY KEY,
+    child_id      INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    vaccine_name  VARCHAR(150) NOT NULL,
+    visit_name    VARCHAR(100),
+    due_date      DATE,
+    date_given    DATE,
+    status        VARCHAR(20) NOT NULL DEFAULT 'scheduled'
+                  CHECK (status IN ('scheduled', 'completed')),
+    notes         TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_vaccinations_child ON vaccinations(child_id);
+CREATE TRIGGER trg_vaccinations_updated BEFORE UPDATE ON vaccinations
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =========================================================
+-- CHECKUPS — covers past checkups and future appointments via status.
+-- =========================================================
+CREATE TABLE checkups (
+    id            SERIAL PRIMARY KEY,
+    child_id      INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    title         VARCHAR(150),
+    checkup_date  DATE,
+    time_of_visit TIME,
+    doctor_name   VARCHAR(100),
+    clinic        VARCHAR(150),
+    status        VARCHAR(20) NOT NULL DEFAULT 'scheduled'
+                  CHECK (status IN ('scheduled', 'completed')),
+    notes         TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_checkups_child ON checkups(child_id);
+CREATE TRIGGER trg_checkups_updated BEFORE UPDATE ON checkups
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =========================================================
+-- MEDICAL HISTORY — illnesses, allergies, medications, etc.
+-- =========================================================
+CREATE TABLE medical_history (
+    id            SERIAL PRIMARY KEY,
+    child_id      INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    category      VARCHAR(50) NOT NULL
+                  CHECK (category IN ('Illness', 'Allergy', 'Medication', 'Hospitalization', 'Hereditary Condition')),
+    title         VARCHAR(150),
+    description   TEXT,
+    date_recorded DATE,
+    resolved      BOOLEAN NOT NULL DEFAULT FALSE,
+    notes         TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_medical_history_child ON medical_history(child_id);
+CREATE TRIGGER trg_medical_history_updated BEFORE UPDATE ON medical_history
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =========================================================
+-- GROWTH RECORDS — includes head circumference.
+-- =========================================================
+CREATE TABLE growth_records (
+    id                 SERIAL PRIMARY KEY,
+    child_id           INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    height             DECIMAL(5,2),
+    weight             DECIMAL(5,2),
+    head_circumference DECIMAL(5,2),
+    date_recorded      DATE NOT NULL,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_growth_child ON growth_records(child_id);
+
+-- =========================================================
+-- MILESTONES
+-- =========================================================
+CREATE TABLE milestones (
+    id            SERIAL PRIMARY KEY,
+    child_id      INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    title         VARCHAR(150) NOT NULL,
+    age_achieved  VARCHAR(50),
+    description   TEXT,
+    date_recorded DATE,
+    is_completed  BOOLEAN NOT NULL DEFAULT TRUE,
+    photo_url     TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_milestones_child ON milestones(child_id);
+CREATE TRIGGER trg_milestones_updated BEFORE UPDATE ON milestones
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =========================================================
+-- NUTRITION RECORDS — structured (feeding type, food introduced, reactions).
+-- =========================================================
+CREATE TABLE nutrition_records (
+    id              SERIAL PRIMARY KEY,
+    child_id        INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    feeding_type    VARCHAR(50),
+    food_introduced VARCHAR(150),
+    reaction        VARCHAR(150),
+    date_recorded   DATE,
+    notes           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_nutrition_child ON nutrition_records(child_id);
+
+-- =========================================================
+-- DAILY TRACKERS (beyond the paper's ERD — note in Ch.3 if adopted)
+-- =========================================================
+CREATE TABLE feed_logs (
+    id         SERIAL PRIMARY KEY,
+    child_id   INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    feed_type  VARCHAR(20) NOT NULL CHECK (feed_type IN ('milk', 'solids')),
+    amount_ml  INTEGER,
+    grams      INTEGER,
+    fed_at     TIMESTAMPTZ NOT NULL,
+    notes      TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_feed_child ON feed_logs(child_id);
+
+CREATE TABLE sleep_logs (
+    id            SERIAL PRIMARY KEY,
+    child_id      INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    start_at      TIMESTAMPTZ NOT NULL,
+    end_at        TIMESTAMPTZ,
+    total_minutes INTEGER,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_sleep_child ON sleep_logs(child_id);
+
+CREATE TABLE temperature_logs (
+    id         SERIAL PRIMARY KEY,
+    child_id   INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    celsius    DECIMAL(4,2) NOT NULL,
+    taken_at   TIMESTAMPTZ NOT NULL,
+    notes      TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_temperature_child ON temperature_logs(child_id);
+
+-- =========================================================
+-- MEMORIES — photo_url points to a locally stored file.
+-- =========================================================
+CREATE TABLE memories (
+    id            SERIAL PRIMARY KEY,
+    child_id      INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    photo_url     TEXT,
+    caption       VARCHAR(255),
+    notes         TEXT,
+    date_recorded DATE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_memories_child ON memories(child_id);
+
+-- =========================================================
+-- REMINDERS — optionally linked to a specific vaccination/checkup.
+-- =========================================================
+CREATE TABLE reminders (
+    id             SERIAL PRIMARY KEY,
+    child_id       INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    reminder_type  VARCHAR(50) NOT NULL CHECK (reminder_type IN ('Vaccination', 'Checkup')),
+    title          VARCHAR(150),
+    reminder_date  DATE NOT NULL,
+    status         VARCHAR(20) NOT NULL DEFAULT 'Pending'
+                   CHECK (status IN ('Pending', 'Completed')),
+    vaccination_id INTEGER REFERENCES vaccinations(id) ON DELETE SET NULL,
+    checkup_id     INTEGER REFERENCES checkups(id) ON DELETE SET NULL,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_reminders_child ON reminders(child_id);
+CREATE TRIGGER trg_reminders_updated BEFORE UPDATE ON reminders
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =========================================================
+-- SHARED RECORDS (QR consultation access)
+-- =========================================================
+CREATE TABLE shared_records (
+    id                 SERIAL PRIMARY KEY,
+    child_id           INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    code               VARCHAR(20) NOT NULL UNIQUE,
+    qr_payload         VARCHAR(255),
+    shared_record_keys JSONB NOT NULL,
+    payload            JSONB NOT NULL,
+    generate_date      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expiration_date    TIMESTAMPTZ NOT NULL,
+    status             VARCHAR(20) NOT NULL DEFAULT 'active'
+                       CHECK (status IN ('active', 'expired', 'revoked')),
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_shared_child ON shared_records(child_id);
+CREATE INDEX idx_shared_code ON shared_records(code);
+
+-- =========================================================
+-- ACCESS LOG — every professional view of shared records.
+-- =========================================================
+CREATE TABLE access_logs (
+    id                SERIAL PRIMARY KEY,
+    share_id          INTEGER REFERENCES shared_records(id) ON DELETE CASCADE,
+    child_id          INTEGER REFERENCES children(id) ON DELETE CASCADE,
+    code              VARCHAR(20),
+    professional_name VARCHAR(100),
+    action            VARCHAR(50),
+    access_date       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_access_share ON access_logs(share_id);
+CREATE INDEX idx_access_child ON access_logs(child_id);

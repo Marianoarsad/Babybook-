@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
     View,
     Text,
@@ -8,8 +8,15 @@ import {
     TextInput,
     Modal,
     Image,
-    Alert,
 } from "react-native";
+import { api } from "../utils/api";
+import {
+    vaccinationToApp,
+    medHistoryToIllness,
+    medHistoryToMed,
+} from "../utils/adapters";
+import { scheduleReminder, morningOf } from "../utils/notifications";
+import { useToast } from "./ui/Toast";
 import { useLanguage } from "../context/LanguageContext";
 import {
     SectionContainerCard,
@@ -27,7 +34,32 @@ export default function Health({
     setFeedLogs,
 }) {
     const { language, t } = useLanguage();
+    const toast = useToast();
+    const Alert = {
+        alert: (title, message) => {
+            const m = message || title || "";
+            if (title === "Error" || /invalid|fail|denied|unable/i.test(String(title))) toast.error(m);
+            else toast.success(m);
+        },
+    };
     const [activeTab, setActiveTab] = useState("immunizations");
+
+    // Vaccinations now load from and persist to the backend.
+    const [vaccines, setVaccines] = useState([]);
+    useEffect(() => {
+        let active = true;
+        (async () => {
+            try {
+                const rows = await api.listRecords(profile.id, "vaccinations");
+                if (active) setVaccines(rows.map(vaccinationToApp));
+            } catch (e) {
+                console.log("load vaccines:", e.message);
+            }
+        })();
+        return () => {
+            active = false;
+        };
+    }, [profile.id]);
 
     // Care Team state
     const [pediatrician, setPediatrician] = useState(
@@ -38,115 +70,202 @@ export default function Health({
     );
 
     // Medical conditions states
-    const [allergies, setAllergies] = useState(
-        profile.allergies || ["Penicillin"],
-    );
+    const [allergies, setAllergies] = useState(profile.allergies || []);
     const [newAllergy, setNewAllergy] = useState("");
 
-    const [illnesses, setIllnesses] = useState([
-        {
-            id: "il1",
-            title: "Infant Colic",
-            date: "Jan 2026",
-            resolved: true,
-            desc: "Tummy sensitivity managed with gentle massage.",
-        },
-        {
-            id: "il2",
-            title: "Mild Atopic Eczema",
-            date: "Mar 2026",
-            resolved: false,
-            desc: "Apply moisturizing baby balm twice daily.",
-        },
-    ]);
+    // Update the allergy list locally and persist it to the child record.
+    const persistAllergies = async (updated) => {
+        setAllergies(updated);
+        onUpdateProfile({ ...profile, allergies: updated });
+        try {
+            await api.updateChild(profile.id, { allergies: updated });
+        } catch (e) {
+            console.log("save allergies:", e.message);
+        }
+    };
+
+    const [illnesses, setIllnesses] = useState([]);
     const [showIllnessModal, setShowIllnessModal] = useState(false);
     const [illnessTitle, setIllnessTitle] = useState("");
     const [illnessDesc, setIllnessDesc] = useState("");
 
-    const [medications, setMedications] = useState([
-        {
-            id: "med1",
-            title: "Infant Vitamin D Drops",
-            dosage: "400 IU once daily",
-            duration: "Ongoing",
-        },
-        {
-            id: "med2",
-            title: "Barrier Balm",
-            dosage: "Apply to cheeks twice daily",
-            duration: "As needed",
-        },
-    ]);
+    const [medications, setMedications] = useState([]);
     const [showMedModal, setShowMedModal] = useState(false);
     const [medTitle, setMedTitle] = useState("");
     const [medDosage, setMedDosage] = useState("");
 
-    const handleToggleVaccine = (id) => {
-        setImmunizations((prev) =>
-            prev.map((vax) => {
-                if (vax.id === id) {
-                    return {
-                        ...vax,
-                        isCompleted: !vax.isCompleted,
-                        completedDate: !vax.isCompleted
-                            ? new Date().toISOString().split("T")[0]
-                            : undefined,
-                    };
-                }
-                return vax;
-            }),
+    const [hospitalizations, setHospitalizations] = useState([]);
+    const [showHospModal, setShowHospModal] = useState(false);
+    const [hospTitle, setHospTitle] = useState("");
+    const [hospDesc, setHospDesc] = useState("");
+
+    // Medical history (illnesses + medications) loads from the backend.
+    useEffect(() => {
+        let active = true;
+        (async () => {
+            try {
+                const rows = await api.listRecords(profile.id, "medical-history");
+                if (!active) return;
+                setIllnesses(rows.filter((r) => r.category === "Illness").map(medHistoryToIllness));
+                setMedications(rows.filter((r) => r.category === "Medication").map(medHistoryToMed));
+                setHospitalizations(rows.filter((r) => r.category === "Hospitalization").map(medHistoryToIllness));
+            } catch (e) {
+                console.log("load medical history:", e.message);
+            }
+        })();
+        return () => {
+            active = false;
+        };
+    }, [profile.id]);
+
+    // Add-vaccine modal state.
+    const [showVaxModal, setShowVaxModal] = useState(false);
+    const [vaxName, setVaxName] = useState("");
+    const [vaxVisit, setVaxVisit] = useState("");
+    const [vaxDue, setVaxDue] = useState("");
+
+    const handleAddVaccine = async () => {
+        if (!vaxName) {
+            Alert.alert("Error", "Please enter a vaccine name");
+            return;
+        }
+        const name = vaxName;
+        const visit = vaxVisit;
+        const due = vaxDue;
+        setShowVaxModal(false);
+        setVaxName("");
+        setVaxVisit("");
+        setVaxDue("");
+        try {
+            const saved = await api.createRecord(profile.id, "vaccinations", {
+                vaccine_name: name,
+                visit_name: visit || null,
+                due_date: due || null,
+                status: "scheduled",
+            });
+            setVaccines((prev) => [...prev, vaccinationToApp(saved)]);
+            // Set a reminder for the due date: notification + backend record.
+            const when = morningOf(due);
+            if (when) {
+                scheduleReminder("Vaccination reminder", `${name} — ${visit || "vaccination"} due`, when);
+                api
+                    .createRecord(profile.id, "reminders", {
+                        reminder_type: "Vaccination",
+                        title: name,
+                        reminder_date: due,
+                        status: "Pending",
+                        vaccination_id: saved.id,
+                    })
+                    .catch(() => {});
+            }
+        } catch (e) {
+            Alert.alert("Error", e.message || "Could not add vaccine");
+        }
+    };
+
+    const handleToggleVaccine = async (id) => {
+        const vax = vaccines.find((v) => v.id === id);
+        if (!vax) return;
+        const nowCompleted = !vax.isCompleted;
+        const today = new Date().toISOString().split("T")[0];
+        // optimistic update
+        setVaccines((prev) =>
+            prev.map((v) =>
+                v.id === id
+                    ? { ...v, isCompleted: nowCompleted, completedDate: nowCompleted ? today : undefined }
+                    : v,
+            ),
         );
+        try {
+            await api.updateRecord(profile.id, "vaccinations", id, {
+                status: nowCompleted ? "completed" : "scheduled",
+                date_given: nowCompleted ? today : null,
+            });
+        } catch (e) {
+            // revert on failure
+            setVaccines((prev) => prev.map((v) => (v.id === id ? vax : v)));
+            Alert.alert("Error", e.message || "Could not update vaccine");
+        }
     };
 
     const handleAddAllergy = () => {
         if (!newAllergy.trim()) return;
-        const updated = [...allergies, newAllergy.trim()];
-        setAllergies(updated);
-        onUpdateProfile({
-            ...profile,
-            allergies: updated,
-        });
+        persistAllergies([...allergies, newAllergy.trim()]);
         setNewAllergy("");
     };
 
-    const handleAddIllness = () => {
+    const handleAddIllness = async () => {
         if (!illnessTitle) {
             Alert.alert("Error", "Please enter illness name");
             return;
         }
-        const newIll = {
-            id: `il-${Date.now()}`,
-            title: illnessTitle,
-            date: new Date().toLocaleDateString("en-US", {
-                month: "short",
-                year: "numeric",
-            }),
-            resolved: false,
-            desc: illnessDesc,
-        };
-        setIllnesses([newIll, ...illnesses]);
+        const title = illnessTitle;
+        const desc = illnessDesc;
         setShowIllnessModal(false);
         setIllnessTitle("");
         setIllnessDesc("");
-        Alert.alert("Success", "Medical condition recorded successfully.");
+        try {
+            const saved = await api.createRecord(profile.id, "medical-history", {
+                category: "Illness",
+                title,
+                description: desc || null,
+                date_recorded: new Date().toISOString().split("T")[0],
+                resolved: false,
+            });
+            setIllnesses((prev) => [medHistoryToIllness(saved), ...prev]);
+            Alert.alert("Success", "Medical condition recorded successfully.");
+        } catch (e) {
+            Alert.alert("Error", e.message || "Could not save condition");
+        }
     };
 
-    const handleAddMedication = () => {
+    const handleAddMedication = async () => {
         if (!medTitle) {
             Alert.alert("Error", "Please enter medication name");
             return;
         }
-        const newMed = {
-            id: `med-${Date.now()}`,
-            title: medTitle,
-            dosage: medDosage,
-            duration: "As prescribed",
-        };
-        setMedications([newMed, ...medications]);
+        const title = medTitle;
+        const dosage = medDosage;
         setShowMedModal(false);
         setMedTitle("");
         setMedDosage("");
-        Alert.alert("Success", "Prescribed medication logged successfully.");
+        try {
+            const saved = await api.createRecord(profile.id, "medical-history", {
+                category: "Medication",
+                title,
+                description: dosage || null,
+                date_recorded: new Date().toISOString().split("T")[0],
+            });
+            setMedications((prev) => [medHistoryToMed(saved), ...prev]);
+            Alert.alert("Success", "Prescribed medication logged successfully.");
+        } catch (e) {
+            Alert.alert("Error", e.message || "Could not save medication");
+        }
+    };
+
+    const handleAddHospitalization = async () => {
+        if (!hospTitle) {
+            Alert.alert("Error", "Please enter a reason for hospitalization");
+            return;
+        }
+        const title = hospTitle;
+        const desc = hospDesc;
+        setShowHospModal(false);
+        setHospTitle("");
+        setHospDesc("");
+        try {
+            const saved = await api.createRecord(profile.id, "medical-history", {
+                category: "Hospitalization",
+                title,
+                description: desc || null,
+                date_recorded: new Date().toISOString().split("T")[0],
+                resolved: false,
+            });
+            setHospitalizations((prev) => [medHistoryToIllness(saved), ...prev]);
+            Alert.alert("Success", "Hospitalization recorded.");
+        } catch (e) {
+            Alert.alert("Error", e.message || "Could not save hospitalization");
+        }
     };
 
     return (
@@ -230,8 +349,20 @@ export default function Health({
                     <SectionContainerCard
                         title={t("healthVaccinesTitle")}
                         subtitle={t("healthVaccinesSub")}
+                        action={
+                            <TouchableOpacity
+                                onPress={() => setShowVaxModal(true)}
+                                style={styles.actionBtn}
+                            >
+                                <Ionicons name="add" size={16} color="#FFFFFF" />
+                                <Text style={styles.actionBtnText}>Add</Text>
+                            </TouchableOpacity>
+                        }
                     >
-                        {immunizations.map((vax, idx) => (
+                        {vaccines.length === 0 && (
+                            <EmptyStateCard message="No vaccination records yet." />
+                        )}
+                        {vaccines.map((vax, idx) => (
                             <TouchableOpacity
                                 key={vax.id || idx}
                                 onPress={() => handleToggleVaccine(vax.id)}
@@ -397,16 +528,11 @@ export default function Health({
                                 <View key={index} style={styles.chip}>
                                     <Text style={styles.chipText}>{all}</Text>
                                     <TouchableOpacity
-                                        onPress={() => {
-                                            const updated = allergies.filter(
-                                                (_, i) => i !== index,
-                                            );
-                                            setAllergies(updated);
-                                            onUpdateProfile({
-                                                ...profile,
-                                                allergies: updated,
-                                            });
-                                        }}
+                                        onPress={() =>
+                                            persistAllergies(
+                                                allergies.filter((_, i) => i !== index),
+                                            )
+                                        }
                                     >
                                         <Ionicons
                                             name="close"
@@ -463,8 +589,77 @@ export default function Health({
                             />
                         ))}
                     </SectionContainerCard>
+
+                    <SectionContainerCard
+                        title="Hospitalizations"
+                        subtitle="Hospital stays and admissions"
+                        action={
+                            <TouchableOpacity
+                                onPress={() => setShowHospModal(true)}
+                                style={styles.actionBtn}
+                            >
+                                <Ionicons name="add" size={16} color="#FFFFFF" />
+                                <Text style={styles.actionBtnText}>Add</Text>
+                            </TouchableOpacity>
+                        }
+                    >
+                        {hospitalizations.length === 0 && (
+                            <EmptyStateCard message="No hospitalizations recorded." />
+                        )}
+                        {hospitalizations.map((h, idx) => (
+                            <ListEntryCard
+                                key={h.id || idx}
+                                title={h.title}
+                                subtitle={h.date}
+                                notes={h.desc}
+                                icon={
+                                    <Ionicons name="bandage-outline" size={18} color="#456155" />
+                                }
+                                iconBg="#E6F4EA"
+                            />
+                        ))}
+                    </SectionContainerCard>
                 </View>
             )}
+
+            {/* Hospitalization Modal */}
+            <Modal visible={showHospModal} transparent animationType="slide">
+                <View style={styles.modalBg}>
+                    <View style={styles.modalCard}>
+                        <Text style={styles.modalTitle}>Add Hospitalization</Text>
+
+                        <Text style={styles.modalLabel}>Reason / Title</Text>
+                        <TextInput
+                            style={styles.modalInput}
+                            placeholder="e.g. Dengue admission"
+                            value={hospTitle}
+                            onChangeText={setHospTitle}
+                        />
+
+                        <Text style={styles.modalLabel}>Details (optional)</Text>
+                        <TextInput
+                            style={styles.modalInput}
+                            value={hospDesc}
+                            onChangeText={setHospDesc}
+                        />
+
+                        <View style={styles.modalButtons}>
+                            <TouchableOpacity
+                                onPress={() => setShowHospModal(false)}
+                                style={styles.modalCancelBtn}
+                            >
+                                <Text style={styles.modalCancelText}>{t("cancel")}</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={handleAddHospitalization}
+                                style={styles.modalSaveBtn}
+                            >
+                                <Text style={styles.modalSaveText}>{t("save")}</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
 
             {/* Illness Modal */}
             <Modal visible={showIllnessModal} transparent animationType="slide">
@@ -549,6 +744,61 @@ export default function Health({
                             </TouchableOpacity>
                             <TouchableOpacity
                                 onPress={handleAddMedication}
+                                style={styles.modalSaveBtn}
+                            >
+                                <Text style={styles.modalSaveText}>
+                                    {t("save")}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Add Vaccine Modal */}
+            <Modal visible={showVaxModal} transparent animationType="slide">
+                <View style={styles.modalBg}>
+                    <View style={styles.modalCard}>
+                        <Text style={styles.modalTitle}>Add Vaccination</Text>
+
+                        <Text style={styles.modalLabel}>Vaccine Name</Text>
+                        <TextInput
+                            style={styles.modalInput}
+                            placeholder="e.g. MMR"
+                            value={vaxName}
+                            onChangeText={setVaxName}
+                        />
+
+                        <Text style={styles.modalLabel}>
+                            Visit (e.g. 12 Month Wellness)
+                        </Text>
+                        <TextInput
+                            style={styles.modalInput}
+                            value={vaxVisit}
+                            onChangeText={setVaxVisit}
+                        />
+
+                        <Text style={styles.modalLabel}>
+                            Due Date (YYYY-MM-DD)
+                        </Text>
+                        <TextInput
+                            style={styles.modalInput}
+                            placeholder="2026-12-16"
+                            value={vaxDue}
+                            onChangeText={setVaxDue}
+                        />
+
+                        <View style={styles.modalButtons}>
+                            <TouchableOpacity
+                                onPress={() => setShowVaxModal(false)}
+                                style={styles.modalCancelBtn}
+                            >
+                                <Text style={styles.modalCancelText}>
+                                    {t("cancel")}
+                                </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={handleAddVaccine}
                                 style={styles.modalSaveBtn}
                             >
                                 <Text style={styles.modalSaveText}>

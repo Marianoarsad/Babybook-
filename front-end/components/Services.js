@@ -9,17 +9,19 @@ import {
     Image,
 } from "react-native";
 import { useLanguage } from "../context/LanguageContext";
+import { useToast } from "./ui/Toast";
 import { SectionContainerCard, ListEntryCard } from "./common/Cards";
 import { Ionicons } from "@expo/vector-icons";
 import { initialUpdates, initialClinics } from "../mockData";
 
 export default function Services() {
     const { language, t } = useLanguage();
+    const toast = useToast();
     const [selectedCity, setSelectedCity] = useState("QUEZON CITY");
 
     const handleCall = (num) => {
         Linking.openURL(`tel:${num}`).catch(() => {
-            alert("Could not dial this hotline automatically");
+            toast.error("Could not dial this hotline automatically");
         });
     };
 

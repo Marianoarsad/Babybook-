@@ -8,7 +8,6 @@ import {
     ScrollView,
     TextInput,
     Modal,
-    Alert,
 } from "react-native";
 import { useLanguage } from "../context/LanguageContext";
 import {
@@ -19,7 +18,12 @@ import {
     EmptyStateCard,
 } from "./common/Cards";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { colors, radius, space, shadow, type } from "../theme";
 import { storage } from "../utils/storageAdapter";
+import { api } from "../utils/api";
+import { feedToApp, memoryToApp, milestoneToApp } from "../utils/adapters";
+import { pickImage, pickerAvailable } from "../utils/imagePicker";
+import { useToast } from "./ui/Toast";
 
 export default function Dashboard({
     profile,
@@ -37,6 +41,15 @@ export default function Dashboard({
     onChangeView,
 }) {
     const { language, t } = useLanguage();
+    const toast = useToast();
+    // Route legacy Alert.alert(title, message) calls to non-blocking toasts.
+    const Alert = {
+        alert: (title, message) => {
+            const m = message || title || "";
+            if (title === "Error" || /invalid|fail|denied|unable/i.test(String(title))) toast.error(m);
+            else toast.success(m);
+        },
+    };
 
     // Temperature State
     const [bodyTemp, setBodyTemp] = useState("36.5");
@@ -52,6 +65,84 @@ export default function Dashboard({
     // Sleep Logging State
     const [isSleeping, setIsSleeping] = useState(false);
     const [sleepStartTime, setSleepStartTime] = useState(null);
+
+    // Feeds, sleep and milestones now load from the backend.
+    const [feeds, setFeeds] = useState([]);
+    const [sleeps, setSleeps] = useState([]);
+    const [mstones, setMstones] = useState([]);
+    useEffect(() => {
+        let active = true;
+        (async () => {
+            try {
+                const [feedRows, sleepRows, mRows] = await Promise.all([
+                    api.listRecords(profile.id, "feeds"),
+                    api.listRecords(profile.id, "sleeps"),
+                    api.listRecords(profile.id, "milestones"),
+                ]);
+                if (!active) return;
+                setFeeds(feedRows.map(feedToApp));
+                setSleeps(sleepRows.map((s) => ({ id: String(s.id), totalMinutes: s.total_minutes })));
+                setMstones(mRows.map(milestoneToApp));
+            } catch (e) {
+                console.log("load dashboard records:", e.message);
+            }
+        })();
+        return () => {
+            active = false;
+        };
+    }, [profile.id]);
+
+    // Photo memories load from and persist to the backend.
+    const [memories, setMemories] = useState([]);
+    const [showMemoryModal, setShowMemoryModal] = useState(false);
+    const [memCaption, setMemCaption] = useState("");
+    const [memNotes, setMemNotes] = useState("");
+    const [memPhoto, setMemPhoto] = useState("");
+    const [memPhotoUri, setMemPhotoUri] = useState("");
+    useEffect(() => {
+        let active = true;
+        (async () => {
+            try {
+                const rows = await api.listRecords(profile.id, "memories");
+                if (active) setMemories(rows.map(memoryToApp));
+            } catch (e) {
+                console.log("load memories:", e.message);
+            }
+        })();
+        return () => {
+            active = false;
+        };
+    }, [profile.id]);
+
+    const handleAddMemory = async () => {
+        if (!memCaption.trim()) {
+            Alert.alert("Error", "Please enter a caption");
+            return;
+        }
+        const caption = memCaption;
+        const notes = memNotes;
+        const photo = memPhoto;
+        const photoUri = memPhotoUri;
+        const date_recorded = new Date().toISOString().split("T")[0];
+        setShowMemoryModal(false);
+        setMemCaption("");
+        setMemNotes("");
+        setMemPhoto("");
+        setMemPhotoUri("");
+        try {
+            const saved = photoUri
+                ? await api.uploadMemory(profile.id, { photoUri, caption, notes, date_recorded })
+                : await api.createRecord(profile.id, "memories", {
+                      caption,
+                      notes: notes || null,
+                      photo_url: photo || null,
+                      date_recorded,
+                  });
+            setMemories((prev) => [memoryToApp(saved), ...prev]);
+        } catch (e) {
+            Alert.alert("Error", e.message || "Could not save memory");
+        }
+    };
 
     useEffect(() => {
         const loadTemp = async () => {
@@ -89,44 +180,63 @@ export default function Dashboard({
         } catch (e) {
             console.log(e);
         }
+        // Persist the reading to the backend.
+        try {
+            await api.createRecord(profile.id, "temperatures", {
+                celsius: val,
+                taken_at: new Date().toISOString(),
+            });
+        } catch (e) {
+            console.log("save temperature:", e.message);
+        }
     };
 
-    const handleAddFeed = () => {
+    const handleAddFeed = async () => {
         if (!feedAmount) {
             Alert.alert("Error", "Please enter feed amount");
             return;
         }
-        const newLog = {
-            id: `f-${Date.now()}`,
-            timestamp: new Date().toISOString(),
-            feedType,
-            amountMl: feedType === "milk" ? parseInt(feedAmount) : null,
-            grams: feedType === "solids" ? parseInt(feedAmount) : null,
-            notes: feedNotes,
-        };
-        setFeedLogs((prev) => [newLog, ...prev]);
+        const amt = parseInt(feedAmount);
         setShowFeedModal(false);
+        const notes = feedNotes;
         setFeedNotes("");
+        try {
+            const saved = await api.createRecord(profile.id, "feeds", {
+                feed_type: feedType,
+                amount_ml: feedType === "milk" ? amt : null,
+                grams: feedType === "solids" ? amt : null,
+                fed_at: new Date().toISOString(),
+                notes: notes || null,
+            });
+            setFeeds((prev) => [feedToApp(saved), ...prev]);
+        } catch (e) {
+            Alert.alert("Error", e.message || "Could not save feed");
+        }
     };
 
-    const toggleSleep = () => {
+    const toggleSleep = async () => {
         if (!isSleeping) {
             setIsSleeping(true);
             setSleepStartTime(new Date());
         } else {
             const endTime = new Date();
-            const diffMs = endTime - sleepStartTime;
-            const diffMins = Math.round(diffMs / 60000) || 1;
-
-            const newLog = {
-                id: `s-${Date.now()}`,
-                startTimestamp: sleepStartTime.toISOString(),
-                endTimestamp: endTime.toISOString(),
-                totalMinutes: diffMins,
-            };
-            setSleepLogs((prev) => [newLog, ...prev]);
+            const start = sleepStartTime;
+            const diffMins = Math.round((endTime - start) / 60000) || 1;
             setIsSleeping(false);
             setSleepStartTime(null);
+            try {
+                const saved = await api.createRecord(profile.id, "sleeps", {
+                    start_at: start.toISOString(),
+                    end_at: endTime.toISOString(),
+                    total_minutes: diffMins,
+                });
+                setSleeps((prev) => [
+                    { id: String(saved.id), totalMinutes: saved.total_minutes },
+                    ...prev,
+                ]);
+            } catch (e) {
+                console.log("save sleep:", e.message);
+            }
             Alert.alert(
                 "Sleep Saved",
                 `Recorded ${diffMins} minutes of comfortable baby sleep.`,
@@ -186,7 +296,7 @@ export default function Dashboard({
                         onPress={onOpenAddModal}
                         style={styles.addProfileButton}
                     >
-                        <Ionicons name="plus" size={16} color="#456155" />
+                        <Ionicons name="add" size={18} color={colors.primary} />
                         <Text style={styles.addProfileText}>Add</Text>
                     </TouchableOpacity>
                 </ScrollView>
@@ -194,26 +304,41 @@ export default function Dashboard({
 
             {/* Active Profile Header Info Card */}
             <View style={styles.babyCard}>
-                <Image
-                    source={{ uri: profile.avatarUrl }}
-                    style={styles.babyAvatar}
-                />
+                <View style={styles.babyAvatarRing}>
+                    <Image
+                        source={{ uri: profile.avatarUrl }}
+                        style={styles.babyAvatar}
+                    />
+                </View>
                 <View style={styles.babyInfo}>
-                    <Text style={styles.babyNameTitle}>{profile.name}</Text>
+                    <Text style={styles.babyNameTitle} numberOfLines={1}>
+                        {profile.name}
+                    </Text>
                     <Text style={styles.babyDob}>
                         DOB: {profile.dateOfBirth}
                     </Text>
-                    <Text style={styles.babyBio}>
-                        Height: {profile.currentHeight || profile.birthHeight}{" "}
-                        cm | Weight:{" "}
-                        {profile.currentWeight || profile.birthWeight} kg
-                    </Text>
+                    <View style={styles.babyStatsRow}>
+                        <View style={styles.babyStatChip}>
+                            <Ionicons name="resize-outline" size={12} color={colors.onPrimary} />
+                            <Text style={styles.babyStatText}>
+                                {profile.currentHeight || profile.birthHeight} cm
+                            </Text>
+                        </View>
+                        <View style={styles.babyStatChip}>
+                            <Ionicons name="scale-outline" size={12} color={colors.onPrimary} />
+                            <Text style={styles.babyStatText}>
+                                {profile.currentWeight || profile.birthWeight} kg
+                            </Text>
+                        </View>
+                    </View>
                 </View>
                 <TouchableOpacity
                     onPress={onOpenEditModal}
                     style={styles.editButton}
+                    accessibilityRole="button"
+                    accessibilityLabel="Edit child profile"
                 >
-                    <Ionicons name="pencil" size={16} color="#456155" />
+                    <Ionicons name="pencil" size={16} color={colors.onPrimary} />
                 </TouchableOpacity>
             </View>
 
@@ -222,34 +347,34 @@ export default function Dashboard({
                 <MetricWidgetCard
                     title={t("dashFeedingTitle")}
                     value={
-                        feedLogs[0]
-                            ? feedLogs[0].feedType === "milk"
-                                ? `${feedLogs[0].amountMl} ml`
-                                : `${feedLogs[0].grams} g`
+                        feeds[0]
+                            ? feeds[0].feedType === "milk"
+                                ? `${feeds[0].amountMl} ml`
+                                : `${feeds[0].grams} g`
                             : "No record"
                     }
                     subtitle={
-                        feedLogs[0]
-                            ? `Last: ${feedLogs[0].notes || feedLogs[0].feedType}`
+                        feeds[0]
+                            ? `Last: ${feeds[0].notes || feeds[0].feedType}`
                             : "Ready to record"
                     }
                     icon={
                         <MaterialCommunityIcons
                             name="baby-bottle-outline"
                             size={24}
-                            color="#456155"
+                            color={colors.primary}
                         />
                     }
-                    iconBg="#E6F4EA"
+                    iconBg={colors.tintGreen}
                     action={
                         <TouchableOpacity
                             onPress={() => setShowFeedModal(true)}
                             style={styles.widgetActionBtn}
                         >
                             <Ionicons
-                                name="plus-circle"
-                                size={20}
-                                color="#FF8A7A"
+                                name="add-circle"
+                                size={24}
+                                color={colors.accentStrong}
                             />
                         </TouchableOpacity>
                     }
@@ -260,8 +385,8 @@ export default function Dashboard({
                     value={
                         isSleeping
                             ? "Sleeping..."
-                            : sleepLogs[0]
-                              ? `${sleepLogs[0].totalMinutes} mins`
+                            : sleeps[0]
+                              ? `${sleeps[0].totalMinutes} mins`
                               : "No record"
                     }
                     subtitle={
@@ -271,10 +396,10 @@ export default function Dashboard({
                         <Ionicons
                             name="moon-outline"
                             size={24}
-                            color="#456155"
+                            color={colors.primary}
                         />
                     }
-                    iconBg="#E6F4EA"
+                    iconBg={colors.tintViolet}
                     action={
                         <TouchableOpacity
                             onPress={toggleSleep}
@@ -286,7 +411,7 @@ export default function Dashboard({
                             <Ionicons
                                 name={isSleeping ? "square" : "play-circle"}
                                 size={20}
-                                color={isSleeping ? "#EF4444" : "#FF8A7A"}
+                                color={isSleeping ? colors.danger : colors.accentStrong}
                             />
                         </TouchableOpacity>
                     }
@@ -302,10 +427,10 @@ export default function Dashboard({
                         <Ionicons
                             name="thermometer-outline"
                             size={24}
-                            color="#456155"
+                            color={colors.primary}
                         />
                     }
-                    iconBg="#E6F4EA"
+                    iconBg={colors.tintAmber}
                     action={
                         <TouchableOpacity
                             onPress={() => setShowTempModal(true)}
@@ -313,8 +438,8 @@ export default function Dashboard({
                         >
                             <Ionicons
                                 name="create-outline"
-                                size={20}
-                                color="#FF8A7A"
+                                size={22}
+                                color={colors.accentStrong}
                             />
                         </TouchableOpacity>
                     }
@@ -330,7 +455,7 @@ export default function Dashboard({
                 }
                 subtitle={t("dashFeedingSub")}
             >
-                {feedLogs.slice(0, 3).map((log, index) => (
+                {feeds.slice(0, 3).map((log, index) => (
                     <ListEntryCard
                         key={log.id || index}
                         title={
@@ -351,13 +476,13 @@ export default function Dashboard({
                                         : "restaurant-outline"
                                 }
                                 size={18}
-                                color="#456155"
+                                color={colors.primary}
                             />
                         }
-                        iconBg="#F5F5F4"
+                        iconBg={colors.tintGreen}
                     />
                 ))}
-                {feedLogs.length === 0 && (
+                {feeds.length === 0 && (
                     <EmptyStateCard message="No feeding logs recorded today" />
                 )}
             </SectionContainerCard>
@@ -368,7 +493,7 @@ export default function Dashboard({
                 subtitle={t("dashMemoriesSub")}
             >
                 <View style={styles.memoriesGrid}>
-                    {milestones
+                    {mstones
                         .filter((m) => m.isCompleted)
                         .slice(0, 2)
                         .map((m, idx) => (
@@ -380,8 +505,52 @@ export default function Dashboard({
                                 photoUrl={m.photoUrl}
                             />
                         ))}
-                    {milestones.filter((m) => m.isCompleted).length === 0 && (
+                    {mstones.filter((m) => m.isCompleted).length === 0 && (
                         <EmptyStateCard message={t("dashEmptyMemories")} />
+                    )}
+                </View>
+            </SectionContainerCard>
+
+            {/* Photo Memories (saved to the backend) */}
+            <SectionContainerCard
+                title="Photo Memories"
+                subtitle="Captured moments saved to your baby's book"
+                action={
+                    <TouchableOpacity
+                        onPress={() => setShowMemoryModal(true)}
+                        style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 4,
+                            backgroundColor: colors.accentStrong,
+                            paddingHorizontal: space.md,
+                            paddingVertical: 7,
+                            borderRadius: radius.pill,
+                            borderCurve: "continuous",
+                            ...shadow.accent,
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Add photo memory"
+                    >
+                        <Ionicons name="add" size={16} color={colors.onAccent} />
+                        <Text style={{ color: colors.onAccent, fontWeight: "800", fontSize: 12 }}>
+                            Add
+                        </Text>
+                    </TouchableOpacity>
+                }
+            >
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+                    {memories.slice(0, 4).map((m, idx) => (
+                        <MemoryVisualCard
+                            key={m.id || idx}
+                            title={m.title}
+                            description={m.description}
+                            date={m.date}
+                            photoUrl={m.photoUrl}
+                        />
+                    ))}
+                    {memories.length === 0 && (
+                        <EmptyStateCard message="No photo memories yet. Tap Add to save one." />
                     )}
                 </View>
             </SectionContainerCard>
@@ -520,6 +689,87 @@ export default function Dashboard({
                     </View>
                 </View>
             </Modal>
+
+            {/* Add Memory Modal */}
+            <Modal visible={showMemoryModal} transparent animationType="slide">
+                <View style={styles.modalBg}>
+                    <View style={styles.modalCard}>
+                        <Text style={styles.modalTitle}>Add Photo Memory</Text>
+
+                        <Text style={styles.modalLabel}>Caption</Text>
+                        <TextInput
+                            style={styles.modalInput}
+                            placeholder="First steps!"
+                            value={memCaption}
+                            onChangeText={setMemCaption}
+                        />
+
+                        <Text style={styles.modalLabel}>Notes (optional)</Text>
+                        <TextInput
+                            style={styles.modalInput}
+                            value={memNotes}
+                            onChangeText={setMemNotes}
+                        />
+
+                        {pickerAvailable() && (
+                            <TouchableOpacity
+                                style={{
+                                    flexDirection: "row",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    gap: 8,
+                                    height: 48,
+                                    borderRadius: radius.md,
+                                    borderCurve: "continuous",
+                                    borderWidth: 1,
+                                    borderColor: colors.border,
+                                    backgroundColor: colors.softGreen,
+                                    marginBottom: space.sm,
+                                }}
+                                onPress={async () => {
+                                    const uri = await pickImage();
+                                    if (uri) setMemPhotoUri(uri);
+                                }}
+                            >
+                                <Ionicons name="image-outline" size={16} color={colors.primary} />
+                                <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>
+                                    {memPhotoUri ? "Photo selected ✓ (tap to change)" : "Choose Photo from Device"}
+                                </Text>
+                            </TouchableOpacity>
+                        )}
+
+                        <Text style={styles.modalLabel}>
+                            Photo URL (optional)
+                        </Text>
+                        <TextInput
+                            style={styles.modalInput}
+                            placeholder="https://..."
+                            autoCapitalize="none"
+                            value={memPhoto}
+                            onChangeText={setMemPhoto}
+                        />
+
+                        <View style={styles.modalButtons}>
+                            <TouchableOpacity
+                                onPress={() => setShowMemoryModal(false)}
+                                style={styles.modalCancelBtn}
+                            >
+                                <Text style={styles.modalCancelText}>
+                                    {t("cancel")}
+                                </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={handleAddMemory}
+                                style={styles.modalSaveBtn}
+                            >
+                                <Text style={styles.modalSaveText}>
+                                    {t("save")}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
         </ScrollView>
     );
 }
@@ -527,217 +777,251 @@ export default function Dashboard({
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: "#FFFDF9",
-        padding: 16,
+        backgroundColor: colors.background,
+        padding: space.lg,
     },
     profileBar: {
-        marginBottom: 16,
+        marginBottom: space.lg,
     },
     profilesScroll: {
         alignItems: "center",
+        paddingRight: space.xs,
     },
     profileTab: {
         flexDirection: "row",
         alignItems: "center",
-        backgroundColor: "#FFFFFF",
+        backgroundColor: colors.surface,
         borderWidth: 1,
-        borderColor: "#E7E5E4",
-        borderRadius: 20,
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        marginRight: 8,
+        borderColor: colors.border,
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
+        paddingHorizontal: space.md,
+        paddingVertical: 7,
+        marginRight: space.sm,
+        ...shadow.card,
     },
     profileTabActive: {
-        borderColor: "#FF8A7A",
-        backgroundColor: "#FFF1F0",
+        borderColor: colors.accent,
+        backgroundColor: colors.softCoral,
     },
     avatarMini: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        marginRight: 6,
+        width: 26,
+        height: 26,
+        borderRadius: 13,
+        marginRight: 7,
     },
     profileName: {
-        fontSize: 12,
+        fontSize: 13,
         fontWeight: "600",
-        color: "#57534E",
+        color: colors.textSecondary,
     },
     profileNameActive: {
-        color: "#FF8A7A",
-        fontWeight: "700",
+        color: colors.accentStrong,
+        fontWeight: "800",
     },
     addProfileButton: {
         flexDirection: "row",
         alignItems: "center",
-        backgroundColor: "#F5F5F4",
+        backgroundColor: colors.softGreen,
         borderWidth: 1,
-        borderColor: "#E7E5E4",
-        borderRadius: 20,
-        paddingHorizontal: 12,
-        paddingVertical: 6,
+        borderColor: colors.border,
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
+        paddingHorizontal: space.md,
+        paddingVertical: 7,
     },
     addProfileText: {
-        fontSize: 12,
-        fontWeight: "600",
-        color: "#456155",
-        marginLeft: 4,
+        fontSize: 13,
+        fontWeight: "700",
+        color: colors.primary,
+        marginLeft: 3,
     },
     babyCard: {
-        backgroundColor: "#FFFFFF",
-        borderRadius: 24,
-        borderWidth: 1,
-        borderColor: "#EBEBEB",
-        padding: 16,
+        backgroundColor: colors.primary,
+        borderRadius: radius.xl,
+        borderCurve: "continuous",
+        padding: space.lg + 2,
         flexDirection: "row",
         alignItems: "center",
-        marginBottom: 16,
-        shadowColor: "#374151",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.02,
-        shadowRadius: 10,
-        elevation: 1,
+        marginBottom: space.lg,
+        ...shadow.green,
+    },
+    babyAvatarRing: {
+        width: 68,
+        height: 68,
+        borderRadius: 34,
+        backgroundColor: "rgba(255,255,255,0.18)",
+        alignItems: "center",
+        justifyContent: "center",
+        marginRight: space.md,
     },
     babyAvatar: {
-        width: 60,
-        height: 60,
-        borderRadius: 30,
-        marginRight: 12,
+        width: 58,
+        height: 58,
+        borderRadius: 29,
     },
     babyInfo: {
         flex: 1,
     },
     babyNameTitle: {
-        fontSize: 18,
+        fontSize: 20,
         fontWeight: "800",
-        color: "#456155",
+        color: colors.onPrimary,
+        letterSpacing: 0.1,
     },
     babyDob: {
-        fontSize: 11,
-        color: "#78716C",
-        marginTop: 2,
+        fontSize: 12,
+        color: colors.textOnDarkMuted,
+        marginTop: 3,
+        fontWeight: "500",
     },
-    babyBio: {
-        fontSize: 11,
-        color: "#57534E",
-        fontWeight: "600",
-        marginTop: 4,
+    babyStatsRow: {
+        flexDirection: "row",
+        gap: space.sm,
+        marginTop: space.sm,
+    },
+    babyStatChip: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        backgroundColor: "rgba(255,255,255,0.16)",
+        paddingHorizontal: space.sm,
+        paddingVertical: 4,
+        borderRadius: radius.pill,
+    },
+    babyStatText: {
+        fontSize: 12,
+        color: colors.onPrimary,
+        fontWeight: "700",
     },
     editButton: {
-        padding: 8,
-        backgroundColor: "#F5F5F4",
-        borderRadius: 12,
+        width: 38,
+        height: 38,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "rgba(255,255,255,0.16)",
+        borderRadius: radius.md,
+        borderCurve: "continuous",
     },
     widgetsGrid: {
         flexDirection: "row",
         justifyContent: "space-between",
-        marginBottom: 12,
+        marginBottom: space.md,
     },
     widgetActionBtn: {
-        padding: 4,
+        width: 34,
+        height: 34,
+        alignItems: "center",
+        justifyContent: "center",
     },
     widgetActionActive: {
         transform: [{ scale: 1.1 }],
     },
     memoriesGrid: {
-        marginTop: 4,
+        marginTop: space.xs,
     },
     modalBg: {
         flex: 1,
-        backgroundColor: "rgba(0,0,0,0.5)",
+        backgroundColor: "rgba(28,25,23,0.55)",
         justifyContent: "center",
         alignItems: "center",
-        padding: 20,
+        padding: space.xl,
     },
     modalCard: {
-        backgroundColor: "#FFFDF9",
-        borderRadius: 24,
-        padding: 20,
+        backgroundColor: colors.background,
+        borderRadius: radius.xl,
+        borderCurve: "continuous",
+        padding: space.xl,
         width: "100%",
-        maxWidth: 340,
+        maxWidth: 360,
         borderWidth: 1,
-        borderColor: "#E7E5E4",
+        borderColor: colors.hairline,
+        ...shadow.raised,
     },
     modalTitle: {
-        fontSize: 18,
+        fontSize: 20,
         fontWeight: "800",
-        color: "#456155",
-        marginBottom: 16,
+        color: colors.text,
+        marginBottom: space.lg,
     },
     modalLabel: {
         fontSize: 11,
-        fontWeight: "700",
-        color: "#78716C",
+        fontWeight: "800",
+        color: colors.textMuted,
         textTransform: "uppercase",
+        letterSpacing: 0.6,
         marginBottom: 6,
     },
     modalInput: {
-        backgroundColor: "#F5F5F4",
+        backgroundColor: colors.surface,
         borderWidth: 1,
-        borderColor: "#E7E5E4",
-        borderRadius: 12,
-        paddingHorizontal: 12,
-        height: 44,
-        fontSize: 14,
-        color: "#1C1917",
-        marginBottom: 16,
+        borderColor: colors.border,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
+        paddingHorizontal: space.md,
+        height: 48,
+        fontSize: 15,
+        color: colors.text,
+        marginBottom: space.lg,
     },
     modalButtons: {
         flexDirection: "row",
         justifyContent: "flex-end",
-        gap: 12,
+        gap: space.md,
     },
     modalCancelBtn: {
-        paddingVertical: 10,
-        paddingHorizontal: 16,
-        borderRadius: 12,
-        backgroundColor: "#F5F5F4",
+        paddingVertical: 12,
+        paddingHorizontal: space.lg,
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
+        backgroundColor: colors.surfaceAlt,
     },
     modalCancelText: {
-        fontSize: 13,
-        fontWeight: "600",
-        color: "#78716C",
+        fontSize: 14,
+        fontWeight: "700",
+        color: colors.textSecondary,
     },
     modalSaveBtn: {
-        paddingVertical: 10,
-        paddingHorizontal: 16,
-        borderRadius: 12,
-        backgroundColor: "#FF8A7A",
+        paddingVertical: 12,
+        paddingHorizontal: space.lg,
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
+        backgroundColor: colors.accentStrong,
+        ...shadow.accent,
     },
     modalSaveText: {
-        fontSize: 13,
-        fontWeight: "700",
-        color: "#FFFFFF",
+        fontSize: 14,
+        fontWeight: "800",
+        color: colors.onAccent,
     },
     genderContainer: {
         flexDirection: "row",
-        backgroundColor: "#F5F5F4",
+        backgroundColor: colors.surfaceAlt,
         borderWidth: 1,
-        borderColor: "#E7E5E4",
-        borderRadius: 12,
+        borderColor: colors.border,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         padding: 4,
-        marginBottom: 12,
+        marginBottom: space.md,
     },
     genderButton: {
         flex: 1,
-        paddingVertical: 8,
-        borderRadius: 8,
+        paddingVertical: 10,
+        borderRadius: radius.sm,
+        borderCurve: "continuous",
         alignItems: "center",
     },
     genderButtonActive: {
-        backgroundColor: "#FFFFFF",
-        shadowColor: "#374151",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-        elevation: 1,
+        backgroundColor: colors.surface,
+        ...shadow.card,
     },
     genderButtonText: {
-        fontSize: 11,
+        fontSize: 12,
         fontWeight: "600",
-        color: "#78716C",
+        color: colors.textMuted,
     },
     genderButtonTextActive: {
-        color: "#456155",
-        fontWeight: "700",
+        color: colors.primary,
+        fontWeight: "800",
     },
 });

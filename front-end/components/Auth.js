@@ -1,555 +1,325 @@
 import React, { useState } from "react";
-import {
-    View,
-    Text,
-    StyleSheet,
-    TextInput,
-    TouchableOpacity,
-    ScrollView,
-    ActivityIndicator,
-} from "react-native";
-import { useLanguage } from "../context/LanguageContext";
+import { View, Text, ScrollView, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useLanguage } from "../context/LanguageContext";
+import { api } from "../utils/api";
+import { colors, space, radius, shadow } from "../theme";
+import Field from "./ui/Field";
+import Button from "./ui/Button";
+import { useToast } from "./ui/Toast";
 
-export default function Auth({ onLoginSuccess }) {
-    const { language, t } = useLanguage();
-    const [authScene, setAuthScene] = useState("login");
+export default function Auth({ onLoginSuccess, onProfessional }) {
+    const { language } = useLanguage();
+    const toast = useToast();
+    const [scene, setScene] = useState("login");
+    const [loading, setLoading] = useState(false);
 
-    // Login credentials
+    // login
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
-    const [loginLoading, setLoginLoading] = useState(false);
-
-    // Register state
+    // register
     const [regName, setRegName] = useState("");
     const [regEmail, setRegEmail] = useState("");
     const [regPass, setRegPass] = useState("");
     const [regConfirm, setRegConfirm] = useState("");
     const [regGender, setRegGender] = useState("Female");
     const [termsAgreed, setTermsAgreed] = useState(false);
-
-    // Forgot state
+    // forgot
     const [forgotEmail, setForgotEmail] = useState("");
     const [forgotSent, setForgotSent] = useState(false);
+    // inline errors
+    const [errors, setErrors] = useState({});
 
-    const handleLoginSubmit = () => {
-        if (!email || !password) {
-            alert("Please fill out all fields");
-            return;
+    const setErr = (k, v) => setErrors((e) => ({ ...e, [k]: v }));
+
+    const handleLogin = async () => {
+        const e = {};
+        if (!email.trim()) e.email = "Email is required";
+        if (!password) e.password = "Password is required";
+        setErrors(e);
+        if (Object.keys(e).length) return;
+        setLoading(true);
+        try {
+            const { user, token } = await api.login({ email: email.trim(), password });
+            onLoginSuccess(user, token);
+        } catch (err) {
+            toast.error(err.message || "Login failed");
+        } finally {
+            setLoading(false);
         }
-        setLoginLoading(true);
-        setTimeout(() => {
-            setLoginLoading(false);
-            onLoginSuccess(
-                email.split("@")[0] || "Sarah",
-                regGender || "Female",
-            );
-        }, 1200);
     };
 
-    const handleRegisterSubmit = () => {
-        if (!regName || !regEmail || !regPass || !regConfirm) {
-            alert("Please fill out all fields");
-            return;
-        }
-        if (regPass !== regConfirm) {
-            alert("Passwords do not match. Please verify.");
-            return;
-        }
+    const handleRegister = async () => {
+        const e = {};
+        if (!regName.trim()) e.regName = "Your name is required";
+        if (!regEmail.trim()) e.regEmail = "Email is required";
+        if (regPass.length < 8) e.regPass = "At least 8 characters";
+        if (regConfirm !== regPass) e.regConfirm = "Passwords don't match";
+        setErrors(e);
+        if (Object.keys(e).length) return;
         if (!termsAgreed) {
-            alert("You must accept the Terms of Service to create an account.");
+            toast.error("Please accept the Terms to continue");
             return;
         }
-        setLoginLoading(true);
-        setTimeout(() => {
-            setLoginLoading(false);
-            onLoginSuccess(regName || "New Parent", regGender);
-        }, 1200);
+        setLoading(true);
+        try {
+            const { user, token } = await api.register({
+                fullName: regName.trim(),
+                email: regEmail.trim(),
+                password: regPass,
+                gender: regGender,
+            });
+            onLoginSuccess(user, token);
+        } catch (err) {
+            toast.error(err.message || "Registration failed");
+        } finally {
+            setLoading(false);
+        }
     };
 
-    const handleForgotSubmit = () => {
-        if (!forgotEmail) {
-            alert("Please enter your email");
+    const handleForgot = async () => {
+        if (!forgotEmail.trim()) {
+            setErr("forgotEmail", "Email is required");
             return;
         }
-        setLoginLoading(true);
-        setTimeout(() => {
-            setLoginLoading(false);
+        setLoading(true);
+        try {
+            await api.forgotPassword({ email: forgotEmail.trim() });
             setForgotSent(true);
-        }, 1200);
+        } catch (err) {
+            toast.error(err.message || "Could not send reset email");
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
-        <ScrollView contentContainerStyle={styles.container}>
-            <View style={styles.card}>
-                <View style={styles.header}>
-                    <View style={styles.logoContainer}>
-                        <Ionicons
-                            name="book-outline"
-                            size={28}
-                            color="#456155"
-                        />
+        <ScrollView
+            contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: space.lg }}
+            style={{ backgroundColor: colors.background }}
+        >
+            <View
+                style={[
+                    {
+                        backgroundColor: colors.surface,
+                        borderRadius: radius.xl,
+                        borderCurve: "continuous",
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        padding: space.xl,
+                        width: "100%",
+                        maxWidth: 440,
+                        alignSelf: "center",
+                    },
+                    shadow.card,
+                ]}
+            >
+                {/* Brand header */}
+                <View style={{ alignItems: "center", marginBottom: space.xl }}>
+                    <View
+                        style={{
+                            width: 56,
+                            height: 56,
+                            borderRadius: radius.lg,
+                            borderCurve: "continuous",
+                            backgroundColor: colors.softGreen,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            marginBottom: space.md,
+                        }}
+                    >
+                        <Ionicons name="book-outline" size={28} color={colors.primary} />
                     </View>
-                    <Text style={styles.title}>{t("authWelcome")}</Text>
-                    <Text style={styles.subtitle}>{t("authSub")}</Text>
+                    <Text style={{ fontSize: 22, fontWeight: "800", color: colors.primary }}>BabyBook+</Text>
+                    <Text style={{ fontSize: 13, color: colors.textMuted, marginTop: space.xs }}>
+                        Your child's health, all in one place
+                    </Text>
                 </View>
 
-                {authScene === "login" && (
-                    <View style={styles.form}>
-                        <View
-                            style={{ marginBottom: 12, alignItems: "center" }}
+                {scene === "login" && (
+                    <View style={{ gap: space.xs }}>
+                        <Field
+                            label="Email Address"
+                            placeholder="Enter your email"
+                            value={email}
+                            onChangeText={(t) => {
+                                setEmail(t);
+                                if (errors.email) setErr("email", "");
+                            }}
+                            error={errors.email}
+                            keyboardType="email-address"
+                            autoCapitalize="none"
+                        />
+                        <Field
+                            label="Password"
+                            placeholder="Enter your password"
+                            value={password}
+                            onChangeText={(t) => {
+                                setPassword(t);
+                                if (errors.password) setErr("password", "");
+                            }}
+                            error={errors.password}
+                            secureTextEntry
+                        />
+                        <TouchableOpacity
+                            onPress={() => setScene("forgot")}
+                            accessibilityRole="button"
+                            style={{ alignSelf: "flex-end", paddingVertical: space.xs, marginBottom: space.sm }}
                         >
-                            <Text style={styles.formTitle}>
-                                {language === "en"
-                                    ? "Welcome Back"
-                                    : language === "fil"
-                                      ? "Maligayang Pagbabalik"
-                                      : "Welcome Back, Parent!"}
+                            <Text style={{ fontSize: 12.5, fontWeight: "700", color: colors.accentStrong }}>
+                                Forgot password?
                             </Text>
-                            <Text style={styles.formSub}>
-                                {language === "en"
-                                    ? "Log baby's developmental milestones daily."
-                                    : language === "fil"
-                                      ? "I-log ang bawat developmental milestones ni baby araw-araw."
-                                      : "I-log natin ang milestones ni baby everyday."}
-                            </Text>
+                        </TouchableOpacity>
+
+                        <Button title="Log In" icon="arrow-forward" onPress={handleLogin} loading={loading} />
+
+                        <View style={{ flexDirection: "row", justifyContent: "center", marginTop: space.lg }}>
+                            <Text style={{ color: colors.textSecondary, fontSize: 13 }}>Don't have an account? </Text>
+                            <TouchableOpacity onPress={() => setScene("register")} accessibilityRole="button">
+                                <Text style={{ color: colors.primary, fontWeight: "800", fontSize: 13 }}>Sign up</Text>
+                            </TouchableOpacity>
                         </View>
 
-                        <View style={styles.inputGroup}>
-                            <Text style={styles.label}>Email Address</Text>
-                            <View style={styles.inputWrapper}>
-                                <Ionicons
-                                    name="mail-outline"
-                                    size={16}
-                                    color="#78716C"
-                                    style={styles.inputIcon}
-                                />
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder={
-                                        language === "en"
-                                            ? "Enter email address"
-                                            : "Ilagay ang email"
-                                    }
-                                    placeholderTextColor="#A8A29E"
-                                    value={email}
-                                    onChangeText={setEmail}
-                                    autoCapitalize="none"
-                                    keyboardType="email-address"
-                                />
+                        <View style={{ flexDirection: "row", alignItems: "center", marginVertical: space.lg }}>
+                            <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
+                            <Text style={{ marginHorizontal: space.md, fontSize: 11, fontWeight: "800", color: colors.textMuted }}>OR</Text>
+                            <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
+                        </View>
+
+                        <Button
+                            title="Healthcare Professional Access"
+                            variant="secondary"
+                            icon="medkit-outline"
+                            onPress={() => onProfessional && onProfessional()}
+                        />
+                    </View>
+                )}
+
+                {scene === "register" && (
+                    <View style={{ gap: space.xs }}>
+                        <Text style={{ fontSize: 16, fontWeight: "800", color: colors.text, textAlign: "center", marginBottom: space.sm }}>
+                            {language === "en" ? "Create an Account" : "Gumawa ng Account"}
+                        </Text>
+                        <Field label="Parent's Full Name" placeholder="Enter full name" value={regName} onChangeText={(t) => { setRegName(t); if (errors.regName) setErr("regName", ""); }} error={errors.regName} />
+                        <Field label="Email Address" placeholder="Enter email" value={regEmail} onChangeText={(t) => { setRegEmail(t); if (errors.regEmail) setErr("regEmail", ""); }} error={errors.regEmail} keyboardType="email-address" autoCapitalize="none" />
+                        <View style={{ flexDirection: "row", gap: space.md }}>
+                            <View style={{ flex: 1 }}>
+                                <Field label="Password" placeholder="••••••••" secureTextEntry value={regPass} onChangeText={(t) => { setRegPass(t); if (errors.regPass) setErr("regPass", ""); }} error={errors.regPass} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Field label="Confirm" placeholder="••••••••" secureTextEntry value={regConfirm} onChangeText={(t) => { setRegConfirm(t); if (errors.regConfirm) setErr("regConfirm", ""); }} error={errors.regConfirm} />
                             </View>
                         </View>
 
-                        <View style={styles.inputGroup}>
+                        <Text style={{ fontSize: 13, fontWeight: "700", color: colors.textSecondary, marginBottom: space.xs }}>Parent</Text>
+                        <View
+                            style={{
+                                flexDirection: "row",
+                                backgroundColor: colors.surfaceAlt,
+                                borderWidth: 1,
+                                borderColor: colors.border,
+                                borderRadius: radius.md,
+                                borderCurve: "continuous",
+                                padding: space.xs,
+                                marginBottom: space.md,
+                            }}
+                        >
+                            {[
+                                { key: "Female", label: "Female (Mama)" },
+                                { key: "Male", label: "Male (Papa)" },
+                            ].map((opt) => {
+                                const on = regGender === opt.key;
+                                return (
+                                    <TouchableOpacity
+                                        key={opt.key}
+                                        onPress={() => setRegGender(opt.key)}
+                                        accessibilityRole="button"
+                                        accessibilityState={{ selected: on }}
+                                        style={{ flex: 1, minHeight: 40, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, backgroundColor: on ? colors.surface : "transparent" }}
+                                    >
+                                        <Text style={{ fontSize: 12.5, fontWeight: on ? "800" : "600", color: on ? colors.primary : colors.textMuted }}>{opt.label}</Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+
+                        <TouchableOpacity
+                            onPress={() => setTermsAgreed((v) => !v)}
+                            accessibilityRole="checkbox"
+                            accessibilityState={{ checked: termsAgreed }}
+                            style={{ flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: space.sm, marginBottom: space.xs }}
+                        >
                             <View
                                 style={{
-                                    flexDirection: "row",
-                                    justifyContent: "space-between",
+                                    width: 22,
+                                    height: 22,
+                                    borderRadius: radius.sm,
+                                    borderWidth: 1.5,
+                                    borderColor: termsAgreed ? colors.primary : colors.borderStrong,
+                                    backgroundColor: termsAgreed ? colors.primary : colors.surface,
                                     alignItems: "center",
-                                    marginBottom: 4,
+                                    justifyContent: "center",
                                 }}
                             >
-                                <Text style={styles.label}>Password</Text>
-                                <TouchableOpacity
-                                    onPress={() => setAuthScene("forgot")}
-                                >
-                                    <Text style={styles.forgotText}>
-                                        {language === "en"
-                                            ? "Forgot Password?"
-                                            : "Nakalimutan ang Password?"}
-                                    </Text>
-                                </TouchableOpacity>
+                                {termsAgreed ? <Ionicons name="checkmark" size={14} color="#FFFFFF" /> : null}
                             </View>
-                            <View style={styles.inputWrapper}>
-                                <Ionicons
-                                    name="lock-closed-outline"
-                                    size={16}
-                                    color="#78716C"
-                                    style={styles.inputIcon}
-                                />
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder={
-                                        language === "en"
-                                            ? "Enter your password"
-                                            : "Ilagay ang password"
-                                    }
-                                    placeholderTextColor="#A8A29E"
-                                    secureTextEntry
-                                    value={password}
-                                    onChangeText={setPassword}
-                                />
-                            </View>
-                        </View>
-
-                        <TouchableOpacity
-                            style={styles.button}
-                            onPress={handleLoginSubmit}
-                            disabled={loginLoading}
-                        >
-                            {loginLoading ? (
-                                <ActivityIndicator
-                                    color="#FFFFFF"
-                                    size="small"
-                                />
-                            ) : (
-                                <View
-                                    style={{
-                                        flexDirection: "row",
-                                        alignItems: "center",
-                                    }}
-                                >
-                                    <Text style={styles.buttonText}>
-                                        {language === "en"
-                                            ? "Enter App"
-                                            : "Pumasok sa App"}
-                                    </Text>
-                                    <Ionicons
-                                        name="arrow-forward"
-                                        size={16}
-                                        color="#FFFFFF"
-                                        style={{ marginLeft: 6 }}
-                                    />
-                                </View>
-                            )}
+                            <Text style={{ fontSize: 12.5, color: colors.textSecondary, flex: 1 }}>I agree to the Terms & Guidelines</Text>
                         </TouchableOpacity>
 
-                        <View style={styles.footer}>
-                            <Text style={styles.footerText}>
-                                {language === "en"
-                                    ? "Don't have an account?"
-                                    : "Wala pang account?"}{" "}
-                            </Text>
-                            <TouchableOpacity
-                                onPress={() => setAuthScene("register")}
-                            >
-                                <Text style={styles.footerLink}>
-                                    {language === "en"
-                                        ? "Sign up here"
-                                        : "Mag-sign up dito"}
-                                </Text>
+                        <Button title="Register Account" onPress={handleRegister} loading={loading} />
+
+                        <View style={{ flexDirection: "row", justifyContent: "center", marginTop: space.lg }}>
+                            <Text style={{ color: colors.textSecondary, fontSize: 13 }}>Already have an account? </Text>
+                            <TouchableOpacity onPress={() => setScene("login")} accessibilityRole="button">
+                                <Text style={{ color: colors.primary, fontWeight: "800", fontSize: 13 }}>Log in</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
                 )}
 
-                {authScene === "register" && (
-                    <View style={styles.form}>
-                        <View
-                            style={{ marginBottom: 12, alignItems: "center" }}
-                        >
-                            <Text style={styles.formTitle}>
-                                {language === "en"
-                                    ? "Create an Account"
-                                    : "Gumawa ng Account"}
-                            </Text>
-                            <Text style={styles.formSub}>
-                                {language === "en"
-                                    ? "Join our community to keep track of your baby."
-                                    : "Sumali sa aming komunidad para masubaybayan si baby."}
-                            </Text>
-                        </View>
-
-                        <View style={styles.inputGroup}>
-                            <Text style={styles.label}>
-                                {language === "en"
-                                    ? "Parent's Full Name"
-                                    : "Pangalan ng Magulang"}
-                            </Text>
-                            <View style={styles.inputWrapper}>
-                                <Ionicons
-                                    name="person-outline"
-                                    size={16}
-                                    color="#78716C"
-                                    style={styles.inputIcon}
-                                />
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Enter full name"
-                                    placeholderTextColor="#A8A29E"
-                                    value={regName}
-                                    onChangeText={setRegName}
-                                />
-                            </View>
-                        </View>
-
-                        <View style={styles.inputGroup}>
-                            <Text style={styles.label}>Email Address</Text>
-                            <View style={styles.inputWrapper}>
-                                <Ionicons
-                                    name="mail-outline"
-                                    size={16}
-                                    color="#78716C"
-                                    style={styles.inputIcon}
-                                />
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Enter email address"
-                                    placeholderTextColor="#A8A29E"
-                                    value={regEmail}
-                                    onChangeText={setRegEmail}
-                                    autoCapitalize="none"
-                                    keyboardType="email-address"
-                                />
-                            </View>
-                        </View>
-
-                        <View style={styles.row}>
-                            <View
-                                style={[
-                                    styles.inputGroup,
-                                    { flex: 1, marginRight: 6 },
-                                ]}
-                            >
-                                <Text style={styles.label}>Password</Text>
-                                <TextInput
-                                    style={[
-                                        styles.inputStandard,
-                                        { height: 40 },
-                                    ]}
-                                    placeholder="••••••••"
-                                    placeholderTextColor="#A8A29E"
-                                    secureTextEntry
-                                    value={regPass}
-                                    onChangeText={setRegPass}
-                                />
-                            </View>
-                            <View
-                                style={[
-                                    styles.inputGroup,
-                                    { flex: 1, marginLeft: 6 },
-                                ]}
-                            >
-                                <Text style={styles.label}>Confirm Choice</Text>
-                                <TextInput
-                                    style={[
-                                        styles.inputStandard,
-                                        { height: 40 },
-                                    ]}
-                                    placeholder="••••••••"
-                                    placeholderTextColor="#A8A29E"
-                                    secureTextEntry
-                                    value={regConfirm}
-                                    onChangeText={setRegConfirm}
-                                />
-                            </View>
-                        </View>
-
-                        <View style={styles.inputGroup}>
-                            <Text style={styles.label}>Parent Gender</Text>
-                            <View style={styles.genderContainer}>
-                                <TouchableOpacity
-                                    style={[
-                                        styles.genderButton,
-                                        regGender === "Female" &&
-                                            styles.genderButtonActive,
-                                    ]}
-                                    onPress={() => setRegGender("Female")}
-                                >
-                                    <Text
-                                        style={[
-                                            styles.genderButtonText,
-                                            regGender === "Female" &&
-                                                styles.genderButtonTextActive,
-                                        ]}
-                                    >
-                                        {language === "en"
-                                            ? "Female (Mama)"
-                                            : "Babae (Mama)"}
-                                    </Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={[
-                                        styles.genderButton,
-                                        regGender === "Male" &&
-                                            styles.genderButtonActive,
-                                    ]}
-                                    onPress={() => setRegGender("Male")}
-                                >
-                                    <Text
-                                        style={[
-                                            styles.genderButtonText,
-                                            regGender === "Male" &&
-                                                styles.genderButtonTextActive,
-                                        ]}
-                                    >
-                                        {language === "en"
-                                            ? "Male (Papa)"
-                                            : "Lalaki (Papa)"}
-                                    </Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-
-                        <TouchableOpacity
-                            style={styles.checkboxContainer}
-                            onPress={() => setTermsAgreed(!termsAgreed)}
-                        >
-                            <View
-                                style={[
-                                    styles.checkbox,
-                                    termsAgreed && styles.checkboxChecked,
-                                ]}
-                            >
-                                {termsAgreed && (
-                                    <Ionicons
-                                        name="checkmark"
-                                        size={12}
-                                        color="#FFFFFF"
-                                    />
-                                )}
-                            </View>
-                            <Text style={styles.checkboxLabel}>
-                                {language === "en"
-                                    ? "I agree to Terms & Guidelines"
-                                    : "Sumasang-ayon ako sa Mga Tuntunin"}
-                            </Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                            style={styles.button}
-                            onPress={handleRegisterSubmit}
-                            disabled={loginLoading}
-                        >
-                            {loginLoading ? (
-                                <ActivityIndicator
-                                    color="#FFFFFF"
-                                    size="small"
-                                />
-                            ) : (
-                                <Text style={styles.buttonText}>
-                                    {language === "en"
-                                        ? "Register Account"
-                                        : "I-rehistro ang Account"}
-                                </Text>
-                            )}
-                        </TouchableOpacity>
-
-                        <View style={styles.footer}>
-                            <Text style={styles.footerText}>
-                                {language === "en"
-                                    ? "Already have an account?"
-                                    : "May account ka na ba?"}{" "}
-                            </Text>
-                            <TouchableOpacity
-                                onPress={() => setAuthScene("login")}
-                            >
-                                <Text style={styles.footerLink}>
-                                    {language === "en"
-                                        ? "Log in here"
-                                        : "Mag-log in dito"}
-                                </Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                )}
-
-                {authScene === "forgot" && (
-                    <View style={styles.form}>
-                        <View
-                            style={{ marginBottom: 12, alignItems: "center" }}
-                        >
-                            <Text style={styles.formTitle}>
-                                {language === "en"
-                                    ? "Recover Password"
-                                    : "I-recover ang Password"}
-                            </Text>
-                            <Text style={styles.formSub}>
-                                {language === "en"
-                                    ? "Enter email to receive recovery instructions."
-                                    : "Ilagay ang iyong email para makuha muli ang password."}
-                            </Text>
-                        </View>
-
+                {scene === "forgot" && (
+                    <View style={{ gap: space.xs }}>
+                        <Text style={{ fontSize: 16, fontWeight: "800", color: colors.text, textAlign: "center", marginBottom: space.xs }}>
+                            Recover Password
+                        </Text>
                         {forgotSent ? (
-                            <View style={styles.forgotSuccess}>
-                                <Ionicons
-                                    name="checkmark-circle"
-                                    size={40}
-                                    color="#456155"
-                                />
-                                <Text style={styles.forgotSuccessTitle}>
-                                    {language === "en"
-                                        ? "Reset Email Sent!"
-                                        : "Naipadala na ang email!"}
+                            <View style={{ alignItems: "center", paddingVertical: space.lg, gap: space.sm }}>
+                                <Ionicons name="checkmark-circle" size={44} color={colors.primary} />
+                                <Text style={{ fontSize: 16, fontWeight: "800", color: colors.primary }}>Reset Email Sent!</Text>
+                                <Text style={{ fontSize: 13, color: colors.textSecondary, textAlign: "center" }}>
+                                    Check your inbox for instructions to reset your password.
                                 </Text>
-                                <Text style={styles.forgotSuccessText}>
-                                    {language === "en"
-                                        ? "Check your inbox for further directions."
-                                        : "Tingnan ang inyong inbox para sa karagdagang tagubilin."}
-                                </Text>
-                                <TouchableOpacity
-                                    style={[styles.button, { marginTop: 16 }]}
+                                <Button
+                                    title="Back to Log In"
                                     onPress={() => {
                                         setForgotSent(false);
-                                        setAuthScene("login");
+                                        setScene("login");
                                     }}
-                                >
-                                    <Text style={styles.buttonText}>
-                                        {language === "en"
-                                            ? "Back to Log In"
-                                            : "Bumalik sa Log In"}
-                                    </Text>
-                                </TouchableOpacity>
+                                    style={{ marginTop: space.md }}
+                                />
                             </View>
                         ) : (
-                            <View>
-                                <View style={styles.inputGroup}>
-                                    <Text style={styles.label}>
-                                        Email Address
-                                    </Text>
-                                    <View style={styles.inputWrapper}>
-                                        <Ionicons
-                                            name="mail-outline"
-                                            size={16}
-                                            color="#78716C"
-                                            style={styles.inputIcon}
-                                        />
-                                        <TextInput
-                                            style={styles.input}
-                                            placeholder="Enter email address"
-                                            placeholderTextColor="#A8A29E"
-                                            value={forgotEmail}
-                                            onChangeText={setForgotEmail}
-                                            autoCapitalize="none"
-                                            keyboardType="email-address"
-                                        />
-                                    </View>
-                                </View>
-
-                                <TouchableOpacity
-                                    style={styles.button}
-                                    onPress={handleForgotSubmit}
-                                    disabled={loginLoading}
-                                >
-                                    {loginLoading ? (
-                                        <ActivityIndicator
-                                            color="#FFFFFF"
-                                            size="small"
-                                        />
-                                    ) : (
-                                        <Text style={styles.buttonText}>
-                                            {language === "en"
-                                                ? "Send Reset Link"
-                                                : "Ipadala ang Reset Link"}
-                                        </Text>
-                                    )}
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
-                                    style={{
-                                        marginTop: 12,
-                                        alignItems: "center",
+                            <>
+                                <Text style={{ fontSize: 13, color: colors.textSecondary, textAlign: "center", marginBottom: space.sm }}>
+                                    Enter your email and we'll send reset instructions.
+                                </Text>
+                                <Field
+                                    label="Email Address"
+                                    placeholder="Enter your email"
+                                    value={forgotEmail}
+                                    onChangeText={(t) => {
+                                        setForgotEmail(t);
+                                        if (errors.forgotEmail) setErr("forgotEmail", "");
                                     }}
-                                    onPress={() => setAuthScene("login")}
-                                >
-                                    <Text style={styles.forgotText}>
-                                        {language === "en"
-                                            ? "Cancel"
-                                            : "Kanselahin"}
-                                    </Text>
+                                    error={errors.forgotEmail}
+                                    keyboardType="email-address"
+                                    autoCapitalize="none"
+                                />
+                                <Button title="Send Reset Link" onPress={handleForgot} loading={loading} />
+                                <TouchableOpacity onPress={() => setScene("login")} accessibilityRole="button" style={{ alignItems: "center", paddingVertical: space.md }}>
+                                    <Text style={{ fontSize: 13, fontWeight: "700", color: colors.textMuted }}>Cancel</Text>
                                 </TouchableOpacity>
-                            </View>
+                            </>
                         )}
                     </View>
                 )}
@@ -557,223 +327,3 @@ export default function Auth({ onLoginSuccess }) {
         </ScrollView>
     );
 }
-
-const styles = StyleSheet.create({
-    container: {
-        flexGrow: 1,
-        justifyContent: "center",
-        alignItems: "center",
-        backgroundColor: "#FFFDF9",
-        paddingVertical: 24,
-        paddingHorizontal: 16,
-    },
-    card: {
-        backgroundColor: "#FFFFFF",
-        borderRadius: 32,
-        borderWidth: 1,
-        borderColor: "#EBEBEB",
-        padding: 24,
-        width: "100%",
-        maxWidth: 400,
-        shadowColor: "#374151",
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.04,
-        shadowRadius: 30,
-        elevation: 4,
-    },
-    header: {
-        alignItems: "center",
-        marginBottom: 24,
-    },
-    logoContainer: {
-        width: 56,
-        height: 56,
-        backgroundColor: "#E8F5E9",
-        borderRadius: 16,
-        justifyContent: "center",
-        alignItems: "center",
-        marginBottom: 16,
-        borderWidth: 1,
-        borderColor: "#C8E6C9",
-    },
-    title: {
-        fontSize: 22,
-        fontWeight: "800",
-        color: "#456155",
-        textAlign: "center",
-        letterSpacing: -0.5,
-    },
-    subtitle: {
-        fontSize: 12,
-        color: "#78716C",
-        textAlign: "center",
-        marginTop: 4,
-    },
-    form: {
-        width: "100%",
-    },
-    formTitle: {
-        fontSize: 16,
-        fontWeight: "700",
-        color: "#1C1917",
-        textAlign: "center",
-    },
-    formSub: {
-        fontSize: 11,
-        color: "#78716C",
-        textAlign: "center",
-        marginTop: 2,
-    },
-    inputGroup: {
-        marginBottom: 16,
-    },
-    label: {
-        fontSize: 10,
-        fontWeight: "700",
-        color: "#A8A29E",
-        textTransform: "uppercase",
-        letterSpacing: 1,
-        marginBottom: 6,
-    },
-    inputWrapper: {
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: "#F5F5F4",
-        borderWidth: 1,
-        borderColor: "#E7E5E4",
-        borderRadius: 12,
-        paddingHorizontal: 12,
-        height: 44,
-    },
-    inputIcon: {
-        marginRight: 8,
-    },
-    input: {
-        flex: 1,
-        fontSize: 13,
-        color: "#1C1917",
-    },
-    inputStandard: {
-        backgroundColor: "#F5F5F4",
-        borderWidth: 1,
-        borderColor: "#E7E5E4",
-        borderRadius: 12,
-        paddingHorizontal: 12,
-        fontSize: 13,
-        color: "#1C1917",
-    },
-    forgotText: {
-        fontSize: 10,
-        fontWeight: "700",
-        color: "#FF8A7A",
-    },
-    row: {
-        flexDirection: "row",
-    },
-    button: {
-        height: 44,
-        backgroundColor: "#FF8A7A",
-        borderRadius: 22,
-        justifyContent: "center",
-        alignItems: "center",
-        marginTop: 8,
-        shadowColor: "#FF8A7A",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.15,
-        shadowRadius: 10,
-        elevation: 3,
-    },
-    buttonText: {
-        color: "#FFFFFF",
-        fontWeight: "700",
-        fontSize: 13,
-    },
-    footer: {
-        flexDirection: "row",
-        justifyContent: "center",
-        marginTop: 16,
-    },
-    footerText: {
-        color: "#78716C",
-        fontSize: 12,
-    },
-    footerLink: {
-        color: "#456155",
-        fontWeight: "750",
-        fontSize: 12,
-    },
-    genderContainer: {
-        flexDirection: "row",
-        backgroundColor: "#F5F5F4",
-        borderWidth: 1,
-        borderColor: "#E7E5E4",
-        borderRadius: 12,
-        padding: 4,
-    },
-    genderButton: {
-        flex: 1,
-        paddingVertical: 8,
-        borderRadius: 8,
-        alignItems: "center",
-    },
-    genderButtonActive: {
-        backgroundColor: "#FFFFFF",
-        shadowColor: "#374151",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-        elevation: 1,
-    },
-    genderButtonText: {
-        fontSize: 11,
-        fontWeight: "600",
-        color: "#78716C",
-    },
-    genderButtonTextActive: {
-        color: "#456155",
-        fontWeight: "700",
-    },
-    checkboxContainer: {
-        flexDirection: "row",
-        alignItems: "center",
-        marginBottom: 16,
-        marginTop: 4,
-    },
-    checkbox: {
-        width: 16,
-        height: 16,
-        borderWidth: 1,
-        borderColor: "#D6D3D1",
-        borderRadius: 4,
-        marginRight: 8,
-        justifyContent: "center",
-        alignItems: "center",
-        backgroundColor: "#FFFFFF",
-    },
-    checkboxChecked: {
-        backgroundColor: "#456155",
-        borderColor: "#456155",
-    },
-    checkboxLabel: {
-        fontSize: 11,
-        color: "#57534E",
-        fontWeight: "500",
-    },
-    forgotSuccess: {
-        alignItems: "center",
-        paddingVertical: 16,
-    },
-    forgotSuccessTitle: {
-        fontSize: 16,
-        fontWeight: "700",
-        color: "#456155",
-        marginTop: 12,
-    },
-    forgotSuccessText: {
-        fontSize: 12,
-        color: "#78716C",
-        textAlign: "center",
-        marginTop: 4,
-        lineHeight: 16,
-    },
-});

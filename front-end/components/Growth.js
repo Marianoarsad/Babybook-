@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
     View,
     Text,
@@ -8,8 +8,11 @@ import {
     TextInput,
     Modal,
     Image,
-    Alert,
 } from "react-native";
+import { api } from "../utils/api";
+import { milestoneToApp, checkupToApp, nutritionToApp } from "../utils/adapters";
+import { scheduleReminder, morningOf } from "../utils/notifications";
+import { useToast } from "./ui/Toast";
 import { useLanguage } from "../context/LanguageContext";
 import {
     SectionContainerCard,
@@ -85,13 +88,103 @@ export default function Growth({
     setAppointments,
 }) {
     const { language, t } = useLanguage();
+    const toast = useToast();
+    const Alert = {
+        alert: (title, message) => {
+            const m = message || title || "";
+            if (title === "Error" || /invalid|fail|denied|unable/i.test(String(title))) toast.error(m);
+            else toast.success(m);
+        },
+    };
     const [growthTab, setGrowthTab] = useState("milestones");
     const [selectedAgeGroup, setSelectedAgeGroup] = useState("0-3m");
+
+    // Milestones, appointments and nutrition load from / persist to the backend.
+    const [mstones, setMstones] = useState([]);
+    const [appts, setAppts] = useState([]);
+    const [nutrition, setNutrition] = useState([]);
+    const [showNutritionModal, setShowNutritionModal] = useState(false);
+    const [nutFeeding, setNutFeeding] = useState("Breastfeeding");
+    const [nutFood, setNutFood] = useState("");
+    const [nutReaction, setNutReaction] = useState("");
+    useEffect(() => {
+        let active = true;
+        (async () => {
+            try {
+                const [mRows, cRows, nRows] = await Promise.all([
+                    api.listRecords(profile.id, "milestones"),
+                    api.listRecords(profile.id, "checkups"),
+                    api.listRecords(profile.id, "nutrition"),
+                ]);
+                if (!active) return;
+                setMstones(mRows.map(milestoneToApp));
+                setAppts(cRows.map(checkupToApp));
+                setNutrition(nRows.map(nutritionToApp));
+            } catch (e) {
+                console.log("load growth records:", e.message);
+            }
+        })();
+        return () => {
+            active = false;
+        };
+    }, [profile.id]);
+
+    const handleAddNutrition = async () => {
+        const food = nutFood;
+        const reaction = nutReaction;
+        const feeding = nutFeeding;
+        setShowNutritionModal(false);
+        setNutFood("");
+        setNutReaction("");
+        try {
+            const saved = await api.createRecord(profile.id, "nutrition", {
+                feeding_type: feeding,
+                food_introduced: food || null,
+                reaction: reaction || null,
+                date_recorded: new Date().toISOString().split("T")[0],
+            });
+            setNutrition((prev) => [nutritionToApp(saved), ...prev]);
+        } catch (e) {
+            Alert.alert("Error", e.message || "Could not save nutrition record");
+        }
+    };
+
+    const todayStr = () => new Date().toISOString().split("T")[0];
+    const handleToggleMilestone = async (title) => {
+        const existing = mstones.find((m) => m.title === title);
+        if (existing) {
+            const now = !existing.isCompleted;
+            setMstones((prev) =>
+                prev.map((m) => (m.id === existing.id ? { ...m, isCompleted: now, date: todayStr() } : m)),
+            );
+            try {
+                await api.updateRecord(profile.id, "milestones", existing.id, {
+                    is_completed: now,
+                    date_recorded: todayStr(),
+                });
+            } catch (e) {
+                setMstones((prev) => prev.map((m) => (m.id === existing.id ? existing : m)));
+                Alert.alert("Error", e.message || "Could not update milestone");
+            }
+        } else {
+            try {
+                const saved = await api.createRecord(profile.id, "milestones", {
+                    title,
+                    is_completed: true,
+                    date_recorded: todayStr(),
+                });
+                setMstones((prev) => [milestoneToApp(saved), ...prev]);
+            } catch (e) {
+                Alert.alert("Error", e.message || "Could not add milestone");
+            }
+        }
+    };
 
     // Metric adding state
     const [showMetricsModal, setShowMetricsModal] = useState(false);
     const [metricHeight, setMetricHeight] = useState("68.2");
     const [metricWeight, setMetricWeight] = useState("7.4");
+    const [metricHead, setMetricHead] = useState("");
 
     // Appointment adding state
     const [showApptModal, setShowApptModal] = useState(false);
@@ -101,7 +194,7 @@ export default function Growth({
     const [apptTime, setApptTime] = useState("10:00");
     const [apptNotes, setApptNotes] = useState("");
 
-    const handleSaveMetrics = () => {
+    const handleSaveMetrics = async () => {
         const h = parseFloat(metricHeight);
         const w = parseFloat(metricWeight);
         if (isNaN(h) || isNaN(w) || h <= 0 || w <= 0) {
@@ -114,34 +207,61 @@ export default function Growth({
             currentWeight: w,
         });
         setShowMetricsModal(false);
+        // Persist as a growth record (feeds the QR consultation snapshot).
+        try {
+            await api.createRecord(profile.id, "growth", {
+                height: h,
+                weight: w,
+                head_circumference: parseFloat(metricHead) || null,
+                date_recorded: new Date().toISOString().split("T")[0],
+            });
+        } catch (e) {
+            console.log("save growth:", e.message);
+        }
         Alert.alert(
             "Metrics Saved",
-            `Height: ${h}cm, Weight: ${w}kg saved to profile.`,
+            `Height: ${h}cm, Weight: ${w}kg saved.`,
         );
     };
 
-    const handleAddAppointment = () => {
+    const handleAddAppointment = async () => {
         if (!apptTitle || !apptDoctor || !apptDate) {
             Alert.alert("Error", "Please fill out required fields");
             return;
         }
-        const newAppt = {
-            id: `a-${Date.now()}`,
-            profileId: profile.id,
-            title: apptTitle,
-            provider: apptDoctor,
-            date: apptDate,
-            time: apptTime,
-            notes: apptNotes,
-            reminderActive: true,
-            isCompleted: false,
-        };
-        setAppointments((prev) => [...prev, newAppt]);
         setShowApptModal(false);
-        Alert.alert(
-            "Appointment Slotted",
-            `Pediatric session scheduled successfully.`,
-        );
+        // Persist as a checkup (also feeds the QR consultation snapshot).
+        try {
+            const saved = await api.createRecord(profile.id, "checkups", {
+                title: apptTitle,
+                doctor_name: apptDoctor,
+                checkup_date: apptDate,
+                time_of_visit: apptTime || null,
+                notes: apptNotes || null,
+                status: "scheduled",
+            });
+            setAppts((prev) => [checkupToApp(saved), ...prev]);
+            // Set a reminder: local notification + backend reminder record.
+            const when = morningOf(apptDate);
+            if (when) {
+                scheduleReminder("Checkup reminder", `${apptTitle} with ${apptDoctor}`, when);
+                api
+                    .createRecord(profile.id, "reminders", {
+                        reminder_type: "Checkup",
+                        title: apptTitle,
+                        reminder_date: apptDate,
+                        status: "Pending",
+                        checkup_id: saved.id,
+                    })
+                    .catch(() => {});
+            }
+            Alert.alert(
+                "Appointment Slotted",
+                `Pediatric session scheduled successfully.`,
+            );
+        } catch (e) {
+            Alert.alert("Error", e.message || "Could not save appointment");
+        }
     };
 
     return (
@@ -156,13 +276,15 @@ export default function Growth({
                     onPress={() => setGrowthTab("milestones")}
                 >
                     <Text
+                        numberOfLines={1}
                         style={[
                             styles.tabButtonText,
+                            { textAlign: "center" },
                             growthTab === "milestones" &&
                                 styles.tabButtonTextActive,
                         ]}
                     >
-                        {t("growthMilestonesTitle")}
+                        Milestones
                     </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -173,13 +295,15 @@ export default function Growth({
                     onPress={() => setGrowthTab("metrics")}
                 >
                     <Text
+                        numberOfLines={1}
                         style={[
                             styles.tabButtonText,
+                            { textAlign: "center" },
                             growthTab === "metrics" &&
                                 styles.tabButtonTextActive,
                         ]}
                     >
-                        {t("growthMetricsTitle")}
+                        Growth
                     </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -190,8 +314,10 @@ export default function Growth({
                     onPress={() => setGrowthTab("appointments")}
                 >
                     <Text
+                        numberOfLines={1}
                         style={[
                             styles.tabButtonText,
+                            { textAlign: "center" },
                             growthTab === "appointments" &&
                                 styles.tabButtonTextActive,
                         ]}
@@ -237,7 +363,7 @@ export default function Growth({
                         {ageChecklists
                             .filter((c) => c.ageGroup === selectedAgeGroup)
                             .map((item, index) => {
-                                const matchingMilestone = milestones.find(
+                                const matchingMilestone = mstones.find(
                                     (m) => m.title === item.title,
                                 );
                                 const isDone = matchingMilestone
@@ -264,28 +390,7 @@ export default function Growth({
                                             </Text>
                                         </View>
                                         <TouchableOpacity
-                                            onPress={() => {
-                                                setMilestones((prev) =>
-                                                    prev.map((m) => {
-                                                        if (
-                                                            m.title ===
-                                                            item.title
-                                                        ) {
-                                                            return {
-                                                                ...m,
-                                                                isCompleted:
-                                                                    !m.isCompleted,
-                                                                date: new Date()
-                                                                    .toISOString()
-                                                                    .split(
-                                                                        "T",
-                                                                    )[0],
-                                                            };
-                                                        }
-                                                        return m;
-                                                    }),
-                                                );
-                                            }}
+                                            onPress={() => handleToggleMilestone(item.title)}
                                             style={[
                                                 styles.checkBtn,
                                                 isDone && styles.checkBtnActive,
@@ -315,7 +420,7 @@ export default function Growth({
                         title={t("dashMemoriesTitle")}
                         subtitle={t("dashMemoriesSub")}
                     >
-                        {milestones
+                        {mstones
                             .filter((m) => m.isCompleted)
                             .map((m, idx) => (
                                 <MemoryVisualCard
@@ -326,6 +431,9 @@ export default function Growth({
                                     photoUrl={m.photoUrl}
                                 />
                             ))}
+                        {mstones.filter((m) => m.isCompleted).length === 0 && (
+                            <EmptyStateCard message="No milestones reached yet." />
+                        )}
                     </SectionContainerCard>
                 </View>
             )}
@@ -401,6 +509,34 @@ export default function Growth({
                             iconBg="#E6F4EA"
                         />
                     </SectionContainerCard>
+
+                    <SectionContainerCard
+                        title="Nutrition Records"
+                        subtitle="Feeding type, foods introduced & reactions"
+                        action={
+                            <TouchableOpacity
+                                onPress={() => setShowNutritionModal(true)}
+                                style={styles.addApptBtn}
+                            >
+                                <Ionicons name="add" size={16} color="#FFFFFF" style={{ marginRight: 4 }} />
+                                <Text style={styles.addApptBtnText}>Add</Text>
+                            </TouchableOpacity>
+                        }
+                    >
+                        {nutrition.length === 0 && (
+                            <EmptyStateCard message="No nutrition records yet." />
+                        )}
+                        {nutrition.map((n, idx) => (
+                            <ListEntryCard
+                                key={n.id || idx}
+                                title={n.foodIntroduced || n.feedingType || "Nutrition"}
+                                subtitle={`${n.feedingType}${n.date ? " · " + n.date : ""}`}
+                                notes={n.reaction ? "Reaction: " + n.reaction : undefined}
+                                icon={<Ionicons name="restaurant-outline" size={18} color="#456155" />}
+                                iconBg="#E6F4EA"
+                            />
+                        ))}
+                    </SectionContainerCard>
                 </View>
             )}
 
@@ -427,7 +563,10 @@ export default function Growth({
                             </TouchableOpacity>
                         }
                     >
-                        {appointments.map((appt, idx) => (
+                        {appts.length === 0 && (
+                            <EmptyStateCard message="No appointments scheduled yet." />
+                        )}
+                        {appts.map((appt, idx) => (
                             <ListEntryCard
                                 key={appt.id || idx}
                                 title={appt.title}
@@ -482,6 +621,17 @@ export default function Growth({
                             onChangeText={setMetricWeight}
                         />
 
+                        <Text style={styles.modalLabel}>
+                            Head Circumference (cm) — optional
+                        </Text>
+                        <TextInput
+                            keyboardType="numeric"
+                            style={styles.modalInput}
+                            placeholder="e.g. 43.5"
+                            value={metricHead}
+                            onChangeText={setMetricHead}
+                        />
+
                         <View style={styles.modalButtons}>
                             <TouchableOpacity
                                 onPress={() => setShowMetricsModal(false)}
@@ -498,6 +648,74 @@ export default function Growth({
                                 <Text style={styles.modalSaveText}>
                                     {t("save")}
                                 </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Nutrition Modal */}
+            <Modal visible={showNutritionModal} transparent animationType="slide">
+                <View style={styles.modalBg}>
+                    <View style={styles.modalCard}>
+                        <Text style={styles.modalTitle}>Add Nutrition Record</Text>
+
+                        <Text style={styles.modalLabel}>Feeding Type</Text>
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+                            {["Breastfeeding", "Formula", "Mixed", "Solids"].map((ft) => (
+                                <TouchableOpacity
+                                    key={ft}
+                                    onPress={() => setNutFeeding(ft)}
+                                    style={{
+                                        paddingHorizontal: 12,
+                                        paddingVertical: 7,
+                                        borderRadius: 14,
+                                        backgroundColor: nutFeeding === ft ? "#456155" : "#F5F5F4",
+                                        borderWidth: 1,
+                                        borderColor: "#E7E5E4",
+                                    }}
+                                >
+                                    <Text
+                                        style={{
+                                            fontSize: 12,
+                                            fontWeight: "700",
+                                            color: nutFeeding === ft ? "#FFFFFF" : "#78716C",
+                                        }}
+                                    >
+                                        {ft}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+
+                        <Text style={styles.modalLabel}>Food Introduced (optional)</Text>
+                        <TextInput
+                            style={styles.modalInput}
+                            placeholder="e.g. Pureed carrot"
+                            value={nutFood}
+                            onChangeText={setNutFood}
+                        />
+
+                        <Text style={styles.modalLabel}>Reaction (optional)</Text>
+                        <TextInput
+                            style={styles.modalInput}
+                            placeholder="e.g. None / mild rash"
+                            value={nutReaction}
+                            onChangeText={setNutReaction}
+                        />
+
+                        <View style={styles.modalButtons}>
+                            <TouchableOpacity
+                                onPress={() => setShowNutritionModal(false)}
+                                style={styles.modalCancelBtn}
+                            >
+                                <Text style={styles.modalCancelText}>{t("cancel")}</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={handleAddNutrition}
+                                style={styles.modalSaveBtn}
+                            >
+                                <Text style={styles.modalSaveText}>{t("save")}</Text>
                             </TouchableOpacity>
                         </View>
                     </View>

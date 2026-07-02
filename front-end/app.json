@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "BabyBook+",
+    "slug": "babybook-plus",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "scheme": "babybookplus",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.babybookplus.app"
+    },
+    "android": {
+      "package": "com.babybookplus.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#FFFFFF"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "@react-native-community/datetimepicker",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "BabyBook+ needs access to your photos so you can set a baby avatar or add photos to memories."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "BabyBook+ needs access to your camera to scan consultation QR codes."
+        }
+      ]
+    ]
+  }
+}

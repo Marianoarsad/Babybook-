@@ -11,9 +11,11 @@ import {
     Image,
     Alert,
     ScrollView,
+    ActivityIndicator,
 } from "react-native";
 import { LanguageProvider, useLanguage } from "./context/LanguageContext";
 import { Ionicons } from "@expo/vector-icons";
+import { colors, radius, space, shadow } from "./theme";
 import { storage } from "./utils/storageAdapter";
 
 // Import Screen Components
@@ -23,22 +25,21 @@ import Health from "./components/Health";
 import Growth from "./components/Growth";
 import Services from "./components/Services";
 import UserProfile from "./components/UserProfile";
-
-// Import Initial Mock Data
-import {
-    initialProfiles,
-    initialImmunizations,
-    initialFeedLogs,
-    initialSleepLogs,
-    initialMilestones,
-    initialAppointments,
-} from "./mockData";
+import ShareRecords from "./components/ShareRecords";
+import ProfessionalView from "./components/ProfessionalView";
+import EmptyChild from "./components/EmptyChild";
+import ToastProvider from "./components/ui/Toast";
+import { api, getToken, setToken, clearToken } from "./utils/api";
+import { childToProfile, profileFormToChild } from "./utils/adapters";
+import { pickImage, pickerAvailable } from "./utils/imagePicker";
 
 function MainAppShell() {
     const { language, t } = useLanguage();
 
     // Authentication State
     const [isAuthenticated, setIsAuthenticated] = useState(false);
+    // Healthcare Professional mode (separate actor, no parent account)
+    const [professionalMode, setProfessionalMode] = useState(false);
     const [parentName, setParentName] = useState("Sarah");
     const [parentGender, setParentGender] = useState("Female");
     const [parentAvatar, setParentAvatar] = useState(
@@ -48,15 +49,18 @@ function MainAppShell() {
     // Main navigation view
     const [currentView, setCurrentView] = useState("dashboard");
 
-    // Core records lists
-    const [profiles, setProfiles] = useState(initialProfiles);
-    const [selectedProfileId, setSelectedProfileId] = useState("1");
+    // Core records lists — children now load from the backend.
+    const [profiles, setProfiles] = useState([]);
+    const [selectedProfileId, setSelectedProfileId] = useState(null);
+    const [bootstrapping, setBootstrapping] = useState(true);
 
-    const [immunizations, setImmunizations] = useState(initialImmunizations);
-    const [feedLogs, setFeedLogs] = useState(initialFeedLogs);
-    const [sleepLogs, setSleepLogs] = useState(initialSleepLogs);
-    const [milestones, setMilestones] = useState(initialMilestones);
-    const [appointments, setAppointments] = useState(initialAppointments);
+    // These props are retained for prop compatibility but screens now
+    // self-load their records from the backend.
+    const [immunizations, setImmunizations] = useState([]);
+    const [feedLogs, setFeedLogs] = useState([]);
+    const [sleepLogs, setSleepLogs] = useState([]);
+    const [milestones, setMilestones] = useState([]);
+    const [appointments, setAppointments] = useState([]);
 
     // Modal Control States
     const [showAddProfileModal, setShowAddProfileModal] = useState(false);
@@ -68,106 +72,176 @@ function MainAppShell() {
     const [formGender, setFormGender] = useState("girl");
     const [formWeight, setFormWeight] = useState("3.2");
     const [formHeight, setFormHeight] = useState("49.0");
+    const [formBloodType, setFormBloodType] = useState("");
+    const [formHospital, setFormHospital] = useState("");
+    const [formPediatrician, setFormPediatrician] = useState("");
+    const [formObgyne, setFormObgyne] = useState("");
+    const [formEmergency, setFormEmergency] = useState("");
+    // Profile picture: a picked device photo (uploaded on save) or a pasted URL.
+    const [formAvatarUri, setFormAvatarUri] = useState("");
+    const [formAvatarUrl, setFormAvatarUrl] = useState("");
 
     const activeProfile =
         profiles.find((p) => p.id === selectedProfileId) || profiles[0];
 
-    useEffect(() => {
-        const loadSession = async () => {
-            try {
-                const savedAuth = await storage.getItem("bb_auth");
-                if (savedAuth === "true") {
-                    setIsAuthenticated(true);
-                    const savedParentName =
-                        await storage.getItem("bb_parent_name");
-                    const savedParentGender =
-                        await storage.getItem("bb_parent_gender");
-                    const savedParentAvatar =
-                        await storage.getItem("bb_parent_avatar");
+    // Apply a logged-in user's profile fields to local state.
+    const applyUser = (user) => {
+        if (!user) return;
+        setParentName(user.fullName || user.full_name || "Parent");
+        if (user.gender) setParentGender(user.gender);
+        if (user.avatarUrl) setParentAvatar(user.avatarUrl);
+    };
 
-                    if (savedParentName) setParentName(savedParentName);
-                    if (savedParentGender) setParentGender(savedParentGender);
-                    if (savedParentAvatar) setParentAvatar(savedParentAvatar);
+    // Load this user's children from the backend into the app's profile shape.
+    const loadChildren = async () => {
+        try {
+            const rows = await api.listChildren();
+            const mapped = rows.map(childToProfile);
+            setProfiles(mapped);
+            setSelectedProfileId(mapped.length ? mapped[0].id : null);
+        } catch (e) {
+            console.log("loadChildren:", e.message);
+        }
+    };
+
+    // On launch, restore a saved session via the stored JWT.
+    useEffect(() => {
+        (async () => {
+            try {
+                const token = await getToken();
+                if (token) {
+                    const { user } = await api.me();
+                    setIsAuthenticated(true);
+                    applyUser(user);
+                    await loadChildren();
                 }
             } catch (e) {
-                console.log(e);
+                await clearToken(); // token invalid/expired
+            } finally {
+                setBootstrapping(false);
             }
-        };
-        loadSession();
+        })();
     }, []);
 
-    const handleLoginSuccess = async (name, gender) => {
-        setIsAuthenticated(true);
-        setParentName(name);
-        setParentGender(gender);
+    const handleLoginSuccess = async (user, token) => {
         try {
-            await storage.setItem("bb_auth", "true");
-            await storage.setItem("bb_parent_name", name);
-            await storage.setItem("bb_parent_gender", gender);
+            await setToken(token);
         } catch (e) {
             console.log(e);
         }
+        setIsAuthenticated(true);
+        applyUser(user);
+        await loadChildren();
     };
 
     const handleLogOut = async () => {
         setIsAuthenticated(false);
+        setProfiles([]);
+        setSelectedProfileId(null);
+        setCurrentView("dashboard");
         try {
-            await storage.removeItem("bb_auth");
+            await clearToken();
         } catch (e) {
             console.log(e);
         }
     };
 
-    const handleAddProfile = () => {
-        if (!formName) {
-            Alert.alert("Error", "Please enter baby name");
-            return;
-        }
-        const newProfile = {
-            id: `${profiles.length + 1}`,
-            name: formName,
-            dateOfBirth: formDob,
-            gender: formGender,
-            birthWeight: parseFloat(formWeight) || 3.0,
-            birthHeight: parseFloat(formHeight) || 48.0,
-            avatarUrl:
-                formGender === "girl"
-                    ? "https://images.unsplash.com/photo-1519689680058-324335c77eb2?q=80&w=300&auto=format&fit=crop"
-                    : "https://images.unsplash.com/photo-1596870230751-ebdfce98ec42?q=80&w=300&auto=format&fit=crop",
-            allergies: [],
-            hereditaryConditions: [],
-            currentHeight: parseFloat(formHeight) || 48.0,
-            currentWeight: parseFloat(formWeight) || 3.0,
-        };
-        setProfiles([...profiles, newProfile]);
-        setSelectedProfileId(newProfile.id);
-        setShowAddProfileModal(false);
-        setFormName("");
+    // Create the first child (from the EmptyChild screen).
+    const handleCreateFirstChild = async (form) => {
+        const created = await api.createChild(profileFormToChild(form, { includeBirth: true }));
+        const prof = childToProfile(created);
+        setProfiles((prev) => [...prev, prof]);
+        setSelectedProfileId(prof.id);
     };
 
-    const handleEditProfile = () => {
+    const handleAddProfile = async () => {
         if (!formName) {
             Alert.alert("Error", "Please enter baby name");
             return;
         }
-        setProfiles((prev) =>
-            prev.map((p) => {
-                if (p.id === activeProfile.id) {
-                    return {
-                        ...p,
+        try {
+            const created = await api.createChild(
+                profileFormToChild(
+                    {
                         name: formName,
                         dateOfBirth: formDob,
                         gender: formGender,
-                        currentHeight:
-                            parseFloat(formHeight) || p.currentHeight,
-                        currentWeight:
-                            parseFloat(formWeight) || p.currentWeight,
-                    };
+                        weight: formWeight,
+                        height: formHeight,
+                        bloodType: formBloodType,
+                        hospital: formHospital,
+                        pediatrician: formPediatrician,
+                        obgyne: formObgyne,
+                        emergencyContact: formEmergency,
+                        avatarUrl: formAvatarUrl,
+                    },
+                    { includeBirth: true },
+                ),
+            );
+            let prof = childToProfile(created);
+            if (formAvatarUri) {
+                try {
+                    const withAvatar = await api.uploadChildAvatar(created.id, formAvatarUri);
+                    prof = childToProfile(withAvatar);
+                } catch (e) {
+                    console.log("avatar upload:", e.message);
                 }
-                return p;
-            }),
-        );
-        setShowEditProfileModal(false);
+            }
+            setProfiles((prev) => [...prev, prof]);
+            setSelectedProfileId(prof.id);
+            setShowAddProfileModal(false);
+            setFormName("");
+            setFormBloodType("");
+            setFormHospital("");
+            setFormPediatrician("");
+            setFormObgyne("");
+            setFormEmergency("");
+            setFormAvatarUri("");
+            setFormAvatarUrl("");
+        } catch (e) {
+            Alert.alert("Error", e.message || "Could not add child");
+        }
+    };
+
+    const handleEditProfile = async () => {
+        if (!formName) {
+            Alert.alert("Error", "Please enter baby name");
+            return;
+        }
+        try {
+            const updated = await api.updateChild(
+                activeProfile.id,
+                profileFormToChild(
+                    {
+                        name: formName,
+                        dateOfBirth: formDob,
+                        gender: formGender,
+                        bloodType: formBloodType,
+                        hospital: formHospital,
+                        pediatrician: formPediatrician,
+                        obgyne: formObgyne,
+                        emergencyContact: formEmergency,
+                        avatarUrl: formAvatarUrl,
+                    },
+                    { includeBirth: false },
+                ),
+            );
+            let prof = childToProfile(updated);
+            if (formAvatarUri) {
+                try {
+                    const withAvatar = await api.uploadChildAvatar(activeProfile.id, formAvatarUri);
+                    prof = childToProfile(withAvatar);
+                } catch (e) {
+                    console.log("avatar upload:", e.message);
+                }
+            }
+            setProfiles((prev) => prev.map((p) => (p.id === prof.id ? prof : p)));
+            setShowEditProfileModal(false);
+            setFormAvatarUri("");
+            setFormAvatarUrl("");
+        } catch (e) {
+            Alert.alert("Error", e.message || "Could not update child");
+        }
     };
 
     const openEditModal = () => {
@@ -180,11 +254,103 @@ function MainAppShell() {
         setFormWeight(
             String(activeProfile.currentWeight || activeProfile.birthWeight),
         );
+        setFormBloodType(activeProfile.bloodType || "");
+        setFormHospital(activeProfile.hospital || "");
+        setFormPediatrician(activeProfile.pediatricianName || "");
+        setFormObgyne(activeProfile.obgynName || "");
+        setFormEmergency(activeProfile.emergencyContact || "");
+        setFormAvatarUri("");
+        setFormAvatarUrl("");
         setShowEditProfileModal(true);
     };
 
+    // Open the add-baby modal with a clean avatar picker.
+    const openAddModal = () => {
+        setFormAvatarUri("");
+        setFormAvatarUrl("");
+        setShowAddProfileModal(true);
+    };
+
+    // Reusable avatar picker used in both the add and edit baby modals.
+    // `currentUrl` is the baby's existing photo (edit) shown until a new one is chosen.
+    const renderAvatarPicker = (currentUrl) => {
+        const preview = formAvatarUri || formAvatarUrl || currentUrl || "";
+        return (
+            <View style={styles.avatarPickerWrap}>
+                <TouchableOpacity
+                    activeOpacity={pickerAvailable() ? 0.85 : 1}
+                    onPress={async () => {
+                        if (!pickerAvailable()) return;
+                        const uri = await pickImage();
+                        if (uri) {
+                            setFormAvatarUri(uri);
+                            setFormAvatarUrl("");
+                        }
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Choose baby photo"
+                >
+                    {preview ? (
+                        <Image source={{ uri: preview }} style={styles.avatarPreview} />
+                    ) : (
+                        <View style={[styles.avatarPreview, styles.avatarPreviewEmpty]}>
+                            <Ionicons name="person" size={38} color={colors.textMuted} />
+                        </View>
+                    )}
+                    <View style={styles.avatarBadge}>
+                        <Ionicons name="camera" size={15} color={colors.onAccent} />
+                    </View>
+                </TouchableOpacity>
+                {pickerAvailable() ? (
+                    <Text style={styles.avatarHint}>
+                        {formAvatarUri ? "Photo selected — tap to change" : "Tap to choose a photo"}
+                    </Text>
+                ) : null}
+                <TextInput
+                    style={[styles.modalInput, styles.avatarUrlInput]}
+                    placeholder="…or paste an image URL"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    value={formAvatarUrl}
+                    onChangeText={(v) => {
+                        setFormAvatarUrl(v);
+                        if (v) setFormAvatarUri("");
+                    }}
+                />
+            </View>
+        );
+    };
+
+    if (professionalMode) {
+        return <ProfessionalView onExit={() => setProfessionalMode(false)} />;
+    }
+
+    if (bootstrapping) {
+        return (
+            <View style={[styles.container, { justifyContent: "center", alignItems: "center" }]}>
+                <ActivityIndicator size="large" color="#FF8A7A" />
+            </View>
+        );
+    }
+
     if (!isAuthenticated) {
-        return <Auth onLoginSuccess={handleLoginSuccess} />;
+        return (
+            <Auth
+                onLoginSuccess={handleLoginSuccess}
+                onProfessional={() => setProfessionalMode(true)}
+            />
+        );
+    }
+
+    // Authenticated but no children yet -> first-child setup.
+    if (profiles.length === 0) {
+        return (
+            <EmptyChild
+                parentName={parentName}
+                onCreate={handleCreateFirstChild}
+                onLogOut={handleLogOut}
+            />
+        );
     }
 
     return (
@@ -205,12 +371,20 @@ function MainAppShell() {
                         </Text>
                     </View>
                 </View>
-                <TouchableOpacity onPress={() => setCurrentView("settings")}>
-                    <Image
-                        source={{ uri: parentAvatar }}
-                        style={styles.parentAvatarMini}
-                    />
-                </TouchableOpacity>
+                <View style={styles.headerRight}>
+                    <TouchableOpacity
+                        onPress={() => setCurrentView("share")}
+                        style={styles.headerQrBtn}
+                    >
+                        <Ionicons name="qr-code" size={20} color={colors.primary} />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setCurrentView("settings")}>
+                        <Image
+                            source={{ uri: parentAvatar }}
+                            style={styles.parentAvatarMini}
+                        />
+                    </TouchableOpacity>
+                </View>
             </View>
 
             {/* Main Container View content */}
@@ -220,7 +394,7 @@ function MainAppShell() {
                         profile={activeProfile}
                         profiles={profiles}
                         onSelectProfile={setSelectedProfileId}
-                        onOpenAddModal={() => setShowAddProfileModal(true)}
+                        onOpenAddModal={openAddModal}
                         onOpenEditModal={openEditModal}
                         onUpdateProfile={(updated) =>
                             setProfiles((prev) =>
@@ -271,6 +445,16 @@ function MainAppShell() {
                     />
                 )}
                 {currentView === "services" && <Services />}
+                {currentView === "share" && (
+                    <ShareRecords
+                        profile={activeProfile}
+                        immunizations={immunizations}
+                        milestones={milestones}
+                        appointments={appointments}
+                        feedLogs={feedLogs}
+                        onClose={() => setCurrentView("dashboard")}
+                    />
+                )}
                 {currentView === "settings" && (
                     <UserProfile
                         parentName={parentName}
@@ -286,107 +470,39 @@ function MainAppShell() {
 
             {/* Modern bottom navigation tabs */}
             <View style={styles.tabBar}>
-                <TouchableOpacity
-                    style={styles.tabItem}
-                    onPress={() => setCurrentView("dashboard")}
-                >
-                    <Ionicons
-                        name="home"
-                        size={20}
-                        color={
-                            currentView === "dashboard" ? "#FF8A7A" : "#78716C"
-                        }
-                    />
-                    <Text
-                        style={[
-                            styles.tabLabel,
-                            currentView === "dashboard" &&
-                                styles.tabLabelActive,
-                        ]}
-                    >
-                        {t("navDashboard")}
-                    </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                    style={styles.tabItem}
-                    onPress={() => setCurrentView("health")}
-                >
-                    <Ionicons
-                        name="shield-checkmark"
-                        size={20}
-                        color={currentView === "health" ? "#FF8A7A" : "#78716C"}
-                    />
-                    <Text
-                        style={[
-                            styles.tabLabel,
-                            currentView === "health" && styles.tabLabelActive,
-                        ]}
-                    >
-                        {t("navHealth")}
-                    </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                    style={styles.tabItem}
-                    onPress={() => setCurrentView("growth")}
-                >
-                    <Ionicons
-                        name="trending-up"
-                        size={20}
-                        color={currentView === "growth" ? "#FF8A7A" : "#78716C"}
-                    />
-                    <Text
-                        style={[
-                            styles.tabLabel,
-                            currentView === "growth" && styles.tabLabelActive,
-                        ]}
-                    >
-                        {t("navGrowth")}
-                    </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                    style={styles.tabItem}
-                    onPress={() => setCurrentView("services")}
-                >
-                    <Ionicons
-                        name="grid-outline"
-                        size={20}
-                        color={
-                            currentView === "services" ? "#FF8A7A" : "#78716C"
-                        }
-                    />
-                    <Text
-                        style={[
-                            styles.tabLabel,
-                            currentView === "services" && styles.tabLabelActive,
-                        ]}
-                    >
-                        {t("servicesHeader")}
-                    </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                    style={styles.tabItem}
-                    onPress={() => setCurrentView("settings")}
-                >
-                    <Ionicons
-                        name="person"
-                        size={20}
-                        color={
-                            currentView === "settings" ? "#FF8A7A" : "#78716C"
-                        }
-                    />
-                    <Text
-                        style={[
-                            styles.tabLabel,
-                            currentView === "settings" && styles.tabLabelActive,
-                        ]}
-                    >
-                        {t("navSettings")}
-                    </Text>
-                </TouchableOpacity>
+                {[
+                    { key: "dashboard", icon: "home", label: t("navDashboard") },
+                    { key: "health", icon: "shield-checkmark", label: t("navHealth") },
+                    { key: "growth", icon: "trending-up", label: t("navGrowth") },
+                    { key: "services", icon: "grid", label: "Services" },
+                    { key: "settings", icon: "person", label: t("navSettings") },
+                ].map((tab) => {
+                    const active = currentView === tab.key;
+                    return (
+                        <TouchableOpacity
+                            key={tab.key}
+                            style={styles.tabItem}
+                            onPress={() => setCurrentView(tab.key)}
+                            accessibilityRole="button"
+                            accessibilityLabel={tab.label}
+                            accessibilityState={{ selected: active }}
+                        >
+                            <View style={[styles.tabPill, active && styles.tabPillActive]}>
+                                <Ionicons
+                                    name={active ? tab.icon : tab.icon + "-outline"}
+                                    size={21}
+                                    color={active ? colors.accentStrong : colors.textMuted}
+                                />
+                            </View>
+                            <Text
+                                numberOfLines={1}
+                                style={[styles.tabLabel, active && styles.tabLabelActive]}
+                            >
+                                {tab.label}
+                            </Text>
+                        </TouchableOpacity>
+                    );
+                })}
             </View>
 
             {/* Modal: ADD BABY PROFILE */}
@@ -401,6 +517,8 @@ function MainAppShell() {
                             <Text style={styles.modalTitle}>
                                 {t("profileAddTitle")}
                             </Text>
+
+                            {renderAvatarPicker()}
 
                             <Text style={styles.modalLabel}>
                                 {t("profileNameLabel")}
@@ -488,6 +606,39 @@ function MainAppShell() {
                                 </View>
                             </View>
 
+                            <Text style={styles.modalLabel}>Blood Type</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                autoCapitalize="characters"
+                                placeholder="e.g. O+"
+                                value={formBloodType}
+                                onChangeText={setFormBloodType}
+                            />
+                            <Text style={styles.modalLabel}>Birth Hospital</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                value={formHospital}
+                                onChangeText={setFormHospital}
+                            />
+                            <Text style={styles.modalLabel}>Pediatrician</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                value={formPediatrician}
+                                onChangeText={setFormPediatrician}
+                            />
+                            <Text style={styles.modalLabel}>OB-GYNE</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                value={formObgyne}
+                                onChangeText={setFormObgyne}
+                            />
+                            <Text style={styles.modalLabel}>Emergency Contact</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                value={formEmergency}
+                                onChangeText={setFormEmergency}
+                            />
+
                             <View style={styles.modalButtons}>
                                 <TouchableOpacity
                                     onPress={() =>
@@ -525,6 +676,8 @@ function MainAppShell() {
                             <Text style={styles.modalTitle}>
                                 {t("profileEditTitle")}
                             </Text>
+
+                            {renderAvatarPicker(activeProfile.avatarUrl)}
 
                             <Text style={styles.modalLabel}>
                                 {t("profileNameLabel")}
@@ -611,6 +764,39 @@ function MainAppShell() {
                                 </View>
                             </View>
 
+                            <Text style={styles.modalLabel}>Blood Type</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                autoCapitalize="characters"
+                                placeholder="e.g. O+"
+                                value={formBloodType}
+                                onChangeText={setFormBloodType}
+                            />
+                            <Text style={styles.modalLabel}>Birth Hospital</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                value={formHospital}
+                                onChangeText={setFormHospital}
+                            />
+                            <Text style={styles.modalLabel}>Pediatrician</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                value={formPediatrician}
+                                onChangeText={setFormPediatrician}
+                            />
+                            <Text style={styles.modalLabel}>OB-GYNE</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                value={formObgyne}
+                                onChangeText={setFormObgyne}
+                            />
+                            <Text style={styles.modalLabel}>Emergency Contact</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                value={formEmergency}
+                                onChangeText={setFormEmergency}
+                            />
+
                             <View style={styles.modalButtons}>
                                 <TouchableOpacity
                                     onPress={() =>
@@ -642,7 +828,9 @@ function MainAppShell() {
 export default function App() {
     return (
         <LanguageProvider>
-            <MainAppShell />
+            <ToastProvider>
+                <MainAppShell />
+            </ToastProvider>
         </LanguageProvider>
     );
 }
@@ -653,79 +841,102 @@ const styles = StyleSheet.create({
         backgroundColor: "#FFFDF9",
     },
     header: {
-        height: 56,
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
-        paddingHorizontal: 16,
-        backgroundColor: "#FFFFFF",
-        borderBottomWidth: 1,
-        borderBottomColor: "#EBEBEB",
+        paddingHorizontal: space.lg,
+        paddingVertical: space.md,
+        backgroundColor: colors.background,
     },
     headerLeft: {
         flexDirection: "row",
         alignItems: "center",
     },
+    headerRight: {
+        flexDirection: "row",
+        alignItems: "center",
+    },
+    headerQrBtn: {
+        width: 42,
+        height: 42,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
+        backgroundColor: colors.softGreen,
+        alignItems: "center",
+        justifyContent: "center",
+        marginRight: space.md,
+    },
     avatarMini: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
-        marginRight: 10,
-        borderWidth: 1,
-        borderColor: "#FF8A7A",
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        marginRight: space.md,
+        borderWidth: 2,
+        borderColor: colors.accent,
     },
     welcomeText: {
-        fontSize: 10,
+        fontSize: 12,
         fontWeight: "700",
-        color: "#FF8A7A",
-        textTransform: "uppercase",
+        color: colors.accentStrong,
+        letterSpacing: 0.2,
     },
     babyName: {
-        fontSize: 14,
-        fontWeight: "850",
-        color: "#456155",
+        fontSize: 16,
+        fontWeight: "800",
+        color: colors.primary,
+        letterSpacing: -0.2,
     },
     parentAvatarMini: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: "#456155",
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        borderWidth: 2,
+        borderColor: colors.primary,
     },
     content: {
         flex: 1,
     },
     tabBar: {
-        height: 56,
-        backgroundColor: "#FFFFFF",
+        backgroundColor: colors.surface,
         borderTopWidth: 1,
-        borderTopColor: "#E7E5E4",
+        borderTopColor: colors.hairline,
         flexDirection: "row",
-        alignItems: "center",
+        alignItems: "flex-start",
         justifyContent: "space-around",
-        paddingBottom: 4,
+        paddingTop: space.sm,
+        paddingBottom: space.md,
     },
     tabItem: {
         alignItems: "center",
         justifyContent: "center",
         flex: 1,
+        gap: 3,
+    },
+    tabPill: {
+        width: 56,
+        height: 32,
+        borderRadius: radius.pill,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    tabPillActive: {
+        backgroundColor: colors.softCoral,
     },
     tabLabel: {
-        fontSize: 9,
+        fontSize: 11,
         fontWeight: "600",
-        color: "#78716C",
-        marginTop: 2,
+        color: colors.textMuted,
     },
     tabLabelActive: {
-        color: "#FF8A7A",
+        color: colors.accentStrong,
         fontWeight: "800",
     },
     modalBg: {
         flex: 1,
-        backgroundColor: "rgba(0,0,0,0.5)",
+        backgroundColor: "rgba(28,25,23,0.55)",
         justifyContent: "center",
         alignItems: "center",
-        padding: 20,
+        padding: space.xl,
     },
     modalScroll: {
         flexGrow: 1,
@@ -733,96 +944,143 @@ const styles = StyleSheet.create({
         alignItems: "center",
         width: "100%",
     },
-    modalCard: {
-        backgroundColor: "#FFFDF9",
-        borderRadius: 24,
-        padding: 20,
+    avatarPickerWrap: {
+        alignItems: "center",
+        marginBottom: space.lg,
+    },
+    avatarPreview: {
+        width: 96,
+        height: 96,
+        borderRadius: 48,
+        borderWidth: 3,
+        borderColor: colors.surface,
+        backgroundColor: colors.surfaceAlt,
+        ...shadow.card,
+    },
+    avatarPreviewEmpty: {
+        alignItems: "center",
+        justifyContent: "center",
+        borderColor: colors.border,
+        borderStyle: "dashed",
+    },
+    avatarBadge: {
+        position: "absolute",
+        right: -2,
+        bottom: -2,
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        backgroundColor: colors.accentStrong,
+        alignItems: "center",
+        justifyContent: "center",
+        borderWidth: 2,
+        borderColor: colors.background,
+    },
+    avatarHint: {
+        marginTop: space.sm,
+        fontSize: 12,
+        fontWeight: "600",
+        color: colors.textMuted,
+    },
+    avatarUrlInput: {
+        marginTop: space.md,
         width: "100%",
-        maxWidth: 340,
+        marginBottom: 0,
+    },
+    modalCard: {
+        backgroundColor: colors.background,
+        borderRadius: radius.xl,
+        borderCurve: "continuous",
+        padding: space.xl,
+        width: "100%",
+        maxWidth: 360,
         borderWidth: 1,
-        borderColor: "#E7E5E4",
+        borderColor: colors.hairline,
+        ...shadow.raised,
     },
     modalTitle: {
-        fontSize: 18,
+        fontSize: 20,
         fontWeight: "800",
-        color: "#456155",
-        marginBottom: 16,
+        color: colors.text,
+        letterSpacing: -0.2,
+        marginBottom: space.lg,
     },
     modalLabel: {
-        fontSize: 11,
+        fontSize: 13,
         fontWeight: "700",
-        color: "#78716C",
-        textTransform: "uppercase",
+        color: colors.textSecondary,
         marginBottom: 6,
     },
     modalInput: {
-        backgroundColor: "#F5F5F4",
+        backgroundColor: colors.surfaceAlt,
         borderWidth: 1,
-        borderColor: "#E7E5E4",
-        borderRadius: 12,
-        paddingHorizontal: 12,
-        height: 44,
-        fontSize: 14,
-        color: "#1C1917",
-        marginBottom: 16,
+        borderColor: colors.border,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
+        paddingHorizontal: space.lg,
+        height: 52,
+        fontSize: 15,
+        color: colors.text,
+        marginBottom: space.lg,
     },
     modalButtons: {
         flexDirection: "row",
         justifyContent: "flex-end",
-        gap: 12,
+        gap: space.md,
     },
     modalCancelBtn: {
-        paddingVertical: 10,
-        paddingHorizontal: 16,
-        borderRadius: 12,
-        backgroundColor: "#F5F5F4",
+        paddingVertical: 12,
+        paddingHorizontal: space.lg,
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
+        backgroundColor: colors.surfaceAlt,
     },
     modalCancelText: {
-        fontSize: 13,
-        fontWeight: "600",
-        color: "#78716C",
+        fontSize: 14,
+        fontWeight: "700",
+        color: colors.textSecondary,
     },
     modalSaveBtn: {
-        paddingVertical: 10,
-        paddingHorizontal: 16,
-        borderRadius: 12,
-        backgroundColor: "#FF8A7A",
+        paddingVertical: 12,
+        paddingHorizontal: space.lg,
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
+        backgroundColor: colors.accentStrong,
+        ...shadow.accent,
     },
     modalSaveText: {
-        fontSize: 13,
-        fontWeight: "700",
-        color: "#FFFFFF",
+        fontSize: 14,
+        fontWeight: "800",
+        color: colors.onAccent,
     },
     genderContainer: {
         flexDirection: "row",
-        backgroundColor: "#F5F5F4",
+        backgroundColor: colors.surfaceAlt,
         borderWidth: 1,
-        borderColor: "#E7E5E4",
-        borderRadius: 12,
+        borderColor: colors.border,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         padding: 4,
-        marginBottom: 16,
+        marginBottom: space.lg,
     },
     genderButton: {
         flex: 1,
-        paddingVertical: 8,
-        borderRadius: 8,
+        paddingVertical: 10,
+        borderRadius: radius.sm,
+        borderCurve: "continuous",
         alignItems: "center",
     },
     genderButtonActive: {
-        backgroundColor: "#FFFFFF",
-        shadowColor: "#374151",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-        elevation: 1,
+        backgroundColor: colors.surface,
+        ...shadow.card,
     },
     genderButtonText: {
-        fontSize: 11,
+        fontSize: 12,
         fontWeight: "600",
-        color: "#78716C",
+        color: colors.textMuted,
     },
     genderButtonTextActive: {
-        color: "#456155",
-        fontWeight: "700",
+        color: colors.primary,
+        fontWeight: "800",
     },
 });

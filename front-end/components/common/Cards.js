@@ -1,5 +1,7 @@
 import React from "react";
 import { View, Text, StyleSheet, Image, TouchableOpacity } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { colors, radius, space, shadow, type } from "../../theme";
 
 // 1. SECTION CONTAINER CARD
 export function SectionContainerCard({ title, subtitle, action, children }) {
@@ -8,11 +10,11 @@ export function SectionContainerCard({ title, subtitle, action, children }) {
             <View style={styles.sectionHeader}>
                 <View style={{ flex: 1 }}>
                     <Text style={styles.sectionTitle}>{title}</Text>
-                    {subtitle && (
+                    {subtitle ? (
                         <Text style={styles.sectionSubtitle}>{subtitle}</Text>
-                    )}
+                    ) : null}
                 </View>
-                {action && <View style={styles.sectionAction}>{action}</View>}
+                {action ? <View style={styles.sectionAction}>{action}</View> : null}
             </View>
             <View>{children}</View>
         </View>
@@ -25,21 +27,23 @@ export function MetricWidgetCard({
     value,
     subtitle,
     icon,
-    iconBg = "#E6F4EA",
+    iconBg = colors.tintGreen,
     action,
 }) {
     return (
-        <View style={[styles.metricCard, { borderColor: "#EBEBEB" }]}>
+        <View style={styles.metricCard}>
             <View style={styles.metricHeader}>
                 <View style={[styles.iconWrapper, { backgroundColor: iconBg }]}>
                     {icon}
                 </View>
-                {action && <View>{action}</View>}
+                {action ? <View>{action}</View> : null}
             </View>
             <View style={styles.metricContent}>
-                <Text style={styles.metricLabel}>{title}</Text>
-                <Text style={styles.metricValue}>{value}</Text>
-                {subtitle && <Text style={styles.metricSub}>{subtitle}</Text>}
+                <Text style={styles.metricLabel} numberOfLines={1}>{title}</Text>
+                <Text style={styles.metricValue} numberOfLines={1}>{value}</Text>
+                {subtitle ? (
+                    <Text style={styles.metricSub} numberOfLines={1}>{subtitle}</Text>
+                ) : null}
             </View>
         </View>
     );
@@ -52,88 +56,76 @@ export function ListEntryCard({
     label,
     notes,
     icon,
-    iconBg = "#E6F4EA",
+    iconBg = colors.tintGreen,
     actions,
 }) {
     return (
         <View style={styles.listCard}>
             <View style={styles.listMain}>
-                <View
-                    style={[
-                        styles.listIconContainer,
-                        { backgroundColor: iconBg },
-                    ]}
-                >
+                <View style={[styles.listIconContainer, { backgroundColor: iconBg }]}>
                     {icon}
                 </View>
                 <View style={styles.listTextContainer}>
                     <Text style={styles.listTitle}>{title}</Text>
-                    {label && (
+                    {label ? (
                         <View style={styles.listLabelContainer}>{label}</View>
-                    )}
-                    {subtitle && (
+                    ) : null}
+                    {subtitle ? (
                         <Text style={styles.listSubtitle}>{subtitle}</Text>
-                    )}
-                    {notes && <Text style={styles.listNotes}>"{notes}"</Text>}
+                    ) : null}
+                    {notes ? (
+                        <Text style={styles.listNotes} numberOfLines={2}>
+                            {"“" + notes + "”"}
+                        </Text>
+                    ) : null}
                 </View>
             </View>
-            {actions && <View style={styles.listActions}>{actions}</View>}
+            {actions ? <View style={styles.listActions}>{actions}</View> : null}
         </View>
     );
 }
 
 // 4. MEMORY VISUAL CARD
-export function MemoryVisualCard({
-    title,
-    description,
-    date,
-    photoUrl,
-    onClick,
-}) {
+export function MemoryVisualCard({ title, description, date, photoUrl, onClick }) {
     const CardComponent = onClick ? TouchableOpacity : View;
     return (
-        <CardComponent onPress={onClick} style={styles.memoryCard}>
+        <CardComponent
+            onPress={onClick}
+            activeOpacity={0.85}
+            style={styles.memoryCard}
+        >
             {photoUrl ? (
                 <Image source={{ uri: photoUrl }} style={styles.memoryImage} />
             ) : (
-                <View
-                    style={[
-                        styles.memoryImage,
-                        {
-                            backgroundColor: "#F0F0F0",
-                            justifyContent: "center",
-                            alignItems: "center",
-                        },
-                    ]}
-                >
-                    <Text style={{ color: "#888", fontSize: 12 }}>
-                        No Image
-                    </Text>
+                <View style={[styles.memoryImage, styles.memoryPlaceholder]}>
+                    <Ionicons name="image-outline" size={26} color={colors.textMuted} />
                 </View>
             )}
+            <View style={styles.memoryScrim} />
             <View style={styles.memoryOverlay}>
-                {date && (
+                {date ? (
                     <View style={styles.memoryTag}>
                         <Text style={styles.memoryTagText}>{date}</Text>
                     </View>
-                )}
-                <Text style={styles.memoryTitle} numberOfLines={1}>
-                    {title}
-                </Text>
-                {description && (
+                ) : null}
+                <Text style={styles.memoryTitle} numberOfLines={1}>{title}</Text>
+                {description ? (
                     <Text style={styles.memoryDesc} numberOfLines={2}>
                         {description}
                     </Text>
-                )}
+                ) : null}
             </View>
         </CardComponent>
     );
 }
 
 // 5. EMPTY STATE CARD
-export function EmptyStateCard({ message }) {
+export function EmptyStateCard({ message, icon = "sparkles-outline" }) {
     return (
         <View style={styles.emptyCard}>
+            <View style={styles.emptyIconWrap}>
+                <Ionicons name={icon} size={20} color={colors.primary} />
+            </View>
             <Text style={styles.emptyText}>{message}</Text>
         </View>
     );
@@ -141,50 +133,48 @@ export function EmptyStateCard({ message }) {
 
 const styles = StyleSheet.create({
     sectionContainer: {
-        backgroundColor: "#FFFFFF",
-        borderRadius: 24,
-        padding: 16,
+        backgroundColor: colors.surface,
+        borderRadius: radius.xl,
+        borderCurve: "continuous",
+        padding: space.lg + 2,
         borderWidth: 1,
-        borderColor: "#F2F2F2",
-        shadowColor: "#374151",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.03,
-        shadowRadius: 10,
-        elevation: 2,
-        marginBottom: 16,
+        borderColor: colors.hairline,
+        ...shadow.card,
+        marginBottom: space.lg,
     },
     sectionHeader: {
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
-        marginBottom: 16,
+        marginBottom: space.lg,
     },
     sectionTitle: {
-        fontSize: 18,
-        fontWeight: "bold",
-        color: "#1C1917",
+        fontSize: 17,
+        fontWeight: "800",
+        color: colors.text,
+        letterSpacing: 0.1,
     },
     sectionSubtitle: {
         fontSize: 12,
-        color: "#78716C",
-        marginTop: 2,
+        color: colors.textMuted,
+        marginTop: 3,
+        lineHeight: 16,
     },
     sectionAction: {
-        marginLeft: 8,
+        marginLeft: space.sm,
     },
+
     metricCard: {
-        backgroundColor: "#FFFFFF",
-        borderRadius: 24,
-        padding: 16,
+        backgroundColor: colors.surface,
+        borderRadius: radius.xl,
+        borderCurve: "continuous",
+        padding: space.lg,
         borderWidth: 1,
-        shadowColor: "#374151",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.03,
-        shadowRadius: 15,
-        elevation: 2,
+        borderColor: colors.hairline,
+        ...shadow.card,
         flex: 1,
-        marginHorizontal: 4,
-        marginBottom: 8,
+        marginHorizontal: space.xs,
+        marginBottom: space.sm,
     },
     metricHeader: {
         flexDirection: "row",
@@ -192,42 +182,47 @@ const styles = StyleSheet.create({
         alignItems: "center",
     },
     iconWrapper: {
-        padding: 10,
-        borderRadius: 16,
+        width: 46,
+        height: 46,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
         justifyContent: "center",
         alignItems: "center",
     },
     metricContent: {
-        marginTop: 16,
+        marginTop: space.lg,
     },
     metricLabel: {
-        fontSize: 10,
+        fontSize: 13,
         fontWeight: "700",
-        color: "#A8A29E",
-        textTransform: "uppercase",
-        letterSpacing: 1,
+        color: colors.textSecondary,
+        letterSpacing: 0.1,
     },
     metricValue: {
-        fontSize: 26,
+        fontSize: 27,
         fontWeight: "800",
-        color: "#0C0A09",
-        marginTop: 4,
+        color: colors.text,
+        marginTop: 5,
+        letterSpacing: -0.3,
     },
     metricSub: {
         fontSize: 12,
-        color: "#78716C",
+        color: colors.textMuted,
         marginTop: 4,
+        fontWeight: "500",
     },
+
     listCard: {
-        padding: 12,
-        backgroundColor: "#FFFFFF",
+        padding: space.md,
+        backgroundColor: colors.surface,
         borderWidth: 1,
-        borderColor: "#E7E5E4",
-        borderRadius: 16,
+        borderColor: colors.hairline,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
-        marginBottom: 8,
+        marginBottom: space.sm,
     },
     listMain: {
         flexDirection: "row",
@@ -235,97 +230,124 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     listIconContainer: {
-        padding: 10,
-        borderRadius: 12,
+        width: 40,
+        height: 40,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         justifyContent: "center",
         alignItems: "center",
-        marginRight: 12,
+        marginRight: space.md,
     },
     listTextContainer: {
         flex: 1,
     },
     listTitle: {
-        fontSize: 14,
-        fontWeight: "bold",
-        color: "#1C1917",
+        fontSize: 15,
+        fontWeight: "700",
+        color: colors.text,
     },
     listLabelContainer: {
         marginTop: 4,
     },
     listSubtitle: {
-        fontSize: 10,
-        fontWeight: "700",
-        color: "#A8A29E",
-        textTransform: "uppercase",
-        letterSpacing: 0.5,
-        marginTop: 2,
+        fontSize: 12,
+        fontWeight: "600",
+        color: colors.textMuted,
+        marginTop: 3,
     },
     listNotes: {
-        fontSize: 12,
-        color: "#57534E",
-        marginTop: 4,
+        fontSize: 13,
+        color: colors.textSecondary,
+        marginTop: 5,
         fontStyle: "italic",
+        lineHeight: 18,
     },
     listActions: {
-        marginLeft: 8,
+        marginLeft: space.sm,
     },
+
     memoryCard: {
-        borderRadius: 16,
+        borderRadius: radius.lg + 2,
+        borderCurve: "continuous",
         overflow: "hidden",
         height: 180,
-        backgroundColor: "#E7E5E4",
-        marginBottom: 12,
+        backgroundColor: colors.surfaceAlt,
+        marginBottom: space.md,
         position: "relative",
+        ...shadow.soft,
     },
     memoryImage: {
         width: "100%",
         height: "100%",
         position: "absolute",
     },
+    memoryPlaceholder: {
+        backgroundColor: colors.softGreen,
+        justifyContent: "center",
+        alignItems: "center",
+    },
+    memoryScrim: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: "rgba(28,25,23,0.34)",
+    },
     memoryOverlay: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: "rgba(0,0,0,0.4)",
-        padding: 16,
+        padding: space.lg,
         justifyContent: "flex-end",
     },
     memoryTag: {
-        backgroundColor: "rgba(217, 119, 6, 0.2)",
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: 6,
+        backgroundColor: "rgba(255,255,255,0.92)",
+        paddingHorizontal: space.sm,
+        paddingVertical: 3,
+        borderRadius: radius.pill,
         alignSelf: "flex-start",
-        marginBottom: 6,
+        marginBottom: space.sm,
     },
     memoryTagText: {
-        color: "#FBBF24",
+        color: colors.accentStrong,
         fontSize: 10,
         fontWeight: "800",
+        letterSpacing: 0.3,
     },
     memoryTitle: {
         color: "#FFFFFF",
         fontSize: 16,
-        fontWeight: "bold",
+        fontWeight: "800",
     },
     memoryDesc: {
-        color: "#D1D5DB",
+        color: "rgba(255,255,255,0.88)",
         fontSize: 12,
-        marginTop: 4,
+        marginTop: 3,
+        lineHeight: 16,
     },
+
     emptyCard: {
         width: "100%",
-        paddingVertical: 24,
-        paddingHorizontal: 16,
-        backgroundColor: "#F5F5F4",
+        paddingVertical: space.xl,
+        paddingHorizontal: space.lg,
+        backgroundColor: colors.softGreen,
         borderWidth: 1,
         borderStyle: "dashed",
-        borderColor: "#D6D3D1",
-        borderRadius: 16,
+        borderColor: colors.borderStrong,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
         alignItems: "center",
         justifyContent: "center",
     },
+    emptyIconWrap: {
+        width: 40,
+        height: 40,
+        borderRadius: radius.pill,
+        backgroundColor: colors.surface,
+        alignItems: "center",
+        justifyContent: "center",
+        marginBottom: space.sm,
+    },
     emptyText: {
-        fontSize: 14,
+        fontSize: 13,
         fontWeight: "600",
-        color: "#78716C",
+        color: colors.textSecondary,
+        textAlign: "center",
+        lineHeight: 18,
     },
 });

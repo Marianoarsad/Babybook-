@@ -7,12 +7,13 @@ import {
     TouchableOpacity,
     TextInput,
     Image,
-    Alert,
 } from "react-native";
 import { useLanguage } from "../context/LanguageContext";
 import { SectionContainerCard } from "./common/Cards";
 import { Ionicons } from "@expo/vector-icons";
 import { storage } from "../utils/storageAdapter";
+import { api } from "../utils/api";
+import { useToast } from "./ui/Toast";
 
 const PREDEFINED_AVATARS = [
     "https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop",
@@ -31,29 +32,32 @@ export default function UserProfile({
     onUpdateParentGender,
 }) {
     const { language, setLanguage, t } = useLanguage();
+    const toast = useToast();
+    const Alert = {
+        alert: (title, message) => {
+            const m = message || title || "";
+            if (title === "Error" || /invalid|fail|denied|unable/i.test(String(title))) toast.error(m);
+            else toast.success(m);
+        },
+    };
 
-    const [email, setEmail] = useState("sarah.mitchell@example.com");
-    const [phone, setPhone] = useState("+63 917 123 4567");
+    const [email, setEmail] = useState("");
+    const [phone, setPhone] = useState("");
     const [city, setCity] = useState("Quezon City, NCR");
-    const [isPremium, setIsPremium] = useState(false);
 
     useEffect(() => {
         const loadProfileData = async () => {
             try {
-                const savedEmail =
-                    await storage.getItem("bb_parent_email");
-                const savedPhone =
-                    await storage.getItem("bb_parent_phone");
                 const savedCity = await storage.getItem("bb_parent_city");
-                const savedPremium =
-                    await storage.getItem("bb_parent_premium");
-
-                if (savedEmail) setEmail(savedEmail);
-                if (savedPhone) setPhone(savedPhone);
                 if (savedCity) setCity(savedCity);
-                if (savedPremium) setIsPremium(savedPremium === "true");
+                // Pull the authoritative account details from the backend.
+                const { user } = await api.me();
+                if (user) {
+                    if (user.email) setEmail(user.email);
+                    if (user.phoneNumber) setPhone(user.phoneNumber);
+                }
             } catch (e) {
-                console.log(e);
+                console.log("load profile:", e.message);
             }
         };
         loadProfileData();
@@ -65,26 +69,23 @@ export default function UserProfile({
             return;
         }
         try {
-            await storage.setItem("bb_parent_email", email);
-            await storage.setItem("bb_parent_phone", phone);
             await storage.setItem("bb_parent_city", city);
+            // Persist the account profile to the backend.
+            await api.updateMe({
+                fullName: parentName,
+                phoneNumber: phone,
+                gender: parentGender,
+                avatarUrl: parentAvatar,
+            });
             Alert.alert("Success", "Profile settings updated successfully!");
         } catch (e) {
-            console.log(e);
+            Alert.alert("Error", e.message || "Could not update profile");
         }
     };
 
-    const handleTogglePremium = async () => {
-        const nextState = !isPremium;
-        setIsPremium(nextState);
+    const _removedTogglePremium = async () => {
         try {
-            await storage.setItem("bb_parent_premium", String(nextState));
-            Alert.alert(
-                nextState ? "Premium Activated" : "Plan Adjusted",
-                nextState
-                    ? "Full clinical metrics and export tools unlocked."
-                    : "Switched to free plan.",
-            );
+            /* Premium feature removed to align with the research scope. */
         } catch (e) {
             console.log(e);
         }
@@ -237,32 +238,6 @@ export default function UserProfile({
                         </Text>
                     </TouchableOpacity>
                 </View>
-            </SectionContainerCard>
-
-            {/* Premium Upgrade */}
-            <SectionContainerCard
-                title={t("settingsPlansTitle")}
-                subtitle={t("settingsPlansSub")}
-            >
-                <TouchableOpacity
-                    onPress={handleTogglePremium}
-                    style={[
-                        styles.premiumBtn,
-                        isPremium && styles.premiumBtnActive,
-                    ]}
-                >
-                    <Ionicons
-                        name="sparkles"
-                        size={16}
-                        color="#FFFFFF"
-                        style={{ marginRight: 6 }}
-                    />
-                    <Text style={styles.premiumText}>
-                        {isPremium
-                            ? "CURRENT PLAN: PREMIUM"
-                            : t("settingsUpgradeBtn")}
-                    </Text>
-                </TouchableOpacity>
             </SectionContainerCard>
 
             {/* Log out option */}
