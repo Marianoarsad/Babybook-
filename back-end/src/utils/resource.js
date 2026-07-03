@@ -10,7 +10,7 @@ const { ApiError, asyncHandler } = require("../middleware/error");
 // The returned router (mergeParams) expects req.child to be set by
 // requireChildOwnership at mount time. All queries are parameterized and
 // always constrained by child_id, so a user can only touch their own data.
-function createResourceRouter({ table, columns, orderBy = "created_at DESC, id DESC" }) {
+function createResourceRouter({ table, columns, orderBy = "created_at DESC, id DESC", validate }) {
     const router = express.Router({ mergeParams: true });
 
     const pickBody = (body) => {
@@ -38,6 +38,7 @@ function createResourceRouter({ table, columns, orderBy = "created_at DESC, id D
         "/",
         asyncHandler(async (req, res) => {
             const data = pickBody(req.body);
+            if (validate) validate(data, { isCreate: true });
             const cols = Object.keys(data);
             const values = Object.values(data);
             const allCols = ["child_id", ...cols];
@@ -69,6 +70,7 @@ function createResourceRouter({ table, columns, orderBy = "created_at DESC, id D
         "/:id",
         asyncHandler(async (req, res) => {
             const data = pickBody(req.body);
+            if (validate) validate(data, { isCreate: false });
             const cols = Object.keys(data);
             if (cols.length === 0) throw new ApiError(400, "No updatable fields provided");
             const setClause = cols.map((c, i) => `${c} = $${i + 1}`).join(", ");

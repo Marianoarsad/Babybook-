@@ -23,6 +23,10 @@ export function childToProfile(c) {
         name: fullName,
         firstName: c.first_name || "",
         lastName: c.last_name || "",
+        nickname: c.nickname || "",
+        placeOfBirth: c.place_of_birth || "",
+        timeOfBirth: c.time_of_birth ? String(c.time_of_birth).slice(0, 5) : "",
+        preferredHealthCenter: c.preferred_health_center || "",
         dateOfBirth: c.date_of_birth ? String(c.date_of_birth).slice(0, 10) : "",
         gender: isGirl ? "girl" : "boy",
         sex: c.sex || (isGirl ? "Female" : "Male"),
@@ -65,20 +69,62 @@ export function profileFormToChild(form, { includeBirth = true } = {}) {
     if (form.pediatrician) body.pediatrician_name = form.pediatrician;
     if (form.obgyne) body.obgyne_name = form.obgyne;
     if (form.emergencyContact) body.emergency_contact = form.emergencyContact;
+    if (form.nickname) body.nickname = form.nickname;
+    if (form.placeOfBirth) body.place_of_birth = form.placeOfBirth;
+    if (form.timeOfBirth) body.time_of_birth = form.timeOfBirth;
+    if (form.preferredHealthCenter) body.preferred_health_center = form.preferredHealthCenter;
     if (form.avatarUrl) body.avatar_url = form.avatarUrl;
     return body;
 }
 
 // Backend nutrition_records row -> app nutrition shape.
+// Backend nutrition_records row -> app nutrition entry (unified milk + solid).
 export function nutritionToApp(n) {
     return {
         id: String(n.id),
-        feedingType: n.feeding_type || "",
+        entryType: n.entry_type || "milk",
+        milkType: n.milk_type || "",
+        formulaBrand: n.formula_brand || "",
+        quantity: n.quantity != null && n.quantity !== "" ? Number(n.quantity) : null,
+        unit: n.unit || "",
         foodIntroduced: n.food_introduced || "",
         reaction: n.reaction || "",
-        date: n.date_recorded ? String(n.date_recorded).slice(0, 10) : "",
+        date: n.entry_date ? String(n.entry_date).slice(0, 10) : "",
+        time: n.entry_time ? String(n.entry_time).slice(0, 5) : "",
         notes: n.notes || "",
     };
+}
+
+// App nutrition form -> backend nutrition_records body.
+export function nutritionFormToRecord(form) {
+    const body = { entry_type: form.entryType || "milk", notes: form.notes || null };
+    if (form.date) body.entry_date = form.date;
+    if (form.time) body.entry_time = form.time;
+    if ((form.entryType || "milk") === "milk") {
+        body.milk_type = form.milkType || null;
+        body.formula_brand =
+            form.milkType === "Formula" || form.milkType === "Mixed" ? form.formulaBrand || null : null;
+        body.quantity = form.quantity === "" || form.quantity == null ? null : Number(form.quantity);
+        body.unit = form.unit || null;
+        body.food_introduced = null;
+        body.reaction = null;
+    } else {
+        body.food_introduced = form.foodIntroduced || null;
+        body.reaction = form.reaction || null;
+        body.milk_type = null;
+        body.formula_brand = null;
+        body.quantity = null;
+        body.unit = null;
+    }
+    return body;
+}
+
+// Normalize a milk quantity to millilitres (for charting/comparison).
+export function toMilliliters(quantity, unit) {
+    if (quantity == null) return 0;
+    if (unit === "oz") return quantity * 29.5735;
+    if (unit === "L") return quantity * 1000;
+    return quantity; // mL
 }
 
 // Backend checkup row -> app appointment shape (Growth appointments list).
@@ -135,18 +181,6 @@ export function memoryToApp(m) {
         description: m.notes || "",
         date: m.date_recorded ? String(m.date_recorded).slice(0, 10) : "",
         photoUrl: m.photo_url || "",
-    };
-}
-
-// Backend feed_log row -> app feed shape used by the Dashboard.
-export function feedToApp(f) {
-    return {
-        id: String(f.id),
-        feedType: f.feed_type,
-        amountMl: f.amount_ml,
-        grams: f.grams,
-        timestamp: f.fed_at,
-        notes: f.notes || "",
     };
 }
 

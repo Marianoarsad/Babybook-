@@ -58,6 +58,8 @@ export function ListEntryCard({
     icon,
     iconBg = colors.tintGreen,
     actions,
+    thumbnailUrl,
+    onThumbnailPress,
 }) {
     return (
         <View style={styles.listCard}>
@@ -80,6 +82,16 @@ export function ListEntryCard({
                     ) : null}
                 </View>
             </View>
+            {thumbnailUrl ? (
+                <TouchableOpacity
+                    onPress={onThumbnailPress}
+                    style={styles.thumbWrap}
+                    accessibilityRole="imagebutton"
+                    accessibilityLabel="View attached photo"
+                >
+                    <Image source={{ uri: thumbnailUrl }} style={styles.thumb} />
+                </TouchableOpacity>
+            ) : null}
             {actions ? <View style={styles.listActions}>{actions}</View> : null}
         </View>
     );
@@ -265,6 +277,18 @@ const styles = StyleSheet.create({
     listActions: {
         marginLeft: space.sm,
     },
+    thumbWrap: {
+        width: 46,
+        height: 46,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
+        overflow: "hidden",
+        marginLeft: space.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surfaceAlt,
+    },
+    thumb: { width: "100%", height: "100%" },
 
     memoryCard: {
         borderRadius: radius.lg + 2,

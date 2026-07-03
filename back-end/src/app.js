@@ -9,6 +9,7 @@ const authRoutes = require("./routes/auth.routes");
 const childrenRoutes = require("./routes/children.routes");
 const recordRoutes = require("./routes/records.routes");
 const memoriesRoutes = require("./routes/memories.routes");
+const attachmentsRoutes = require("./routes/attachments.routes");
 const shareRoutes = require("./routes/share.routes");
 const consultRoutes = require("./routes/consult.routes");
 
@@ -37,6 +38,7 @@ app.use("/api/children", childrenRoutes);
 // Child-scoped record collections (vaccinations, checkups, growth, etc.)
 app.use("/api/children", recordRoutes);
 app.use("/api/children", memoriesRoutes);
+app.use("/api/children", attachmentsRoutes);
 app.use("/api/children", shareRoutes);
 // Public, no-auth endpoint used by the healthcare-professional QR flow.
 app.use("/api/consult", consultRoutes);

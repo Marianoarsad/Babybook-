@@ -77,7 +77,9 @@ async function buildSnapshot(child, keys) {
 
     if (keys.includes("nutrition")) {
         const { rows } = await query(
-            "SELECT feeding_type, food_introduced, reaction, date_recorded, notes FROM nutrition_records WHERE child_id = $1 ORDER BY date_recorded DESC NULLS LAST",
+            `SELECT entry_type, milk_type, formula_brand, quantity, unit, food_introduced, reaction, entry_date, entry_time, notes
+             FROM nutrition_records WHERE child_id = $1
+             ORDER BY entry_date DESC NULLS LAST, entry_time DESC NULLS LAST`,
             [child.id]
         );
         snap.nutrition = rows;

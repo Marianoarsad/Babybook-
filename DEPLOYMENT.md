@@ -24,15 +24,36 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 This is your `JWT_SECRET`. Generate a fresh one — don't reuse the dev placeholder in `.env.example`.
 
+### 1.1b Choose your database (read before Render)
+
+You have two options for `DATABASE_URL`. Pick one:
+
+- **Supabase (recommended for a capstone) — persists.** You already have this. It stays alive
+  as long as the project exists (free tier only *pauses* after ~1 week idle; you click Restore).
+  You **must** use the **Session pooler** connection string (IPv4), not the direct
+  `db.<ref>.supabase.co` host — the direct host is IPv6-only and fails from most networks/hosts.
+  Get it from Supabase → **Connect → Session pooler**:
+  `postgresql://postgres.<ref>:<PASSWORD>@aws-0-<region>.pooler.supabase.com:5432/postgres`
+- **Render's own Postgres — simplest, but temporary.** One-click, same-region internal URL, no
+  IPv6 issue. **⚠️ Free Render Postgres is deleted 30 days after creation** (14-day grace to
+  upgrade). Fine for a short-lived demo; risky if your defense is more than a month out.
+
+Everything below works with either — just use the matching `DATABASE_URL`.
+
 ### 1.2 Option A — Render
 
 1. Push this repo to GitHub if it isn't already.
-2. **Database:** Render Dashboard → **New → PostgreSQL**. Note the **Internal Database URL** (same-region services use this, it's free to transfer) once it's provisioned.
+2. **Database:** either paste your **Supabase Session pooler** URL (recommended, see 1.1b) into
+   `DATABASE_URL` in step 4 and skip creating a Render DB — **or** Render Dashboard →
+   **New → PostgreSQL** and note its **Internal Database URL** (remember the 30-day expiry).
 3. **Web service:** **New → Web Service** → connect the repo.
    - **Root Directory:** `back-end` (this is a monorepo — Render needs to know where the Node app lives)
    - **Build Command:** `npm install`
    - **Start Command:** `npm start`
-   - **Instance type:** Free is fine to start.
+   - **Instance type:** Free is fine to start. Note: **free web services spin down after 15 min of
+     inactivity** and take ~1 minute to wake on the next request, so the first app action after idle
+     will feel slow (750 free instance-hours/month). Upgrade to a paid instance for your defense day
+     if you want it always-warm.
 4. **Environment variables** (Render dashboard → Environment):
    ```
    NODE_ENV=production
@@ -127,12 +148,37 @@ This produces an installable Android `.apk` (and an iOS build you can install vi
    eas build --platform android --profile preview
    ```
    This uses the `preview` profile from `eas.json`, which is set to `distribution: internal` and `buildType: apk`, and bakes in the `EXPO_PUBLIC_API_BASE_URL` you set in Part 2.
-5. **Build for iOS** (optional — needs a paid Apple Developer account, $99/yr, for ad-hoc device signing):
-   ```bash
-   eas device:create   # register each test device's UDID once
-   eas build --platform ios --profile preview
-   ```
-6. When the build finishes, EAS prints a link to the build page (also visible at `expo.dev/builds`). Open it on the phone (or scan the QR code shown) and tap **Install**.
+5. **Build for iOS — pick the path that matches your budget.** Apple gates iOS distribution, so a
+   real-device iOS prototype needs an **Apple Developer account ($99/yr)**. Three options:
+
+   - **a) No cost — iOS Simulator build (Mac only).** Runs in Xcode's Simulator, not on a real phone,
+     no Apple account:
+     ```bash
+     eas build --platform ios --profile preview --local   # or a simulator profile
+     ```
+     (Add `"ios": { "simulator": true }` to the `preview` profile in `eas.json` for this.)
+   - **b) Ad-hoc — real devices, Apple account required.** Register each tester's device once, then build:
+     ```bash
+     eas device:create
+     eas build --platform ios --profile preview
+     ```
+   - **c) TestFlight — best "live prototype for iOS users", Apple account required.** Up to 100
+     internal / 10,000 external testers install from the TestFlight app via a link:
+     ```bash
+     eas build --platform ios --profile production
+     eas submit --platform ios --latest
+     ```
+6. When a build finishes, EAS prints a link to the build page (also at `expo.dev/builds`). For
+   Android, open the link on the phone (or scan the QR) and tap **Install**. For iOS TestFlight,
+   testers accept the invite in the TestFlight app.
+
+### 3.1 Fastest cross-platform prototype (no build, no Apple account)
+
+If you just want a shareable link that works on **any** Android or iOS phone today, publish the
+**Expo web** build (this app already runs on web). Push to GitHub and import into Vercel/Netlify
+(the repo already has `vercel.json` and a `build` script). Testers open the URL in their phone
+browser. Caveat: web can't use native camera/notification features the same way a real build can —
+use this for UI/flow demos, and the EAS builds above for the true native prototype.
 
 ---
 

@@ -311,10 +311,12 @@ function RecordsView({ session, onEnd, onExit }) {
                             <View style={[styles.dot, { backgroundColor: "#8B5CF6" }]} />
                             <View style={{ flex: 1 }}>
                                 <Text style={styles.itemTitle}>
-                                    {[f.feeding_type, f.food_introduced].filter(Boolean).join(" · ") || "Feeding"}
+                                    {f.entry_type === "milk"
+                                        ? `${f.milk_type || "Milk"}${f.quantity != null ? ` — ${f.quantity} ${f.unit || ""}` : ""}${f.formula_brand ? ` (${f.formula_brand})` : ""}`
+                                        : f.food_introduced || "Solid food"}
                                 </Text>
                                 <Text style={styles.itemSub}>
-                                    {[f.reaction ? `reaction: ${f.reaction}` : "", f.date_recorded].filter(Boolean).join(" · ")}
+                                    {[f.reaction ? `reaction: ${f.reaction}` : "", f.entry_date, f.entry_time].filter(Boolean).join(" · ")}
                                 </Text>
                             </View>
                         </View>

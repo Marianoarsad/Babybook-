@@ -57,8 +57,6 @@ function MainAppShell() {
     // These props are retained for prop compatibility but screens now
     // self-load their records from the backend.
     const [immunizations, setImmunizations] = useState([]);
-    const [feedLogs, setFeedLogs] = useState([]);
-    const [sleepLogs, setSleepLogs] = useState([]);
     const [milestones, setMilestones] = useState([]);
     const [appointments, setAppointments] = useState([]);
 
@@ -77,6 +75,10 @@ function MainAppShell() {
     const [formPediatrician, setFormPediatrician] = useState("");
     const [formObgyne, setFormObgyne] = useState("");
     const [formEmergency, setFormEmergency] = useState("");
+    const [formNickname, setFormNickname] = useState("");
+    const [formPlaceOfBirth, setFormPlaceOfBirth] = useState("");
+    const [formTimeOfBirth, setFormTimeOfBirth] = useState("");
+    const [formHealthCenter, setFormHealthCenter] = useState("");
     // Profile picture: a picked device photo (uploaded on save) or a pasted URL.
     const [formAvatarUri, setFormAvatarUri] = useState("");
     const [formAvatarUrl, setFormAvatarUrl] = useState("");
@@ -164,7 +166,10 @@ function MainAppShell() {
                 profileFormToChild(
                     {
                         name: formName,
+                        nickname: formNickname,
                         dateOfBirth: formDob,
+                        timeOfBirth: formTimeOfBirth,
+                        placeOfBirth: formPlaceOfBirth,
                         gender: formGender,
                         weight: formWeight,
                         height: formHeight,
@@ -173,6 +178,7 @@ function MainAppShell() {
                         pediatrician: formPediatrician,
                         obgyne: formObgyne,
                         emergencyContact: formEmergency,
+                        preferredHealthCenter: formHealthCenter,
                         avatarUrl: formAvatarUrl,
                     },
                     { includeBirth: true },
@@ -191,11 +197,15 @@ function MainAppShell() {
             setSelectedProfileId(prof.id);
             setShowAddProfileModal(false);
             setFormName("");
+            setFormNickname("");
+            setFormPlaceOfBirth("");
+            setFormTimeOfBirth("");
             setFormBloodType("");
             setFormHospital("");
             setFormPediatrician("");
             setFormObgyne("");
             setFormEmergency("");
+            setFormHealthCenter("");
             setFormAvatarUri("");
             setFormAvatarUrl("");
         } catch (e) {
@@ -214,13 +224,17 @@ function MainAppShell() {
                 profileFormToChild(
                     {
                         name: formName,
+                        nickname: formNickname,
                         dateOfBirth: formDob,
+                        timeOfBirth: formTimeOfBirth,
+                        placeOfBirth: formPlaceOfBirth,
                         gender: formGender,
                         bloodType: formBloodType,
                         hospital: formHospital,
                         pediatrician: formPediatrician,
                         obgyne: formObgyne,
                         emergencyContact: formEmergency,
+                        preferredHealthCenter: formHealthCenter,
                         avatarUrl: formAvatarUrl,
                     },
                     { includeBirth: false },
@@ -259,13 +273,21 @@ function MainAppShell() {
         setFormPediatrician(activeProfile.pediatricianName || "");
         setFormObgyne(activeProfile.obgynName || "");
         setFormEmergency(activeProfile.emergencyContact || "");
+        setFormNickname(activeProfile.nickname || "");
+        setFormPlaceOfBirth(activeProfile.placeOfBirth || "");
+        setFormTimeOfBirth(activeProfile.timeOfBirth || "");
+        setFormHealthCenter(activeProfile.preferredHealthCenter || "");
         setFormAvatarUri("");
         setFormAvatarUrl("");
         setShowEditProfileModal(true);
     };
 
-    // Open the add-baby modal with a clean avatar picker.
+    // Open the add-baby modal with a clean avatar picker + fields.
     const openAddModal = () => {
+        setFormNickname("");
+        setFormPlaceOfBirth("");
+        setFormTimeOfBirth("");
+        setFormHealthCenter("");
         setFormAvatarUri("");
         setFormAvatarUrl("");
         setShowAddProfileModal(true);
@@ -403,12 +425,6 @@ function MainAppShell() {
                                 ),
                             )
                         }
-                        feedLogs={feedLogs}
-                        setFeedLogs={setFeedLogs}
-                        sleepLogs={sleepLogs}
-                        setSleepLogs={setSleepLogs}
-                        milestones={milestones}
-                        setMilestones={setMilestones}
                         onChangeView={setCurrentView}
                     />
                 )}
@@ -424,8 +440,6 @@ function MainAppShell() {
                         }
                         immunizations={immunizations}
                         setImmunizations={setImmunizations}
-                        feedLogs={feedLogs}
-                        setFeedLogs={setFeedLogs}
                     />
                 )}
                 {currentView === "growth" && (
@@ -451,7 +465,6 @@ function MainAppShell() {
                         immunizations={immunizations}
                         milestones={milestones}
                         appointments={appointments}
-                        feedLogs={feedLogs}
                         onClose={() => setCurrentView("dashboard")}
                     />
                 )}
@@ -528,6 +541,14 @@ function MainAppShell() {
                                 placeholder="Baby Full Name"
                                 value={formName}
                                 onChangeText={setFormName}
+                            />
+
+                            <Text style={styles.modalLabel}>Nickname</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                placeholder="e.g. Baby E"
+                                value={formNickname}
+                                onChangeText={setFormNickname}
                             />
 
                             <Text style={styles.modalLabel}>
@@ -639,6 +660,26 @@ function MainAppShell() {
                                 onChangeText={setFormEmergency}
                             />
 
+                            <Text style={styles.modalLabel}>Place of Birth</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                value={formPlaceOfBirth}
+                                onChangeText={setFormPlaceOfBirth}
+                            />
+                            <Text style={styles.modalLabel}>Time of Birth (HH:MM)</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                placeholder="e.g. 14:30"
+                                value={formTimeOfBirth}
+                                onChangeText={setFormTimeOfBirth}
+                            />
+                            <Text style={styles.modalLabel}>Preferred Health Center</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                value={formHealthCenter}
+                                onChangeText={setFormHealthCenter}
+                            />
+
                             <View style={styles.modalButtons}>
                                 <TouchableOpacity
                                     onPress={() =>
@@ -686,6 +727,14 @@ function MainAppShell() {
                                 style={styles.modalInput}
                                 value={formName}
                                 onChangeText={setFormName}
+                            />
+
+                            <Text style={styles.modalLabel}>Nickname</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                placeholder="e.g. Baby E"
+                                value={formNickname}
+                                onChangeText={setFormNickname}
                             />
 
                             <Text style={styles.modalLabel}>
@@ -795,6 +844,26 @@ function MainAppShell() {
                                 style={styles.modalInput}
                                 value={formEmergency}
                                 onChangeText={setFormEmergency}
+                            />
+
+                            <Text style={styles.modalLabel}>Place of Birth</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                value={formPlaceOfBirth}
+                                onChangeText={setFormPlaceOfBirth}
+                            />
+                            <Text style={styles.modalLabel}>Time of Birth (HH:MM)</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                placeholder="e.g. 14:30"
+                                value={formTimeOfBirth}
+                                onChangeText={setFormTimeOfBirth}
+                            />
+                            <Text style={styles.modalLabel}>Preferred Health Center</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                value={formHealthCenter}
+                                onChangeText={setFormHealthCenter}
                             />
 
                             <View style={styles.modalButtons}>

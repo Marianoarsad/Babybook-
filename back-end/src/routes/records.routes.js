@@ -1,8 +1,37 @@
 const express = require("express");
+const { ApiError } = require("../middleware/error");
 const { requireAuth, requireChildOwnership } = require("../middleware/auth");
 const { createResourceRouter } = require("../utils/resource");
 
 const router = express.Router();
+
+const VALID_UNITS = ["oz", "mL", "L"];
+const VALID_MILK = ["Formula", "Breastmilk", "Mixed"];
+
+// Nutrition validation — reject invalid units and missing required fields.
+function validateNutrition(data, { isCreate }) {
+    if (data.entry_type !== undefined && !["milk", "solid"].includes(data.entry_type)) {
+        throw new ApiError(400, "entry_type must be 'milk' or 'solid'");
+    }
+    if (data.unit !== undefined && data.unit !== null && data.unit !== "" && !VALID_UNITS.includes(data.unit)) {
+        throw new ApiError(400, "Invalid unit — use oz, mL, or L");
+    }
+    if (data.milk_type !== undefined && data.milk_type !== null && data.milk_type !== "" && !VALID_MILK.includes(data.milk_type)) {
+        throw new ApiError(400, "Invalid milk type");
+    }
+    if (isCreate) {
+        const type = data.entry_type || "milk";
+        if (type === "milk") {
+            if (!data.milk_type) throw new ApiError(400, "Milk type is required");
+            if (data.quantity === undefined || data.quantity === null || data.quantity === "")
+                throw new ApiError(400, "Quantity is required");
+            if (Number(data.quantity) <= 0) throw new ApiError(400, "Quantity must be greater than 0");
+            if (!data.unit) throw new ApiError(400, "Unit is required");
+        } else if (!data.food_introduced) {
+            throw new ApiError(400, "Food introduced is required for a solid-food entry");
+        }
+    }
+}
 
 // Map each child-scoped collection to its table + writable columns.
 const RESOURCES = [
@@ -39,33 +68,18 @@ const RESOURCES = [
     {
         path: "nutrition",
         table: "nutrition_records",
-        columns: ["feeding_type", "food_introduced", "reaction", "date_recorded", "notes"],
-        orderBy: "date_recorded DESC NULLS LAST, id DESC",
+        columns: [
+            "entry_type", "milk_type", "formula_brand", "quantity", "unit",
+            "food_introduced", "reaction", "entry_date", "entry_time", "notes",
+        ],
+        orderBy: "entry_date DESC NULLS LAST, entry_time DESC NULLS LAST, id DESC",
+        validate: validateNutrition,
     },
     {
         path: "reminders",
         table: "reminders",
         columns: ["reminder_type", "title", "reminder_date", "status", "vaccination_id", "checkup_id"],
         orderBy: "reminder_date ASC, id DESC",
-    },
-    // --- daily trackers ---
-    {
-        path: "feeds",
-        table: "feed_logs",
-        columns: ["feed_type", "amount_ml", "grams", "fed_at", "notes"],
-        orderBy: "fed_at DESC, id DESC",
-    },
-    {
-        path: "sleeps",
-        table: "sleep_logs",
-        columns: ["start_at", "end_at", "total_minutes"],
-        orderBy: "start_at DESC, id DESC",
-    },
-    {
-        path: "temperatures",
-        table: "temperature_logs",
-        columns: ["celsius", "taken_at", "notes"],
-        orderBy: "taken_at DESC, id DESC",
     },
 ];
 
@@ -74,7 +88,7 @@ for (const r of RESOURCES) {
         `/:childId/${r.path}`,
         requireAuth,
         requireChildOwnership,
-        createResourceRouter({ table: r.table, columns: r.columns, orderBy: r.orderBy })
+        createResourceRouter({ table: r.table, columns: r.columns, orderBy: r.orderBy, validate: r.validate })
     );
 }
 

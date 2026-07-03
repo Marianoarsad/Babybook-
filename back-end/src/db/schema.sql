@@ -8,10 +8,8 @@
 DROP TABLE IF EXISTS access_logs CASCADE;
 DROP TABLE IF EXISTS shared_records CASCADE;
 DROP TABLE IF EXISTS reminders CASCADE;
+DROP TABLE IF EXISTS record_attachments CASCADE;
 DROP TABLE IF EXISTS memories CASCADE;
-DROP TABLE IF EXISTS temperature_logs CASCADE;
-DROP TABLE IF EXISTS sleep_logs CASCADE;
-DROP TABLE IF EXISTS feed_logs CASCADE;
 DROP TABLE IF EXISTS nutrition_records CASCADE;
 DROP TABLE IF EXISTS milestones CASCADE;
 DROP TABLE IF EXISTS growth_records CASCADE;
@@ -66,6 +64,7 @@ CREATE TABLE children (
     user_id                 INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     first_name              VARCHAR(50) NOT NULL,
     last_name               VARCHAR(50),
+    nickname                VARCHAR(50),
     date_of_birth           DATE,
     time_of_birth           TIME,
     sex                     VARCHAR(10),
@@ -183,54 +182,35 @@ CREATE TRIGGER trg_milestones_updated BEFORE UPDATE ON milestones
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- =========================================================
--- NUTRITION RECORDS — structured (feeding type, food introduced, reactions).
+-- NUTRITION RECORDS — unified milk + solid-food tracker.
+--   entry_type 'milk'  -> milk_type / formula_brand / quantity / unit
+--   entry_type 'solid' -> food_introduced / reaction
+-- Stored per day (entry_date); edits overwrite in place (updated_at moves).
 -- =========================================================
 CREATE TABLE nutrition_records (
     id              SERIAL PRIMARY KEY,
     child_id        INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
-    feeding_type    VARCHAR(50),
+    entry_type      VARCHAR(10) NOT NULL DEFAULT 'milk'
+                    CHECK (entry_type IN ('milk', 'solid')),
+    -- milk fields
+    milk_type       VARCHAR(20) CHECK (milk_type IN ('Formula', 'Breastmilk', 'Mixed')),
+    formula_brand   VARCHAR(100),
+    quantity        DECIMAL(7,2),
+    unit            VARCHAR(5) CHECK (unit IN ('oz', 'mL', 'L')),
+    -- solid fields
     food_introduced VARCHAR(150),
     reaction        VARCHAR(150),
-    date_recorded   DATE,
+    -- shared
+    entry_date      DATE NOT NULL DEFAULT CURRENT_DATE,
+    entry_time      TIME,
     notes           TEXT,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_nutrition_child ON nutrition_records(child_id);
-
--- =========================================================
--- DAILY TRACKERS (beyond the paper's ERD — note in Ch.3 if adopted)
--- =========================================================
-CREATE TABLE feed_logs (
-    id         SERIAL PRIMARY KEY,
-    child_id   INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
-    feed_type  VARCHAR(20) NOT NULL CHECK (feed_type IN ('milk', 'solids')),
-    amount_ml  INTEGER,
-    grams      INTEGER,
-    fed_at     TIMESTAMPTZ NOT NULL,
-    notes      TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX idx_feed_child ON feed_logs(child_id);
-
-CREATE TABLE sleep_logs (
-    id            SERIAL PRIMARY KEY,
-    child_id      INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
-    start_at      TIMESTAMPTZ NOT NULL,
-    end_at        TIMESTAMPTZ,
-    total_minutes INTEGER,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX idx_sleep_child ON sleep_logs(child_id);
-
-CREATE TABLE temperature_logs (
-    id         SERIAL PRIMARY KEY,
-    child_id   INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
-    celsius    DECIMAL(4,2) NOT NULL,
-    taken_at   TIMESTAMPTZ NOT NULL,
-    notes      TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX idx_temperature_child ON temperature_logs(child_id);
+CREATE INDEX idx_nutrition_date ON nutrition_records(child_id, entry_date);
+CREATE TRIGGER trg_nutrition_updated BEFORE UPDATE ON nutrition_records
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- =========================================================
 -- MEMORIES — photo_url points to a locally stored file.
@@ -299,3 +279,21 @@ CREATE TABLE access_logs (
 );
 CREATE INDEX idx_access_share ON access_logs(share_id);
 CREATE INDEX idx_access_child ON access_logs(child_id);
+
+-- =========================================================
+-- RECORD ATTACHMENTS — supporting photo/document per health record.
+-- Polymorphic: record_id points to vaccinations / checkups / medical_history
+-- depending on record_type. Cleaned up with the child (cascade) or on record
+-- delete (handled in the attachments route).
+-- =========================================================
+CREATE TABLE record_attachments (
+    id           SERIAL PRIMARY KEY,
+    child_id     INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    record_type  VARCHAR(20) NOT NULL
+                 CHECK (record_type IN ('vaccination', 'medication', 'illness', 'hospitalization', 'checkup')),
+    record_id    INTEGER NOT NULL,
+    file_url     TEXT NOT NULL,
+    uploaded_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_attach_record ON record_attachments(record_type, record_id);
+CREATE INDEX idx_attach_child ON record_attachments(child_id);

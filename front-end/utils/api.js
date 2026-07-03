@@ -146,6 +146,18 @@ export const api = {
         return request("POST", `/api/children/${childId}/avatar`, form, { isForm: true });
     },
 
+    // --- record attachments (mandatory supporting photo per health record) ---
+    listAttachments: (childId) => request("GET", `/api/children/${childId}/attachments`),
+    uploadAttachment: async (childId, { recordType, recordId, photoUri, fileUrl }) => {
+        const form = new FormData();
+        form.append("record_type", recordType);
+        form.append("record_id", String(recordId));
+        if (photoUri) await appendPhoto(form, "photo", photoUri, "doc.jpg");
+        else if (fileUrl) form.append("file_url", fileUrl);
+        return request("POST", `/api/children/${childId}/attachments`, form, { isForm: true });
+    },
+    deleteAttachment: (childId, id) => request("DELETE", `/api/children/${childId}/attachments/${id}`),
+
     // --- generic child records (vaccinations, growth, milestones, etc.) ---
     listRecords: (childId, resource) => request("GET", `/api/children/${childId}/${resource}`),
     createRecord: (childId, resource, b) => request("POST", `/api/children/${childId}/${resource}`, b),

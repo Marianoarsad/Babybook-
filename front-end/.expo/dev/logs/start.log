@@ -1227,3 +1227,192 @@
 {"_e":"metro:client_log","_t":1783003375801,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
 {"_e":"metro:client_log","_t":1783003485382,"level":"warn","data":["Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md"]}
 {"_e":"metro:client_log","_t":1783003485382,"level":"warn","data":["props.pointerEvents is deprecated. Use style.pointerEvents"]}
+{"_e":"root:init","_t":1783003574903,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1783003574905,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1783003574908,"mode":"development","files":[],"env":{}}
+{"_e":"devserver:start","_t":1783003575336,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../..\\..\\app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1783003575799,"serverRoot":"../..\\..","projectRoot":"../..\\..","exporting":false,"flags":{"autolinkingModuleResolution":false,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:instantiate","_t":1783003581041,"atlas":false,"workers":8,"host":"::","port":8081}
+{"_e":"metro:bundling:started","_t":1783006899210,"id":"1","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783006900164,"id":"1","total":495,"ms":953.7667}
+{"_e":"metro:client_log","_t":1783006916755,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783006916757,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783006916757,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1783006932592,"level":"warn","data":["Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md"]}
+{"_e":"metro:client_log","_t":1783006932593,"level":"warn","data":["props.pointerEvents is deprecated. Use style.pointerEvents"]}
+{"_e":"metro:bundling:started","_t":1783007074760,"id":"5","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783007074800,"id":"5","total":1,"ms":40.1596}
+{"_e":"metro:client_log","_t":1783007092378,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783007092379,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783007092379,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:bundling:started","_t":1783007337140,"id":"9","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783007337184,"id":"9","total":1,"ms":43.619}
+{"_e":"metro:client_log","_t":1783007354747,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783007354747,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783007354748,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1783007422251,"level":"log","data":["avatar upload:","No image provided"]}
+{"_e":"metro:client_log","_t":1783007425936,"level":"log","data":["avatar upload:","No image provided"]}
+{"_e":"metro:client_log","_t":1783007451433,"level":"log","data":["avatar upload:","No image provided"]}
+{"_e":"metro:bundling:started","_t":1783007470043,"id":"g","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783007470078,"id":"g","total":1,"ms":34.2353}
+{"_e":"metro:client_log","_t":1783007487610,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783007487611,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783007487612,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1783007592489,"level":"log","data":["avatar upload:","No image provided"]}
+{"_e":"metro:client_log","_t":1783007593784,"level":"log","data":["avatar upload:","No image provided"]}
+{"_e":"metro:client_log","_t":1783007607819,"level":"log","data":["avatar upload:","No image provided"]}
+{"_e":"metro:client_log","_t":1783007631403,"level":"log","data":["avatar upload:","No image provided"]}
+{"_e":"metro:client_log","_t":1783007631525,"level":"log","data":["avatar upload:","No image provided"]}
+{"_e":"metro:bundling:started","_t":1783007858573,"id":"l","platform":"web","environment":null,"entry":"utils\\api.js"}
+{"_e":"metro:bundling:started","_t":1783007873348,"id":"m","platform":"web","environment":null,"entry":"utils\\api.js"}
+{"_e":"metro:bundling:started","_t":1783007878467,"id":"n","platform":"web","environment":null,"entry":"utils\\api.js"}
+{"_e":"metro:bundling:started","_t":1783007888075,"id":"o","platform":"web","environment":null,"entry":"utils\\api.js"}
+{"_e":"metro:bundling:started","_t":1783007989958,"id":"p","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783007990018,"id":"p","total":1,"ms":60.3403}
+{"_e":"metro:client_log","_t":1783008007524,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783008007525,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783008007525,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1783008029928,"level":"log","data":["avatar upload:","Unsupported image type"]}
+{"_e":"metro:bundling:started","_t":1783008151520,"id":"u","platform":"web","environment":null,"entry":"utils\\api.js"}
+{"_e":"metro:bundling:started","_t":1783008420585,"id":"v","platform":"web","environment":null,"entry":"utils\\api.js"}
+{"_e":"metro:client_log","_t":1783010496733,"level":"warn","data":["Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md"]}
+{"_e":"metro:client_log","_t":1783010496734,"level":"warn","data":["props.pointerEvents is deprecated. Use style.pointerEvents"]}
+{"_e":"metro:bundling:started","_t":1783010593392,"id":"w","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783010593436,"id":"w","total":1,"ms":44.0373}
+{"_e":"metro:bundling:started","_t":1783010601643,"id":"y","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783010601676,"id":"y","total":1,"ms":32.8543}
+{"_e":"metro:client_log","_t":1783010619286,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783010619286,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783010619287,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1783010685411,"level":"warn","data":["Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md"]}
+{"_e":"metro:client_log","_t":1783010685411,"level":"warn","data":["props.pointerEvents is deprecated. Use style.pointerEvents"]}
+{"_e":"metro:bundling:started","_t":1783010731799,"id":"12","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783010731837,"id":"12","total":1,"ms":38.5767}
+{"_e":"metro:client_log","_t":1783010749358,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783010749358,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783010749358,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1783010771887,"level":"warn","data":["Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md"]}
+{"_e":"metro:client_log","_t":1783010771887,"level":"warn","data":["props.pointerEvents is deprecated. Use style.pointerEvents"]}
+{"_e":"metro:bundling:started","_t":1783010960502,"id":"18","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783010960549,"id":"18","total":1,"ms":47.0459}
+{"_e":"metro:client_log","_t":1783010961160,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783010961160,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783010961160,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1783010992653,"level":"warn","data":["props.pointerEvents is deprecated. Use style.pointerEvents"]}
+{"_e":"metro:bundling:started","_t":1783011022580,"id":"1c","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783011022623,"id":"1c","total":1,"ms":43.5266}
+{"_e":"metro:client_log","_t":1783011022861,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783011022862,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783011022862,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1783011423264,"level":"warn","data":["props.pointerEvents is deprecated. Use style.pointerEvents"]}
+{"_e":"metro:bundling:started","_t":1783011445930,"id":"1h","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783011445967,"id":"1h","total":1,"ms":37.4257}
+{"_e":"metro:client_log","_t":1783011446180,"level":"info","data":["%cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools","font-weight:bold"]}
+{"_e":"metro:client_log","_t":1783011446180,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783011446181,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783011446181,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1783011456114,"level":"warn","data":["props.pointerEvents is deprecated. Use style.pointerEvents"]}
+{"_e":"metro:bundling:started","_t":1783012330200,"id":"1k","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783012330250,"id":"1k","total":1,"ms":49.3689}
+{"_e":"metro:client_log","_t":1783012330453,"level":"info","data":["%cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools","font-weight:bold"]}
+{"_e":"metro:client_log","_t":1783012330453,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783012330453,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783012330453,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:bundling:started","_t":1783012333321,"id":"1n","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783012333365,"id":"1n","total":1,"ms":43.7082}
+{"_e":"metro:client_log","_t":1783012333608,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783012333608,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783012333608,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1783012336394,"level":"warn","data":["props.pointerEvents is deprecated. Use style.pointerEvents"]}
+{"_e":"metro:client_log","_t":1783012345965,"level":"warn","data":["props.pointerEvents is deprecated. Use style.pointerEvents"]}
+{"_e":"metro:bundling:started","_t":1783012442702,"id":"1r","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783012442754,"id":"1r","total":1,"ms":51.0486}
+{"_e":"metro:client_log","_t":1783012442928,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783012442928,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783012442928,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1783012446658,"level":"warn","data":["props.pointerEvents is deprecated. Use style.pointerEvents"]}
+{"_e":"metro:client_log","_t":1783012462931,"level":"warn","data":["Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md"]}
+{"_e":"metro:bundling:started","_t":1783012462944,"id":"1v","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783012462987,"id":"1v","total":1,"ms":42.7635}
+{"_e":"metro:client_log","_t":1783012463180,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783012463180,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783012463180,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1783012466691,"level":"log","data":["share refresh:","User no longer exists"]}
+{"_e":"metro:client_log","_t":1783012468896,"level":"warn","data":["props.pointerEvents is deprecated. Use style.pointerEvents"]}
+{"_e":"metro:client_log","_t":1783012468975,"level":"warn","data":["Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md"]}
+{"_e":"metro:client_log","_t":1783012471019,"level":"log","data":["load profile:","User no longer exists"]}
+{"_e":"metro:bundling:started","_t":1783013312834,"id":"1z","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783013312876,"id":"1z","total":1,"ms":41.9805}
+{"_e":"metro:client_log","_t":1783013313161,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783013313162,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783013313162,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1783013317482,"level":"warn","data":["props.pointerEvents is deprecated. Use style.pointerEvents"]}
+{"_e":"metro:bundling:started","_t":1783013439071,"id":"23","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783013439112,"id":"23","total":1,"ms":40.6939}
+{"_e":"metro:client_log","_t":1783013439394,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783013439394,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783013439394,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:bundling:started","_t":1783013444833,"id":"27","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783013444866,"id":"27","total":1,"ms":33.2152}
+{"_e":"metro:client_log","_t":1783013445052,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783013445052,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783013445052,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1783013492816,"level":"warn","data":["props.pointerEvents is deprecated. Use style.pointerEvents"]}
+{"_e":"metro:client_log","_t":1783013520245,"level":"warn","data":["props.pointerEvents is deprecated. Use style.pointerEvents"]}
+{"_e":"metro:bundling:started","_t":1783013744446,"id":"2c","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783013744486,"id":"2c","total":1,"ms":40.2781}
+{"_e":"metro:client_log","_t":1783013744769,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783013744769,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783013744769,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:bundling:started","_t":1783013749566,"id":"2g","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783013749606,"id":"2g","total":1,"ms":40.2474}
+{"_e":"metro:client_log","_t":1783013749899,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783013749899,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783013749899,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1783013768695,"level":"warn","data":["props.pointerEvents is deprecated. Use style.pointerEvents"]}
+{"_e":"metro:client_log","_t":1783013776350,"level":"warn","data":["props.pointerEvents is deprecated. Use style.pointerEvents"]}
+{"_e":"metro:bundling:started","_t":1783014049437,"id":"2l","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783014049496,"id":"2l","total":1,"ms":58.6928}
+{"_e":"metro:client_log","_t":1783014049990,"level":"info","data":["%cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools","font-weight:bold"]}
+{"_e":"metro:client_log","_t":1783014049991,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783014049991,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783014049991,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:bundling:started","_t":1783047702429,"id":"2p","platform":"web","environment":null,"entry":"components\\ProfessionalView.js"}
+{"_e":"metro:bundling:started","_t":1783059937009,"id":"2r","platform":"web","environment":null,"entry":"components\\ProfessionalView.js"}
+{"_e":"metro:bundling:started","_t":1783091822348,"id":"2s","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783091824636,"id":"2s","total":1,"ms":2285.1494}
+{"_e":"metro:client_log","_t":1783091826192,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783091826192,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783091826192,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1783091841662,"level":"warn","data":["Cannot record touch end without a touch start.\n","Touch End: {\"identifier\":0,\"pageX\":469,\"pageY\":37,\"timestamp\":19555.299999952316}\n","Touch Bank: []"]}
+{"_e":"metro:bundling:started","_t":1783094393055,"id":"2w","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783094393124,"id":"2w","total":1,"ms":66.8507}
+{"_e":"metro:client_log","_t":1783094394722,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783094394723,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783094394723,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1783094452631,"level":"log","data":["load dashboard records:","Not found"]}
+{"_e":"metro:client_log","_t":1783097145526,"level":"log","data":["load growth records:","column \"entry_date\" does not exist"]}
+{"_e":"metro:client_log","_t":1783098118935,"level":"log","data":["load attachments:","relation \"record_attachments\" does not exist"]}
+{"_e":"metro:client_log","_t":1783098126075,"level":"log","data":["load attachments:","relation \"record_attachments\" does not exist"]}
+{"_e":"metro:client_log","_t":1783098129944,"level":"log","data":["load attachments:","relation \"record_attachments\" does not exist"]}
+{"_e":"metro:bundling:started","_t":1783098160269,"id":"31","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783098160329,"id":"31","total":1,"ms":59.7504}
+{"_e":"metro:client_log","_t":1783098161793,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783098161793,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783098161793,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1783098173966,"level":"log","data":["load attachments:","relation \"record_attachments\" does not exist"]}
+{"_e":"metro:client_log","_t":1783098178858,"level":"log","data":["load nutrition:","column \"entry_date\" does not exist"]}
+{"_e":"metro:bundling:started","_t":1783098716571,"id":"36","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783098716619,"id":"36","total":1,"ms":47.5458}
+{"_e":"metro:client_log","_t":1783098718133,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783098718133,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783098718133,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1783098752634,"level":"warn","data":["Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md"]}
+{"_e":"metro:client_log","_t":1783098752634,"level":"warn","data":["props.pointerEvents is deprecated. Use style.pointerEvents"]}
+{"_e":"metro:bundling:started","_t":1783098828990,"id":"3a","platform":"web","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1783098829037,"id":"3a","total":1,"ms":46.2799}
+{"_e":"metro:client_log","_t":1783098846763,"level":"warn","data":["[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect."]}
+{"_e":"metro:client_log","_t":1783098846764,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
+{"_e":"metro:client_log","_t":1783098846764,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"metro:client_log","_t":1783098876024,"level":"warn","data":["Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md"]}
+{"_e":"metro:client_log","_t":1783098876024,"level":"warn","data":["props.pointerEvents is deprecated. Use style.pointerEvents"]}

@@ -10,8 +10,9 @@ import {
     Image,
 } from "react-native";
 import { api } from "../utils/api";
-import { milestoneToApp, checkupToApp, nutritionToApp } from "../utils/adapters";
+import { milestoneToApp, checkupToApp } from "../utils/adapters";
 import { scheduleReminder, morningOf } from "../utils/notifications";
+import { pickImage, pickerAvailable } from "../utils/imagePicker";
 import { useToast } from "./ui/Toast";
 import { useLanguage } from "../context/LanguageContext";
 import {
@@ -20,6 +21,9 @@ import {
     MemoryVisualCard,
     EmptyStateCard,
 } from "./common/Cards";
+import PhotoAttach from "./ui/PhotoAttach";
+import ImageViewer from "./ui/ImageViewer";
+import NutritionTracker from "./NutritionTracker";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
 const ageChecklists = [
@@ -102,24 +106,17 @@ export default function Growth({
     // Milestones, appointments and nutrition load from / persist to the backend.
     const [mstones, setMstones] = useState([]);
     const [appts, setAppts] = useState([]);
-    const [nutrition, setNutrition] = useState([]);
-    const [showNutritionModal, setShowNutritionModal] = useState(false);
-    const [nutFeeding, setNutFeeding] = useState("Breastfeeding");
-    const [nutFood, setNutFood] = useState("");
-    const [nutReaction, setNutReaction] = useState("");
     useEffect(() => {
         let active = true;
         (async () => {
             try {
-                const [mRows, cRows, nRows] = await Promise.all([
+                const [mRows, cRows] = await Promise.all([
                     api.listRecords(profile.id, "milestones"),
                     api.listRecords(profile.id, "checkups"),
-                    api.listRecords(profile.id, "nutrition"),
                 ]);
                 if (!active) return;
                 setMstones(mRows.map(milestoneToApp));
                 setAppts(cRows.map(checkupToApp));
-                setNutrition(nRows.map(nutritionToApp));
             } catch (e) {
                 console.log("load growth records:", e.message);
             }
@@ -129,23 +126,87 @@ export default function Growth({
         };
     }, [profile.id]);
 
-    const handleAddNutrition = async () => {
-        const food = nutFood;
-        const reaction = nutReaction;
-        const feeding = nutFeeding;
-        setShowNutritionModal(false);
-        setNutFood("");
-        setNutReaction("");
+    // ===== Checkup supporting-photo attachments =====
+    const [attachUri, setAttachUri] = useState("");
+    const [attachUrl, setAttachUrl] = useState("");
+    const [attachMap, setAttachMap] = useState({});
+    const [viewer, setViewer] = useState(null);
+    const loadAttachments = async () => {
         try {
-            const saved = await api.createRecord(profile.id, "nutrition", {
-                feeding_type: feeding,
-                food_introduced: food || null,
-                reaction: reaction || null,
-                date_recorded: new Date().toISOString().split("T")[0],
-            });
-            setNutrition((prev) => [nutritionToApp(saved), ...prev]);
+            const rows = await api.listAttachments(profile.id);
+            const map = {};
+            for (const a of rows) map[`${a.record_type}:${a.record_id}`] = a;
+            setAttachMap(map);
         } catch (e) {
-            Alert.alert("Error", e.message || "Could not save nutrition record");
+            console.log("load attachments:", e.message);
+        }
+    };
+    useEffect(() => {
+        loadAttachments();
+    }, [profile.id]);
+    const resetAttach = () => {
+        setAttachUri("");
+        setAttachUrl("");
+    };
+    const requireAttach = () => {
+        if (!(attachUri || attachUrl)) {
+            toast.error("A supporting photo is required for this record.");
+            return false;
+        }
+        return true;
+    };
+    const uploadAttachFor = async (recordType, recordId) => {
+        try {
+            const a = await api.uploadAttachment(profile.id, {
+                recordType,
+                recordId,
+                photoUri: attachUri,
+                fileUrl: attachUrl,
+            });
+            setAttachMap((prev) => ({ ...prev, [`${recordType}:${recordId}`]: a }));
+        } catch (e) {
+            console.log("upload attachment:", e.message);
+        }
+        resetAttach();
+    };
+    const attachUrlFor = (type, id) => {
+        const a = attachMap[`${type}:${id}`];
+        return a ? a.file_url : null;
+    };
+    const openViewer = (type, id) => {
+        const a = attachMap[`${type}:${id}`];
+        if (a) setViewer({ uri: a.file_url, type, recordId: id, attachId: a.id });
+    };
+    const replaceInViewer = async () => {
+        if (!viewer || !pickerAvailable()) return;
+        const uri = await pickImage();
+        if (!uri) return;
+        try {
+            const a = await api.uploadAttachment(profile.id, {
+                recordType: viewer.type,
+                recordId: viewer.recordId,
+                photoUri: uri,
+            });
+            setAttachMap((prev) => ({ ...prev, [`${viewer.type}:${viewer.recordId}`]: a }));
+            setViewer((v) => ({ ...v, uri: a.file_url, attachId: a.id }));
+            toast.success("Photo replaced");
+        } catch (e) {
+            toast.error(e.message || "Could not replace photo");
+        }
+    };
+    const deleteInViewer = async () => {
+        if (!viewer) return;
+        try {
+            await api.deleteAttachment(profile.id, viewer.attachId);
+            setAttachMap((prev) => {
+                const n = { ...prev };
+                delete n[`${viewer.type}:${viewer.recordId}`];
+                return n;
+            });
+            setViewer(null);
+            toast.success("Photo removed");
+        } catch (e) {
+            toast.error(e.message || "Could not delete photo");
         }
     };
 
@@ -229,6 +290,7 @@ export default function Growth({
             Alert.alert("Error", "Please fill out required fields");
             return;
         }
+        if (!requireAttach()) return;
         setShowApptModal(false);
         // Persist as a checkup (also feeds the QR consultation snapshot).
         try {
@@ -241,6 +303,7 @@ export default function Growth({
                 status: "scheduled",
             });
             setAppts((prev) => [checkupToApp(saved), ...prev]);
+            await uploadAttachFor("checkup", saved.id);
             // Set a reminder: local notification + backend reminder record.
             const when = morningOf(apptDate);
             if (when) {
@@ -304,6 +367,24 @@ export default function Growth({
                         ]}
                     >
                         Growth
+                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[
+                        styles.tabButton,
+                        growthTab === "nutrition" && styles.tabButtonActive,
+                    ]}
+                    onPress={() => setGrowthTab("nutrition")}
+                >
+                    <Text
+                        numberOfLines={1}
+                        style={[
+                            styles.tabButtonText,
+                            { textAlign: "center" },
+                            growthTab === "nutrition" && styles.tabButtonTextActive,
+                        ]}
+                    >
+                        Nutrition
                     </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -510,35 +591,11 @@ export default function Growth({
                         />
                     </SectionContainerCard>
 
-                    <SectionContainerCard
-                        title="Nutrition Records"
-                        subtitle="Feeding type, foods introduced & reactions"
-                        action={
-                            <TouchableOpacity
-                                onPress={() => setShowNutritionModal(true)}
-                                style={styles.addApptBtn}
-                            >
-                                <Ionicons name="add" size={16} color="#FFFFFF" style={{ marginRight: 4 }} />
-                                <Text style={styles.addApptBtnText}>Add</Text>
-                            </TouchableOpacity>
-                        }
-                    >
-                        {nutrition.length === 0 && (
-                            <EmptyStateCard message="No nutrition records yet." />
-                        )}
-                        {nutrition.map((n, idx) => (
-                            <ListEntryCard
-                                key={n.id || idx}
-                                title={n.foodIntroduced || n.feedingType || "Nutrition"}
-                                subtitle={`${n.feedingType}${n.date ? " · " + n.date : ""}`}
-                                notes={n.reaction ? "Reaction: " + n.reaction : undefined}
-                                icon={<Ionicons name="restaurant-outline" size={18} color="#456155" />}
-                                iconBg="#E6F4EA"
-                            />
-                        ))}
-                    </SectionContainerCard>
                 </View>
             )}
+
+            {/* GROWTH TAB: NUTRITION (unified milk + solids tracker with charts) */}
+            {growthTab === "nutrition" && <NutritionTracker childId={profile.id} />}
 
             {/* GROWTH TAB: CLINIC APPOINTMENTS */}
             {growthTab === "appointments" && (
@@ -548,7 +605,7 @@ export default function Growth({
                         subtitle="Manage scheduled wellness checks and specialist visits"
                         action={
                             <TouchableOpacity
-                                onPress={() => setShowApptModal(true)}
+                                onPress={() => { resetAttach(); setShowApptModal(true); }}
                                 style={styles.addApptBtn}
                             >
                                 <Ionicons
@@ -569,6 +626,8 @@ export default function Growth({
                         {appts.map((appt, idx) => (
                             <ListEntryCard
                                 key={appt.id || idx}
+                                thumbnailUrl={attachUrlFor("checkup", appt.id)}
+                                onThumbnailPress={() => openViewer("checkup", appt.id)}
                                 title={appt.title}
                                 subtitle={`${appt.date} @ ${appt.time}`}
                                 label={
@@ -654,74 +713,6 @@ export default function Growth({
                 </View>
             </Modal>
 
-            {/* Nutrition Modal */}
-            <Modal visible={showNutritionModal} transparent animationType="slide">
-                <View style={styles.modalBg}>
-                    <View style={styles.modalCard}>
-                        <Text style={styles.modalTitle}>Add Nutrition Record</Text>
-
-                        <Text style={styles.modalLabel}>Feeding Type</Text>
-                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-                            {["Breastfeeding", "Formula", "Mixed", "Solids"].map((ft) => (
-                                <TouchableOpacity
-                                    key={ft}
-                                    onPress={() => setNutFeeding(ft)}
-                                    style={{
-                                        paddingHorizontal: 12,
-                                        paddingVertical: 7,
-                                        borderRadius: 14,
-                                        backgroundColor: nutFeeding === ft ? "#456155" : "#F5F5F4",
-                                        borderWidth: 1,
-                                        borderColor: "#E7E5E4",
-                                    }}
-                                >
-                                    <Text
-                                        style={{
-                                            fontSize: 12,
-                                            fontWeight: "700",
-                                            color: nutFeeding === ft ? "#FFFFFF" : "#78716C",
-                                        }}
-                                    >
-                                        {ft}
-                                    </Text>
-                                </TouchableOpacity>
-                            ))}
-                        </View>
-
-                        <Text style={styles.modalLabel}>Food Introduced (optional)</Text>
-                        <TextInput
-                            style={styles.modalInput}
-                            placeholder="e.g. Pureed carrot"
-                            value={nutFood}
-                            onChangeText={setNutFood}
-                        />
-
-                        <Text style={styles.modalLabel}>Reaction (optional)</Text>
-                        <TextInput
-                            style={styles.modalInput}
-                            placeholder="e.g. None / mild rash"
-                            value={nutReaction}
-                            onChangeText={setNutReaction}
-                        />
-
-                        <View style={styles.modalButtons}>
-                            <TouchableOpacity
-                                onPress={() => setShowNutritionModal(false)}
-                                style={styles.modalCancelBtn}
-                            >
-                                <Text style={styles.modalCancelText}>{t("cancel")}</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                onPress={handleAddNutrition}
-                                style={styles.modalSaveBtn}
-                            >
-                                <Text style={styles.modalSaveText}>{t("save")}</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
-            </Modal>
-
             {/* Appointments Modal */}
             <Modal visible={showApptModal} transparent animationType="slide">
                 <View style={styles.modalBg}>
@@ -772,6 +763,14 @@ export default function Growth({
                             onChangeText={setApptNotes}
                         />
 
+                        <PhotoAttach
+                            required
+                            uri={attachUri}
+                            url={attachUrl}
+                            onChangeUri={setAttachUri}
+                            onChangeUrl={setAttachUrl}
+                        />
+
                         <View style={styles.modalButtons}>
                             <TouchableOpacity
                                 onPress={() => setShowApptModal(false)}
@@ -793,6 +792,14 @@ export default function Growth({
                     </View>
                 </View>
             </Modal>
+
+            <ImageViewer
+                visible={!!viewer}
+                uri={viewer ? viewer.uri : null}
+                onClose={() => setViewer(null)}
+                onReplace={replaceInViewer}
+                onDelete={deleteInViewer}
+            />
         </ScrollView>
     );
 }

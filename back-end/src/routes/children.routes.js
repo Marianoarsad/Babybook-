@@ -11,7 +11,7 @@ const router = express.Router();
 
 // Columns a client may set on a child profile.
 const CHILD_COLUMNS = [
-    "first_name", "last_name", "date_of_birth", "time_of_birth", "sex",
+    "first_name", "last_name", "nickname", "date_of_birth", "time_of_birth", "sex",
     "blood_type", "birth_weight", "birth_length", "place_of_birth", "hospital",
     "obgyne_name", "pediatrician_name", "emergency_contact",
     "preferred_health_center", "avatar_url", "allergies", "hereditary_conditions",

@@ -16,6 +16,7 @@ import {
     medHistoryToMed,
 } from "../utils/adapters";
 import { scheduleReminder, morningOf } from "../utils/notifications";
+import { pickImage, pickerAvailable } from "../utils/imagePicker";
 import { useToast } from "./ui/Toast";
 import { useLanguage } from "../context/LanguageContext";
 import {
@@ -23,6 +24,8 @@ import {
     ListEntryCard,
     EmptyStateCard,
 } from "./common/Cards";
+import PhotoAttach from "./ui/PhotoAttach";
+import ImageViewer from "./ui/ImageViewer";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
 export default function Health({
@@ -30,8 +33,6 @@ export default function Health({
     onUpdateProfile,
     immunizations,
     setImmunizations,
-    feedLogs,
-    setFeedLogs,
 }) {
     const { language, t } = useLanguage();
     const toast = useToast();
@@ -118,6 +119,93 @@ export default function Health({
         };
     }, [profile.id]);
 
+    // ===== Mandatory supporting-photo attachments =====
+    const [attachUri, setAttachUri] = useState("");
+    const [attachUrl, setAttachUrl] = useState("");
+    const [attachMap, setAttachMap] = useState({}); // `${type}:${id}` -> attachment row
+    const [viewer, setViewer] = useState(null); // { uri, type, recordId, attachId }
+
+    const loadAttachments = async () => {
+        try {
+            const rows = await api.listAttachments(profile.id);
+            const map = {};
+            for (const a of rows) map[`${a.record_type}:${a.record_id}`] = a;
+            setAttachMap(map);
+        } catch (e) {
+            console.log("load attachments:", e.message);
+        }
+    };
+    useEffect(() => {
+        loadAttachments();
+    }, [profile.id]);
+
+    const resetAttach = () => {
+        setAttachUri("");
+        setAttachUrl("");
+    };
+    const hasAttach = () => !!(attachUri || attachUrl);
+    const requireAttach = () => {
+        if (!hasAttach()) {
+            toast.error("A supporting photo is required for this record.");
+            return false;
+        }
+        return true;
+    };
+    const uploadAttachFor = async (recordType, recordId) => {
+        try {
+            const a = await api.uploadAttachment(profile.id, {
+                recordType,
+                recordId,
+                photoUri: attachUri,
+                fileUrl: attachUrl,
+            });
+            setAttachMap((prev) => ({ ...prev, [`${recordType}:${recordId}`]: a }));
+        } catch (e) {
+            console.log("upload attachment:", e.message);
+        }
+        resetAttach();
+    };
+    const attachUrlFor = (type, id) => {
+        const a = attachMap[`${type}:${id}`];
+        return a ? a.file_url : null;
+    };
+    const openViewer = (type, id) => {
+        const a = attachMap[`${type}:${id}`];
+        if (a) setViewer({ uri: a.file_url, type, recordId: id, attachId: a.id });
+    };
+    const replaceInViewer = async () => {
+        if (!viewer || !pickerAvailable()) return;
+        const uri = await pickImage();
+        if (!uri) return;
+        try {
+            const a = await api.uploadAttachment(profile.id, {
+                recordType: viewer.type,
+                recordId: viewer.recordId,
+                photoUri: uri,
+            });
+            setAttachMap((prev) => ({ ...prev, [`${viewer.type}:${viewer.recordId}`]: a }));
+            setViewer((v) => ({ ...v, uri: a.file_url, attachId: a.id }));
+            toast.success("Photo replaced");
+        } catch (e) {
+            toast.error(e.message || "Could not replace photo");
+        }
+    };
+    const deleteInViewer = async () => {
+        if (!viewer) return;
+        try {
+            await api.deleteAttachment(profile.id, viewer.attachId);
+            setAttachMap((prev) => {
+                const n = { ...prev };
+                delete n[`${viewer.type}:${viewer.recordId}`];
+                return n;
+            });
+            setViewer(null);
+            toast.success("Photo removed");
+        } catch (e) {
+            toast.error(e.message || "Could not delete photo");
+        }
+    };
+
     // Add-vaccine modal state.
     const [showVaxModal, setShowVaxModal] = useState(false);
     const [vaxName, setVaxName] = useState("");
@@ -129,6 +217,7 @@ export default function Health({
             Alert.alert("Error", "Please enter a vaccine name");
             return;
         }
+        if (!requireAttach()) return;
         const name = vaxName;
         const visit = vaxVisit;
         const due = vaxDue;
@@ -144,6 +233,7 @@ export default function Health({
                 status: "scheduled",
             });
             setVaccines((prev) => [...prev, vaccinationToApp(saved)]);
+            await uploadAttachFor("vaccination", saved.id);
             // Set a reminder for the due date: notification + backend record.
             const when = morningOf(due);
             if (when) {
@@ -199,6 +289,7 @@ export default function Health({
             Alert.alert("Error", "Please enter illness name");
             return;
         }
+        if (!requireAttach()) return;
         const title = illnessTitle;
         const desc = illnessDesc;
         setShowIllnessModal(false);
@@ -213,6 +304,7 @@ export default function Health({
                 resolved: false,
             });
             setIllnesses((prev) => [medHistoryToIllness(saved), ...prev]);
+            await uploadAttachFor("illness", saved.id);
             Alert.alert("Success", "Medical condition recorded successfully.");
         } catch (e) {
             Alert.alert("Error", e.message || "Could not save condition");
@@ -224,6 +316,7 @@ export default function Health({
             Alert.alert("Error", "Please enter medication name");
             return;
         }
+        if (!requireAttach()) return;
         const title = medTitle;
         const dosage = medDosage;
         setShowMedModal(false);
@@ -237,6 +330,7 @@ export default function Health({
                 date_recorded: new Date().toISOString().split("T")[0],
             });
             setMedications((prev) => [medHistoryToMed(saved), ...prev]);
+            await uploadAttachFor("medication", saved.id);
             Alert.alert("Success", "Prescribed medication logged successfully.");
         } catch (e) {
             Alert.alert("Error", e.message || "Could not save medication");
@@ -248,6 +342,7 @@ export default function Health({
             Alert.alert("Error", "Please enter a reason for hospitalization");
             return;
         }
+        if (!requireAttach()) return;
         const title = hospTitle;
         const desc = hospDesc;
         setShowHospModal(false);
@@ -262,6 +357,7 @@ export default function Health({
                 resolved: false,
             });
             setHospitalizations((prev) => [medHistoryToIllness(saved), ...prev]);
+            await uploadAttachFor("hospitalization", saved.id);
             Alert.alert("Success", "Hospitalization recorded.");
         } catch (e) {
             Alert.alert("Error", e.message || "Could not save hospitalization");
@@ -351,7 +447,7 @@ export default function Health({
                         subtitle={t("healthVaccinesSub")}
                         action={
                             <TouchableOpacity
-                                onPress={() => setShowVaxModal(true)}
+                                onPress={() => { resetAttach(); setShowVaxModal(true); }}
                                 style={styles.actionBtn}
                             >
                                 <Ionicons name="add" size={16} color="#FFFFFF" />
@@ -402,6 +498,17 @@ export default function Health({
                                         </Text>
                                     )}
                                 </View>
+                                {attachUrlFor("vaccination", vax.id) ? (
+                                    <TouchableOpacity
+                                        onPress={() => openViewer("vaccination", vax.id)}
+                                        style={styles.vaxThumbWrap}
+                                    >
+                                        <Image
+                                            source={{ uri: attachUrlFor("vaccination", vax.id) }}
+                                            style={styles.vaxThumb}
+                                        />
+                                    </TouchableOpacity>
+                                ) : null}
                             </TouchableOpacity>
                         ))}
                     </SectionContainerCard>
@@ -459,7 +566,7 @@ export default function Health({
                         subtitle={t("healthMedicationRemindersSub")}
                         action={
                             <TouchableOpacity
-                                onPress={() => setShowMedModal(true)}
+                                onPress={() => { resetAttach(); setShowMedModal(true); }}
                                 style={styles.actionBtn}
                             >
                                 <Ionicons
@@ -475,6 +582,8 @@ export default function Health({
                         {medications.map((med, idx) => (
                             <ListEntryCard
                                 key={med.id || idx}
+                                thumbnailUrl={attachUrlFor("medication", med.id)}
+                                onThumbnailPress={() => openViewer("medication", med.id)}
                                 title={med.title}
                                 subtitle={`Dosage: ${med.dosage}`}
                                 label={
@@ -557,7 +666,7 @@ export default function Health({
                         subtitle="Triage check-up log records"
                         action={
                             <TouchableOpacity
-                                onPress={() => setShowIllnessModal(true)}
+                                onPress={() => { resetAttach(); setShowIllnessModal(true); }}
                                 style={styles.actionBtn}
                             >
                                 <Ionicons
@@ -575,6 +684,8 @@ export default function Health({
                         {illnesses.map((ill, idx) => (
                             <ListEntryCard
                                 key={ill.id || idx}
+                                thumbnailUrl={attachUrlFor("illness", ill.id)}
+                                onThumbnailPress={() => openViewer("illness", ill.id)}
                                 title={ill.title}
                                 subtitle={`${ill.date}  |  ${ill.resolved ? "Resolved" : "Active"}`}
                                 notes={ill.desc}
@@ -595,7 +706,7 @@ export default function Health({
                         subtitle="Hospital stays and admissions"
                         action={
                             <TouchableOpacity
-                                onPress={() => setShowHospModal(true)}
+                                onPress={() => { resetAttach(); setShowHospModal(true); }}
                                 style={styles.actionBtn}
                             >
                                 <Ionicons name="add" size={16} color="#FFFFFF" />
@@ -609,6 +720,8 @@ export default function Health({
                         {hospitalizations.map((h, idx) => (
                             <ListEntryCard
                                 key={h.id || idx}
+                                thumbnailUrl={attachUrlFor("hospitalization", h.id)}
+                                onThumbnailPress={() => openViewer("hospitalization", h.id)}
                                 title={h.title}
                                 subtitle={h.date}
                                 notes={h.desc}
@@ -641,6 +754,14 @@ export default function Health({
                             style={styles.modalInput}
                             value={hospDesc}
                             onChangeText={setHospDesc}
+                        />
+
+                        <PhotoAttach
+                            required
+                            uri={attachUri}
+                            url={attachUrl}
+                            onChangeUri={setAttachUri}
+                            onChangeUrl={setAttachUrl}
                         />
 
                         <View style={styles.modalButtons}>
@@ -687,6 +808,14 @@ export default function Health({
                             onChangeText={setIllnessDesc}
                         />
 
+                        <PhotoAttach
+                            required
+                            uri={attachUri}
+                            url={attachUrl}
+                            onChangeUri={setAttachUri}
+                            onChangeUrl={setAttachUrl}
+                        />
+
                         <View style={styles.modalButtons}>
                             <TouchableOpacity
                                 onPress={() => setShowIllnessModal(false)}
@@ -731,6 +860,14 @@ export default function Health({
                             style={styles.modalInput}
                             value={medDosage}
                             onChangeText={setMedDosage}
+                        />
+
+                        <PhotoAttach
+                            required
+                            uri={attachUri}
+                            url={attachUrl}
+                            onChangeUri={setAttachUri}
+                            onChangeUrl={setAttachUrl}
                         />
 
                         <View style={styles.modalButtons}>
@@ -788,6 +925,14 @@ export default function Health({
                             onChangeText={setVaxDue}
                         />
 
+                        <PhotoAttach
+                            required
+                            uri={attachUri}
+                            url={attachUrl}
+                            onChangeUri={setAttachUri}
+                            onChangeUrl={setAttachUrl}
+                        />
+
                         <View style={styles.modalButtons}>
                             <TouchableOpacity
                                 onPress={() => setShowVaxModal(false)}
@@ -809,6 +954,14 @@ export default function Health({
                     </View>
                 </View>
             </Modal>
+
+            <ImageViewer
+                visible={!!viewer}
+                uri={viewer ? viewer.uri : null}
+                onClose={() => setViewer(null)}
+                onReplace={replaceInViewer}
+                onDelete={deleteInViewer}
+            />
         </ScrollView>
     );
 }
@@ -882,6 +1035,17 @@ const styles = StyleSheet.create({
         borderBottomWidth: 1,
         borderBottomColor: "#F5F5F4",
     },
+    vaxThumbWrap: {
+        width: 42,
+        height: 42,
+        borderRadius: 10,
+        overflow: "hidden",
+        marginLeft: 8,
+        borderWidth: 1,
+        borderColor: "#ECE9E4",
+        backgroundColor: "#F5F5F4",
+    },
+    vaxThumb: { width: "100%", height: "100%" },
     checkbox: {
         width: 20,
         height: 20,

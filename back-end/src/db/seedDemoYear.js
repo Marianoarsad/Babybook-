@@ -179,25 +179,6 @@ async function seed() {
                 [childId, ymd(DOB), ymd(addMonths(DOB, 5)), ymd(addMonths(DOB, 8)), ymd(addMonths(DOB, 9.5))]
             );
 
-            // ================= TEMPERATURE LOGS =================
-            // A couple of normal spot-checks, plus clusters during the two illnesses.
-            const tempRows = [
-                [childId, 36.7, addMonths(DOB, 3), null],
-                [childId, 36.8, addMonths(DOB, 7), null],
-                [childId, 37.8, addMonths(DOB, 5), "Felt warm, started monitoring."],
-                [childId, 38.1, addDays(addMonths(DOB, 5), 1), "Called pediatrician, advised fluids and rest."],
-                [childId, 37.2, addDays(addMonths(DOB, 5), 2), "Back to normal."],
-                [childId, 38.4, addMonths(DOB, 9.5), "Fussy, tugging at ear — prompted sick visit."],
-                [childId, 38.0, addDays(addMonths(DOB, 9.5), 1), "First day of amoxicillin."],
-                [childId, 37.1, addDays(addMonths(DOB, 9.5), 3), "Fever broke, ear pain improving."],
-            ];
-            for (const [cid, celsius, at, notes] of tempRows) {
-                await c.query(
-                    `INSERT INTO temperature_logs (child_id, celsius, taken_at, notes) VALUES ($1,$2,$3,$4)`,
-                    [cid, celsius, at.toISOString(), notes]
-                );
-            }
-
             // ================= GROWTH RECORDS =================
             for (const g of GROWTH_CURVE) {
                 const date = jitterDays(addMonths(DOB, g.m), 2);
@@ -246,27 +227,26 @@ async function seed() {
                 [childId]
             );
 
-            // ================= NUTRITION RECORDS =================
-            const nutritionRows = [
-                [0, "Exclusive Breastfeeding", null, "None", "Feeding every 2-3 hours."],
-                [6, "Breastfeeding + Solids", "Rice Cereal", "None", "First solid food."],
-                [6.5, "Breastfeeding + Solids", "Mashed Banana", "None", null],
-                [7, "Breastfeeding + Solids", "Avocado", "None", null],
-                [7.5, "Breastfeeding + Solids", "Sweet Potato", "None", null],
-                [8, "Breastfeeding + Solids", "Scrambled Egg", "Mild rash around mouth — resolved within hours", "Discussed with pediatrician; continue monitoring."],
-                [8.5, "Breastfeeding + Solids", "Pureed Chicken", "None", null],
-                [9, "Breastfeeding + Solids", "Oats & Yogurt", "None", null],
-                [10, "Breastfeeding + Solids", "Peanut Butter (thinned)", "None", "Introduced per pediatrician guidance, watched closely."],
-                [11, "Breastfeeding + Table Foods", "Soft Finger Foods", "None", null],
-                [12, "Whole Milk + Table Foods", "Transitioning off breast milk", "None", "Three meals + two snacks a day now."],
+            // ================= NUTRITION: solid-food introductions =================
+            const solidRows = [
+                [6, "Rice Cereal", "None", "First solid food."],
+                [6.5, "Mashed Banana", "None", null],
+                [7, "Avocado", "None", null],
+                [7.5, "Sweet Potato", "None", null],
+                [8, "Scrambled Egg", "Mild rash around mouth — resolved within hours", "Discussed with pediatrician; continue monitoring."],
+                [8.5, "Pureed Chicken", "None", null],
+                [9, "Oats & Yogurt", "None", null],
+                [10, "Peanut Butter (thinned)", "None", "Introduced per pediatrician guidance, watched closely."],
+                [11, "Soft Finger Foods", "None", null],
+                [12, "Table Foods", "None", "Three meals + two snacks a day now."],
             ];
-            for (const [m, feedingType, food, reaction, notes] of nutritionRows) {
+            for (const [m, food, reaction, notes] of solidRows) {
                 const date = jitterDays(addMonths(DOB, m), 2);
                 if (date > NOW) continue;
                 await c.query(
-                    `INSERT INTO nutrition_records (child_id, feeding_type, food_introduced, reaction, date_recorded, notes)
-                     VALUES ($1,$2,$3,$4,$5,$6)`,
-                    [childId, feedingType, food, reaction, ymd(date), notes]
+                    `INSERT INTO nutrition_records (child_id, entry_type, food_introduced, reaction, entry_date, entry_time, notes)
+                     VALUES ($1,'solid',$2,$3,$4,'12:00',$5)`,
+                    [childId, food, reaction, ymd(date), notes]
                 );
             }
 
@@ -319,67 +299,42 @@ async function seed() {
                 [childId, ymd(addMonths(DOB, 12))]
             );
 
-            // ================= DAILY TRACKERS: feeds + sleep =================
-            // Age-appropriate frequency/volume by month, used both for the dense
-            // recent window and the sparse historical sample days below.
-            function feedPlanFor(ageMonths) {
-                if (ageMonths < 2) return { perDay: 8, ml: [80, 110], solids: false };
-                if (ageMonths < 5) return { perDay: 6, ml: [110, 150], solids: false };
-                if (ageMonths < 8) return { perDay: 5, ml: [150, 180], solids: true };
-                return { perDay: 4, ml: [180, 240], solids: true };
+            // ================= NUTRITION: daily milk intake (drives the charts) =================
+            // Age-appropriate frequency/volume and milk type by month. The milk type
+            // transitions over time so the "duration per milk type" analytics have
+            // clear consecutive periods (Breastmilk -> Mixed -> Formula).
+            function milkPlanFor(ageMonths) {
+                if (ageMonths < 2) return { perDay: 7, ml: [80, 110] };
+                if (ageMonths < 5) return { perDay: 6, ml: [110, 150] };
+                if (ageMonths < 9) return { perDay: 5, ml: [150, 180] };
+                return { perDay: 4, ml: [180, 240] };
             }
-            function sleepPlanFor(ageMonths) {
-                if (ageMonths < 2) return { segments: 7, hoursEach: [1, 3] };
-                if (ageMonths < 5) return { segments: 5, hoursEach: [1.5, 4] };
-                if (ageMonths < 9) return { segments: 3, hoursEach: [1.5, 9] }; // 2 naps + long night stretch
-                return { segments: 3, hoursEach: [1, 10] };
+            function milkTypeFor(ageMonths) {
+                if (ageMonths < 9) return { milk_type: "Breastmilk", brand: null };
+                if (ageMonths < 12) return { milk_type: "Mixed", brand: "Enfamil A+" };
+                return { milk_type: "Formula", brand: "Enfamil A+" };
             }
             function ageMonthsAt(date) {
                 return (date.getTime() - DOB.getTime()) / (30.44 * DAY_MS);
             }
+            const pad2 = (n) => String(n).padStart(2, "0");
 
             async function logDay(dayStart) {
                 const ageM = ageMonthsAt(dayStart);
                 if (ageM < 0) return;
-                const fp = feedPlanFor(ageM);
-                const sp = sleepPlanFor(ageM);
-
-                // Feeds, spread across waking hours.
-                for (let i = 0; i < fp.perDay; i++) {
-                    const hour = Math.round((24 / fp.perDay) * i + Math.random() * 1.5);
+                const mp = milkPlanFor(ageM);
+                const mt = milkTypeFor(ageM);
+                for (let i = 0; i < mp.perDay; i++) {
+                    const hour = Math.round((24 / mp.perDay) * i + Math.random() * 1.5);
                     const fedAt = new Date(dayStart.getTime() + hour * 60 * 60 * 1000);
                     if (fedAt > NOW) continue;
-                    const isSolid = fp.solids && i % 2 === 0 && ageM >= 6;
-                    if (isSolid) {
-                        await c.query(
-                            `INSERT INTO feed_logs (child_id, feed_type, grams, fed_at) VALUES ($1,'solids',$2,$3)`,
-                            [childId, Math.round(30 + Math.random() * 70), fedAt.toISOString()]
-                        );
-                    } else {
-                        const ml = Math.round(fp.ml[0] + Math.random() * (fp.ml[1] - fp.ml[0]));
-                        await c.query(
-                            `INSERT INTO feed_logs (child_id, feed_type, amount_ml, fed_at) VALUES ($1,'milk',$2,$3)`,
-                            [childId, ml, fedAt.toISOString()]
-                        );
-                    }
-                }
-
-                // Sleep segments across the day/night.
-                let cursor = new Date(dayStart.getTime() + 7 * 60 * 60 * 1000); // start ~7am
-                for (let i = 0; i < sp.segments; i++) {
-                    if (cursor > NOW) break;
-                    const hours = sp.hoursEach[0] + Math.random() * (sp.hoursEach[1] - sp.hoursEach[0]);
-                    const start = cursor;
-                    const end = new Date(start.getTime() + hours * 60 * 60 * 1000);
-                    const cappedEnd = end > NOW ? NOW : end;
-                    const totalMinutes = Math.round((cappedEnd.getTime() - start.getTime()) / 60000);
-                    if (totalMinutes > 5) {
-                        await c.query(
-                            `INSERT INTO sleep_logs (child_id, start_at, end_at, total_minutes) VALUES ($1,$2,$3,$4)`,
-                            [childId, start.toISOString(), end <= NOW ? end.toISOString() : null, totalMinutes]
-                        );
-                    }
-                    cursor = new Date(end.getTime() + (2 + Math.random() * 2) * 60 * 60 * 1000); // awake gap
+                    const ml = Math.round(mp.ml[0] + Math.random() * (mp.ml[1] - mp.ml[0]));
+                    await c.query(
+                        `INSERT INTO nutrition_records
+                            (child_id, entry_type, milk_type, formula_brand, quantity, unit, entry_date, entry_time)
+                         VALUES ($1,'milk',$2,$3,$4,'mL',$5,$6)`,
+                        [childId, mt.milk_type, mt.brand, ml, ymd(fedAt), `${pad2(fedAt.getHours())}:${pad2(fedAt.getMinutes())}`]
+                    );
                 }
             }
 

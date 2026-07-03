@@ -15,7 +15,11 @@
       "package": "com.babybookplus.app",
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF"
-      }
+      },
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -35,6 +39,11 @@
           "cameraPermission": "BabyBook+ needs access to your camera to scan consultation QR codes."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "1e9ae745-f67e-49ad-97ec-48901d82cf6b"
+      }
+    }
   }
 }
