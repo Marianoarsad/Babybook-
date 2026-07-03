@@ -101,6 +101,8 @@ export default function NutritionTracker({ childId }) {
     const [editingId, setEditingId] = useState(null);
     const [form, setForm] = useState(emptyForm());
     const [range, setRange] = useState("7d");
+    const [unitOpen, setUnitOpen] = useState(false);
+    const [visibleCount, setVisibleCount] = useState(10);
 
     const load = async () => {
         try {
@@ -119,6 +121,7 @@ export default function NutritionTracker({ childId }) {
     const openAdd = () => {
         setEditingId(null);
         setForm(emptyForm());
+        setUnitOpen(false);
         setShowModal(true);
     };
     const openEdit = (e) => {
@@ -135,6 +138,7 @@ export default function NutritionTracker({ childId }) {
             time: e.time || "",
             notes: e.notes || "",
         });
+        setUnitOpen(false);
         setShowModal(true);
     };
 
@@ -254,7 +258,7 @@ export default function NutritionTracker({ childId }) {
                 }
             >
                 {listed.length === 0 && <EmptyStateCard message="No nutrition entries yet. Tap Add to log milk or solids." />}
-                {listed.map((e) => (
+                {listed.slice(0, visibleCount).map((e) => (
                     <ListEntryCard
                         key={e.id}
                         title={
@@ -288,6 +292,19 @@ export default function NutritionTracker({ childId }) {
                         }
                     />
                 ))}
+                {listed.length > visibleCount ? (
+                    <TouchableOpacity
+                        style={styles.loadMoreBtn}
+                        onPress={() => setVisibleCount((c) => c + 20)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Load more entries"
+                    >
+                        <Ionicons name="chevron-down" size={16} color={colors.primary} />
+                        <Text style={styles.loadMoreText}>
+                            Load more entries ({listed.length - visibleCount} remaining)
+                        </Text>
+                    </TouchableOpacity>
+                ) : null}
             </SectionContainerCard>
 
             {/* Add / Edit Modal */}
@@ -342,27 +359,58 @@ export default function NutritionTracker({ childId }) {
                                     ) : null}
 
                                     <Text style={styles.label}>Quantity</Text>
-                                    <View style={{ flexDirection: "row", gap: space.sm }}>
-                                        <TextInput
-                                            style={[styles.input, { flex: 1 }]}
-                                            keyboardType="numeric"
-                                            placeholder="e.g. 120"
-                                            placeholderTextColor={colors.textMuted}
-                                            value={form.quantity}
-                                            onChangeText={(v) => setF("quantity", v)}
+                                    <TextInput
+                                        style={styles.input}
+                                        keyboardType="numeric"
+                                        placeholder="e.g. 120"
+                                        placeholderTextColor={colors.textMuted}
+                                        value={form.quantity}
+                                        onChangeText={(v) => setF("quantity", v)}
+                                    />
+
+                                    <Text style={styles.label}>Unit</Text>
+                                    <TouchableOpacity
+                                        style={styles.dropdown}
+                                        onPress={() => setUnitOpen((o) => !o)}
+                                        accessibilityRole="button"
+                                        accessibilityLabel="Select unit of measurement"
+                                    >
+                                        <Text style={styles.dropdownValue}>{form.unit}</Text>
+                                        <Ionicons
+                                            name={unitOpen ? "chevron-up" : "chevron-down"}
+                                            size={18}
+                                            color={colors.textMuted}
                                         />
-                                        <View style={[styles.segment, { flex: 1.2, marginBottom: space.md }]}>
-                                            {UNITS.map((u) => (
+                                    </TouchableOpacity>
+                                    {unitOpen ? (
+                                        <View style={styles.dropdownList}>
+                                            {UNITS.map((u, i) => (
                                                 <TouchableOpacity
                                                     key={u}
-                                                    style={[styles.segBtn, form.unit === u && styles.segBtnActive]}
-                                                    onPress={() => setF("unit", u)}
+                                                    style={[
+                                                        styles.dropdownOption,
+                                                        i < UNITS.length - 1 && styles.dropdownOptionDivider,
+                                                    ]}
+                                                    onPress={() => {
+                                                        setF("unit", u);
+                                                        setUnitOpen(false);
+                                                    }}
                                                 >
-                                                    <Text style={[styles.segText, form.unit === u && styles.segTextActive]}>{u}</Text>
+                                                    <Text
+                                                        style={[
+                                                            styles.dropdownOptionText,
+                                                            form.unit === u && styles.dropdownOptionActive,
+                                                        ]}
+                                                    >
+                                                        {u}
+                                                    </Text>
+                                                    {form.unit === u ? (
+                                                        <Ionicons name="checkmark" size={16} color={colors.primary} />
+                                                    ) : null}
                                                 </TouchableOpacity>
                                             ))}
                                         </View>
-                                    </View>
+                                    ) : null}
                                 </View>
                             ) : (
                                 <View>
@@ -507,6 +555,54 @@ const styles = StyleSheet.create({
         color: colors.text,
         marginBottom: space.md,
     },
+    dropdown: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        backgroundColor: colors.surfaceAlt,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
+        paddingHorizontal: space.lg,
+        height: 48,
+        marginBottom: space.md,
+    },
+    dropdownValue: { fontSize: 15, fontWeight: "600", color: colors.text },
+    dropdownList: {
+        marginTop: -space.sm,
+        marginBottom: space.md,
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
+        overflow: "hidden",
+    },
+    dropdownOption: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        paddingHorizontal: space.lg,
+        paddingVertical: 12,
+    },
+    dropdownOptionDivider: { borderBottomWidth: 1, borderBottomColor: colors.hairline },
+    dropdownOptionText: { fontSize: 15, color: colors.textSecondary },
+    dropdownOptionActive: { color: colors.primary, fontWeight: "800" },
+    loadMoreBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        marginTop: space.sm,
+        paddingVertical: 12,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.softGreen,
+    },
+    loadMoreText: { fontSize: 13, fontWeight: "700", color: colors.primary },
     segment: {
         flexDirection: "row",
         backgroundColor: colors.surfaceAlt,
