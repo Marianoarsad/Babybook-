@@ -9,16 +9,28 @@ const { ApiError, asyncHandler } = require("../middleware/error");
 const { handleValidation } = require("../middleware/validate");
 const { requireAuth } = require("../middleware/auth");
 const { sendPasswordResetEmail } = require("../utils/mailer");
+const { encrypt, decrypt } = require("../utils/crypto");
 
 const router = express.Router();
 
+// Annual re-consent is due if the last review was more than a year ago.
+const consentReviewDue = (u) => {
+    if (!u || !u.consent_reviewed_at) return false;
+    const oneYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+    return new Date(u.consent_reviewed_at) < oneYearAgo;
+};
+
 const publicUser = (u) => ({
     id: u.id,
-    fullName: u.full_name,
+    fullName: decrypt(u.full_name),
     email: u.email,
-    phoneNumber: u.phone_number,
+    phoneNumber: decrypt(u.phone_number),
     gender: u.gender,
     avatarUrl: u.avatar_url,
+    consentAccepted: u.consent_accepted,
+    consentDate: u.consent_date,
+    retentionUntil: u.retention_until,
+    consentReviewDue: consentReviewDue(u),
 });
 
 // POST /api/auth/register
@@ -31,14 +43,21 @@ router.post(
     ],
     handleValidation,
     asyncHandler(async (req, res) => {
-        const { fullName, email, password, phoneNumber, gender } = req.body;
+        const { fullName, email, password, phoneNumber, gender, consentAccepted } = req.body;
+        // Data-retention & privacy consent is mandatory to register.
+        if (consentAccepted !== true && consentAccepted !== "true") {
+            throw new ApiError(400, "You must accept the data-retention and privacy agreement to create an account.");
+        }
         const hash = await bcrypt.hash(password, 10);
         let rows;
         try {
             ({ rows } = await query(
-                `INSERT INTO users (full_name, email, password_hash, phone_number, gender)
-                 VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-                [fullName, email, hash, phoneNumber || null, gender || null]
+                `INSERT INTO users
+                    (full_name, email, password_hash, phone_number, gender,
+                     consent_accepted, consent_date, consent_reviewed_at, retention_until)
+                 VALUES ($1, $2, $3, $4, $5, TRUE, now(), now(), (CURRENT_DATE + INTERVAL '6 years'))
+                 RETURNING *`,
+                [encrypt(fullName), email, hash, encrypt(phoneNumber || null), gender || null]
             ));
         } catch (e) {
             if (e.code === "23505") throw new ApiError(409, "An account with that email already exists");
@@ -88,7 +107,11 @@ router.put(
         const params = [];
         for (const [key, col] of Object.entries(map)) {
             if (req.body[key] !== undefined) {
-                params.push(req.body[key]);
+                const val =
+                    col === "full_name" || col === "phone_number"
+                        ? encrypt(req.body[key])
+                        : req.body[key];
+                params.push(val);
                 set.push(`${col} = $${params.length}`);
             }
         }
@@ -157,6 +180,52 @@ router.post(
         await query("UPDATE users SET password_hash = $1 WHERE id = $2", [hash, reset.user_id]);
         await query("UPDATE password_resets SET used = TRUE WHERE id = $1", [reset.id]);
         res.json({ message: "Password updated. You can now log in." });
+    })
+);
+
+// POST /api/auth/change-password — verify the current password, then set a new one.
+router.post(
+    "/change-password",
+    requireAuth,
+    [
+        body("currentPassword").notEmpty().withMessage("Current password is required"),
+        body("newPassword").isLength({ min: 8 }).withMessage("New password must be at least 8 characters"),
+    ],
+    handleValidation,
+    asyncHandler(async (req, res) => {
+        const { currentPassword, newPassword } = req.body;
+        const { rows } = await query("SELECT * FROM users WHERE id = $1", [req.user.id]);
+        const user = rows[0];
+        const match = await bcrypt.compare(currentPassword, user.password_hash);
+        if (!match) throw new ApiError(401, "Current password is incorrect");
+        const hash = await bcrypt.hash(newPassword, 10);
+        await query("UPDATE users SET password_hash = $1 WHERE id = $2", [hash, req.user.id]);
+        res.json({ message: "Password updated" });
+    })
+);
+
+// POST /api/auth/consent/renew — annual re-consent: the user confirms they
+// still want their data retained for another year.
+router.post(
+    "/consent/renew",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+        const { rows } = await query(
+            "UPDATE users SET consent_reviewed_at = now() WHERE id = $1 RETURNING *",
+            [req.user.id]
+        );
+        res.json({ user: publicUser(rows[0]) });
+    })
+);
+
+// DELETE /api/auth/me — withdraw consent and permanently delete the account and
+// all associated child data (ON DELETE CASCADE removes everything).
+router.delete(
+    "/me",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+        await query("DELETE FROM users WHERE id = $1", [req.user.id]);
+        res.status(204).end();
     })
 );
 

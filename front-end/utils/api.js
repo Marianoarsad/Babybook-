@@ -129,6 +129,9 @@ export const api = {
     login: (b) => request("POST", "/api/auth/login", b, { auth: false }),
     me: () => request("GET", "/api/auth/me"),
     updateMe: (b) => request("PUT", "/api/auth/me", b),
+    renewConsent: () => request("POST", "/api/auth/consent/renew"),
+    changePassword: (b) => request("POST", "/api/auth/change-password", b),
+    deleteAccount: () => request("DELETE", "/api/auth/me"),
     forgotPassword: (b) => request("POST", "/api/auth/forgot-password", b, { auth: false }),
     resetPassword: (b) => request("POST", "/api/auth/reset-password", b, { auth: false }),
 

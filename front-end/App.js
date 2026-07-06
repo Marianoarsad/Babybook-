@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
     View,
     Text,
@@ -16,6 +16,7 @@ import {
 import { LanguageProvider, useLanguage } from "./context/LanguageContext";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, radius, space, shadow } from "./theme";
+import ThemeProvider, { useTheme } from "./context/ThemeContext";
 import { storage } from "./utils/storageAdapter";
 
 // Import Screen Components
@@ -24,17 +25,29 @@ import Dashboard from "./components/Dashboard";
 import Health from "./components/Health";
 import Growth from "./components/Growth";
 import Services from "./components/Services";
-import UserProfile from "./components/UserProfile";
 import ShareRecords from "./components/ShareRecords";
 import ProfessionalView from "./components/ProfessionalView";
 import EmptyChild from "./components/EmptyChild";
 import ToastProvider from "./components/ui/Toast";
+import SideMenu from "./components/SideMenu";
+import CalendarView from "./components/CalendarView";
+import ViewProfile from "./components/settings/ViewProfile";
+import EditProfile from "./components/settings/EditProfile";
+import GeneralSettings from "./components/settings/GeneralSettings";
+import ThemePreferences from "./components/settings/ThemePreferences";
+import LanguagePreferences from "./components/settings/LanguagePreferences";
+import HelpSupport from "./components/settings/HelpSupport";
+import AboutApp from "./components/settings/AboutApp";
+import ChangePassword from "./components/settings/ChangePassword";
+import PrivacySettings from "./components/settings/PrivacySettings";
 import { api, getToken, setToken, clearToken } from "./utils/api";
 import { childToProfile, profileFormToChild } from "./utils/adapters";
 import { pickImage, pickerAvailable } from "./utils/imagePicker";
 
-function MainAppShell() {
+function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChange }) {
     const { language, t } = useLanguage();
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
 
     // Authentication State
     const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -63,6 +76,11 @@ function MainAppShell() {
     // Modal Control States
     const [showAddProfileModal, setShowAddProfileModal] = useState(false);
     const [showEditProfileModal, setShowEditProfileModal] = useState(false);
+    // Slide-in side menu (opened from the header avatar).
+    const [menuOpen, setMenuOpen] = useState(false);
+    // Annual data-retention re-consent (Data Privacy Act of 2012).
+    const [consentDue, setConsentDue] = useState(false);
+    const [withdrawConfirm, setWithdrawConfirm] = useState(false);
 
     // Form states for profile adding/editing
     const [formName, setFormName] = useState("");
@@ -86,12 +104,40 @@ function MainAppShell() {
     const activeProfile =
         profiles.find((p) => p.id === selectedProfileId) || profiles[0];
 
+    // Drive the app theme from the selected child's gender (girl/boy).
+    useEffect(() => {
+        if (onThemeGenderChange) onThemeGenderChange(activeProfile ? activeProfile.gender : undefined);
+    }, [activeProfile ? activeProfile.gender : undefined]);
+
     // Apply a logged-in user's profile fields to local state.
     const applyUser = (user) => {
         if (!user) return;
         setParentName(user.fullName || user.full_name || "Parent");
         if (user.gender) setParentGender(user.gender);
         if (user.avatarUrl) setParentAvatar(user.avatarUrl);
+        setConsentDue(!!user.consentReviewDue);
+    };
+
+    // Annual re-consent: keep the data for another year.
+    const handleKeepData = async () => {
+        try {
+            await api.renewConsent();
+        } catch (e) {
+            console.log("renew consent:", e.message);
+        }
+        setConsentDue(false);
+        setWithdrawConfirm(false);
+    };
+    // Withdraw consent: permanently delete the account and all data, then log out.
+    const handleWithdrawData = async () => {
+        try {
+            await api.deleteAccount();
+        } catch (e) {
+            console.log("delete account:", e.message);
+        }
+        setConsentDue(false);
+        setWithdrawConfirm(false);
+        handleLogOut();
     };
 
     // Load this user's children from the backend into the app's profile shape.
@@ -400,7 +446,11 @@ function MainAppShell() {
                     >
                         <Ionicons name="qr-code" size={20} color={colors.primary} />
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => setCurrentView("settings")}>
+                    <TouchableOpacity
+                        onPress={() => setMenuOpen(true)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Open menu"
+                    >
                         <Image
                             source={{ uri: parentAvatar }}
                             style={styles.parentAvatarMini}
@@ -459,6 +509,7 @@ function MainAppShell() {
                     />
                 )}
                 {currentView === "services" && <Services />}
+                {currentView === "calendar" && <CalendarView profile={activeProfile} />}
                 {currentView === "share" && (
                     <ShareRecords
                         profile={activeProfile}
@@ -468,16 +519,37 @@ function MainAppShell() {
                         onClose={() => setCurrentView("dashboard")}
                     />
                 )}
-                {currentView === "settings" && (
-                    <UserProfile
+                {currentView === "viewProfile" && (
+                    <ViewProfile
+                        parentName={parentName}
+                        parentAvatar={parentAvatar}
+                        parentGender={parentGender}
+                        onEdit={() => setCurrentView("editProfile")}
+                    />
+                )}
+                {currentView === "editProfile" && (
+                    <EditProfile
                         parentName={parentName}
                         onUpdateParentName={setParentName}
                         parentAvatar={parentAvatar}
                         onUpdateParentAvatar={setParentAvatar}
-                        onLogOut={handleLogOut}
                         parentGender={parentGender}
-                        onUpdateParentGender={setParentGender}
                     />
+                )}
+                {currentView === "generalSettings" && <GeneralSettings />}
+                {currentView === "themePreferences" && (
+                    <ThemePreferences
+                        themeOverride={themeOverride}
+                        onThemeOverrideChange={onThemeOverrideChange}
+                        childGender={activeProfile ? activeProfile.gender : undefined}
+                    />
+                )}
+                {currentView === "languagePreferences" && <LanguagePreferences />}
+                {currentView === "helpSupport" && <HelpSupport />}
+                {currentView === "aboutApp" && <AboutApp />}
+                {currentView === "changePassword" && <ChangePassword />}
+                {currentView === "privacySettings" && (
+                    <PrivacySettings onAccountDeleted={handleLogOut} />
                 )}
             </View>
 
@@ -488,7 +560,7 @@ function MainAppShell() {
                     { key: "health", icon: "shield-checkmark", label: t("navHealth") },
                     { key: "growth", icon: "trending-up", label: t("navGrowth") },
                     { key: "services", icon: "grid", label: "Services" },
-                    { key: "settings", icon: "person", label: t("navSettings") },
+                    { key: "calendar", icon: "calendar", label: "Calendar" },
                 ].map((tab) => {
                     const active = currentView === tab.key;
                     return (
@@ -890,24 +962,116 @@ function MainAppShell() {
                     </ScrollView>
                 </View>
             </Modal>
+
+            {/* Annual data-retention re-consent (Data Privacy Act of 2012, RA 10173) */}
+            <Modal visible={consentDue} transparent animationType="fade">
+                <View style={styles.modalBg}>
+                    <View style={styles.modalCard}>
+                        {!withdrawConfirm ? (
+                            <>
+                                <Text style={styles.modalTitle}>Annual Data Review</Text>
+                                <Text style={{ fontSize: 14, color: colors.textSecondary, lineHeight: 20, marginBottom: space.lg }}>
+                                    It's been about a year since your last review. In line with the Data
+                                    Privacy Act of 2012 (RA 10173), do you still want BabyBook+ to keep
+                                    retaining your and your child's data?
+                                </Text>
+                                <TouchableOpacity onPress={handleKeepData} style={styles.modalSaveBtn}>
+                                    <Text style={styles.modalSaveText}>Yes, keep my data for another year</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={() => setWithdrawConfirm(true)}
+                                    style={{ marginTop: space.md, alignItems: "center", paddingVertical: 12 }}
+                                >
+                                    <Text style={{ color: colors.danger, fontWeight: "700", fontSize: 13 }}>
+                                        No — withdraw & delete my data
+                                    </Text>
+                                </TouchableOpacity>
+                            </>
+                        ) : (
+                            <>
+                                <Text style={styles.modalTitle}>Delete everything?</Text>
+                                <Text style={{ fontSize: 14, color: colors.textSecondary, lineHeight: 20, marginBottom: space.lg }}>
+                                    This permanently deletes your account and all of your child's records.
+                                    This cannot be undone.
+                                </Text>
+                                <TouchableOpacity onPress={handleWithdrawData} style={[styles.modalSaveBtn, { backgroundColor: colors.danger }]}>
+                                    <Text style={styles.modalSaveText}>Permanently delete everything</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={() => setWithdrawConfirm(false)}
+                                    style={{ marginTop: space.md, alignItems: "center", paddingVertical: 12 }}
+                                >
+                                    <Text style={{ color: colors.textSecondary, fontWeight: "700", fontSize: 13 }}>Go back</Text>
+                                </TouchableOpacity>
+                            </>
+                        )}
+                    </View>
+                </View>
+            </Modal>
+
+            <SideMenu
+                visible={menuOpen}
+                onClose={() => setMenuOpen(false)}
+                parentName={parentName}
+                parentAvatar={parentAvatar}
+                onNavigate={(key) => {
+                    setCurrentView(key);
+                    setMenuOpen(false);
+                }}
+                onLogout={() => {
+                    setMenuOpen(false);
+                    handleLogOut();
+                }}
+            />
         </SafeAreaView>
     );
 }
 
 export default function App() {
+    // Active child's gender drives the theme; a manual override from Settings
+    // ("auto" | "girl" | "boy") can force it. Default is "auto".
+    const [themeGender, setThemeGender] = useState(undefined);
+    const [themeOverride, setThemeOverride] = useState("auto");
+
+    useEffect(() => {
+        (async () => {
+            try {
+                const saved = await storage.getItem("bb_theme_override");
+                if (saved) setThemeOverride(saved);
+            } catch (e) {
+                /* ignore */
+            }
+        })();
+    }, []);
+
+    const changeThemeOverride = async (v) => {
+        setThemeOverride(v);
+        try {
+            await storage.setItem("bb_theme_override", v);
+        } catch (e) {
+            /* ignore */
+        }
+    };
+
     return (
         <LanguageProvider>
-            <ToastProvider>
-                <MainAppShell />
-            </ToastProvider>
+            <ThemeProvider gender={themeGender} override={themeOverride}>
+                <ToastProvider>
+                    <MainAppShell
+                        onThemeGenderChange={setThemeGender}
+                        themeOverride={themeOverride}
+                        onThemeOverrideChange={changeThemeOverride}
+                    />
+                </ToastProvider>
+            </ThemeProvider>
         </LanguageProvider>
     );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: "#FFFDF9",
+        backgroundColor: colors.background,
     },
     header: {
         flexDirection: "row",

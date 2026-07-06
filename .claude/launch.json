@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "front-end-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "web", "--prefix", "front-end", "--", "--port", "8082"],
+      "port": 8082
+    },
+    {
+      "name": "back-end-api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "back-end"],
+      "port": 4000
+    }
+  ]
+}

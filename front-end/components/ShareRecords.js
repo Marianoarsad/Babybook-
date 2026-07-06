@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
     View,
     Text,
@@ -12,6 +12,7 @@ import QrCodeView from "./QrCodeView";
 import { RECORD_LABELS, qrPayloadForCode } from "../utils/shareStore";
 import { api } from "../utils/api";
 import { useToast } from "./ui/Toast";
+import { useTheme } from "../context/ThemeContext";
 
 const TTL_OPTIONS = [
     { label: "15 min", min: 15 },
@@ -22,6 +23,8 @@ const TTL_OPTIONS = [
 export default function ShareRecords({ profile }) {
     const toast = useToast();
     const alert = (m) => toast.error(m);
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
     const allKeys = Object.keys(RECORD_LABELS);
     const [selected, setSelected] = useState(() => new Set(allKeys));
     const [ttl, setTtl] = useState(60);
@@ -99,7 +102,7 @@ export default function ShareRecords({ profile }) {
             <ScrollView contentContainerStyle={styles.scroll}>
                 <View style={styles.resultCard}>
                     <View style={styles.shieldRow}>
-                        <Ionicons name="qr-code" size={18} color="#456155" />
+                        <Ionicons name="qr-code" size={18} color={colors.primary} />
                         <Text style={styles.resultTitle}>Consultation QR Ready</Text>
                     </View>
                     <Text style={styles.resultSub}>
@@ -116,7 +119,7 @@ export default function ShareRecords({ profile }) {
                     <View style={styles.sharedChips}>
                         {keys.map((k) => (
                             <View key={k} style={styles.chip}>
-                                <Ionicons name="checkmark-circle" size={12} color="#456155" />
+                                <Ionicons name="checkmark-circle" size={12} color={colors.primary} />
                                 <Text style={styles.chipText}>{RECORD_LABELS[k]}</Text>
                             </View>
                         ))}
@@ -124,7 +127,7 @@ export default function ShareRecords({ profile }) {
 
                     <View style={styles.resultBtns}>
                         <TouchableOpacity style={styles.revokeBtn} onPress={() => handleRevoke(activeShare.id)}>
-                            <Ionicons name="close-circle-outline" size={16} color="#C2410C" />
+                            <Ionicons name="close-circle-outline" size={16} color={colors.danger} />
                             <Text style={styles.revokeText}>Revoke Now</Text>
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.doneBtn} onPress={() => setActiveShare(null)}>
@@ -206,13 +209,13 @@ export default function ShareRecords({ profile }) {
                                 </Text>
                             </View>
                             <View style={[styles.statusPill, s.status === "active" ? styles.pillActive : styles.pillDim]}>
-                                <Text style={[styles.pillText, s.status === "active" ? { color: "#15803D" } : { color: "#78716C" }]}>
+                                <Text style={[styles.pillText, s.status === "active" ? { color: colors.success } : { color: colors.textMuted }]}>
                                     {s.status}
                                 </Text>
                             </View>
                             {s.status === "active" && (
                                 <TouchableOpacity onPress={() => handleRevoke(s.id)} style={styles.histRevoke}>
-                                    <Ionicons name="close" size={16} color="#C2410C" />
+                                    <Ionicons name="close" size={16} color={colors.danger} />
                                 </TouchableOpacity>
                             )}
                         </View>
@@ -225,7 +228,7 @@ export default function ShareRecords({ profile }) {
                     <Text style={styles.cardTitle}>Access log · who viewed records</Text>
                     {accessLog.map((l) => (
                         <View key={l.id} style={styles.logRow}>
-                            <Ionicons name="eye-outline" size={15} color="#456155" />
+                            <Ionicons name="eye-outline" size={15} color={colors.primary} />
                             <View style={{ flex: 1 }}>
                                 <Text style={styles.logWho}>{l.professional_name}</Text>
                                 <Text style={styles.logMeta}>
@@ -239,7 +242,7 @@ export default function ShareRecords({ profile }) {
             )}
 
             <View style={styles.privacyNote}>
-                <Ionicons name="lock-closed" size={14} color="#456155" />
+                <Ionicons name="lock-closed" size={14} color={colors.primary} />
                 <Text style={styles.privacyText}>
                     You control exactly what is shared. The professional can view — never edit, add, or delete. Every view is recorded in your access log.
                 </Text>
@@ -248,77 +251,77 @@ export default function ShareRecords({ profile }) {
     );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
     scroll: { padding: 16, paddingBottom: 40 },
     headerRow: { flexDirection: "row", marginBottom: 16 },
-    h1: { fontSize: 22, fontWeight: "800", color: "#456155" },
-    h2: { fontSize: 12.5, color: "#78716C", marginTop: 4, lineHeight: 17 },
+    h1: { fontSize: 22, fontWeight: "800", color: colors.primary },
+    h2: { fontSize: 12.5, color: colors.textMuted, marginTop: 4, lineHeight: 17 },
     card: {
         backgroundColor: "#FFFFFF", borderRadius: 20, padding: 16,
-        borderWidth: 1, borderColor: "#F2F2F2", marginBottom: 14,
+        borderWidth: 1, borderColor: colors.border, marginBottom: 14,
     },
-    cardTitle: { fontSize: 13, fontWeight: "800", color: "#456155", marginBottom: 12 },
+    cardTitle: { fontSize: 13, fontWeight: "800", color: colors.primary, marginBottom: 12 },
     recRow: { flexDirection: "row", alignItems: "center", paddingVertical: 9 },
     checkbox: {
-        width: 22, height: 22, borderRadius: 7, borderWidth: 1.5, borderColor: "#D6D3D1",
+        width: 22, height: 22, borderRadius: 7, borderWidth: 1.5, borderColor: colors.borderStrong,
         alignItems: "center", justifyContent: "center", marginRight: 12, backgroundColor: "#FFFFFF",
     },
-    checkboxOn: { backgroundColor: "#456155", borderColor: "#456155" },
-    recLabel: { flex: 1, fontSize: 13.5, color: "#1C1917", fontWeight: "500" },
-    ttlRow: { flexDirection: "row", backgroundColor: "#F5F5F4", borderRadius: 12, padding: 4 },
+    checkboxOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+    recLabel: { flex: 1, fontSize: 13.5, color: colors.text, fontWeight: "500" },
+    ttlRow: { flexDirection: "row", backgroundColor: colors.surfaceAlt, borderRadius: 12, padding: 4 },
     ttlBtn: { flex: 1, paddingVertical: 9, borderRadius: 9, alignItems: "center" },
     ttlBtnOn: { backgroundColor: "#FFFFFF", shadowColor: "#374151", shadowOpacity: 0.06, shadowRadius: 4, elevation: 1 },
-    ttlText: { fontSize: 12.5, fontWeight: "600", color: "#78716C" },
-    ttlTextOn: { color: "#456155", fontWeight: "800" },
+    ttlText: { fontSize: 12.5, fontWeight: "600", color: colors.textMuted },
+    ttlTextOn: { color: colors.primary, fontWeight: "800" },
     genBtn: {
         flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-        backgroundColor: "#FF8A7A", height: 50, borderRadius: 25, marginBottom: 16,
-        shadowColor: "#FF8A7A", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 10, elevation: 3,
+        backgroundColor: colors.accentStrong, height: 50, borderRadius: 25, marginBottom: 16,
+        shadowColor: colors.accentStrong, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 10, elevation: 3,
     },
     genText: { color: "#FFFFFF", fontWeight: "800", fontSize: 14.5 },
-    histRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8, borderTopWidth: 1, borderTopColor: "#F5F5F4" },
-    histCode: { fontSize: 14, fontWeight: "800", color: "#1C1917", letterSpacing: 1 },
-    histMeta: { fontSize: 11, color: "#78716C", marginTop: 2 },
+    histRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.surfaceAlt },
+    histCode: { fontSize: 14, fontWeight: "800", color: colors.text, letterSpacing: 1 },
+    histMeta: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
     statusPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, marginHorizontal: 8 },
-    pillActive: { backgroundColor: "#DCFCE7" },
-    pillDim: { backgroundColor: "#F5F5F4" },
+    pillActive: { backgroundColor: colors.successBg },
+    pillDim: { backgroundColor: colors.surfaceAlt },
     pillText: { fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
     histRevoke: { padding: 4 },
     logRow: {
         flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8,
-        borderTopWidth: 1, borderTopColor: "#F5F5F4",
+        borderTopWidth: 1, borderTopColor: colors.surfaceAlt,
     },
-    logWho: { fontSize: 13, fontWeight: "700", color: "#1C1917" },
-    logMeta: { fontSize: 10.5, color: "#78716C", marginTop: 1 },
+    logWho: { fontSize: 13, fontWeight: "700", color: colors.text },
+    logMeta: { fontSize: 10.5, color: colors.textMuted, marginTop: 1 },
     privacyNote: {
-        flexDirection: "row", gap: 8, backgroundColor: "#EAF0EC", borderRadius: 14, padding: 14, alignItems: "flex-start",
+        flexDirection: "row", gap: 8, backgroundColor: colors.softGreen, borderRadius: 14, padding: 14, alignItems: "flex-start",
     },
-    privacyText: { flex: 1, fontSize: 11.5, color: "#456155", lineHeight: 16 },
+    privacyText: { flex: 1, fontSize: 11.5, color: colors.primary, lineHeight: 16 },
     resultCard: {
         backgroundColor: "#FFFFFF", borderRadius: 24, padding: 20, alignItems: "center",
-        borderWidth: 1, borderColor: "#F2F2F2",
+        borderWidth: 1, borderColor: colors.border,
     },
     shieldRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
-    resultTitle: { fontSize: 18, fontWeight: "800", color: "#456155" },
-    resultSub: { fontSize: 12.5, color: "#78716C", textAlign: "center", lineHeight: 17, marginBottom: 16 },
+    resultTitle: { fontSize: 18, fontWeight: "800", color: colors.primary },
+    resultSub: { fontSize: 12.5, color: colors.textMuted, textAlign: "center", lineHeight: 17, marginBottom: 16 },
     qrWrap: {
         padding: 10, backgroundColor: "#FFFFFF", borderRadius: 16,
-        borderWidth: 1, borderColor: "#E7E5E4", marginBottom: 14,
+        borderWidth: 1, borderColor: colors.border, marginBottom: 14,
     },
-    codeLabel: { fontSize: 10, fontWeight: "800", color: "#A8A29E", letterSpacing: 2 },
-    codeText: { fontSize: 28, fontWeight: "900", color: "#1C1917", letterSpacing: 3, marginTop: 2, marginBottom: 14 },
+    codeLabel: { fontSize: 10, fontWeight: "800", color: colors.textMuted, letterSpacing: 2 },
+    codeText: { fontSize: 28, fontWeight: "900", color: colors.text, letterSpacing: 3, marginTop: 2, marginBottom: 14 },
     sharedChips: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6, marginBottom: 18 },
     chip: {
-        flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#EAF0EC",
+        flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: colors.softGreen,
         paddingHorizontal: 9, paddingVertical: 4, borderRadius: 10,
     },
-    chipText: { fontSize: 10.5, color: "#456155", fontWeight: "700" },
+    chipText: { fontSize: 10.5, color: colors.primary, fontWeight: "700" },
     resultBtns: { flexDirection: "row", gap: 10, width: "100%" },
     revokeBtn: {
         flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
-        height: 46, borderRadius: 23, backgroundColor: "#FFF1ED", borderWidth: 1, borderColor: "#FED7C3",
+        height: 46, borderRadius: 23, backgroundColor: colors.dangerBg, borderWidth: 1, borderColor: colors.danger,
     },
-    revokeText: { color: "#C2410C", fontWeight: "800", fontSize: 13 },
-    doneBtn: { flex: 1, alignItems: "center", justifyContent: "center", height: 46, borderRadius: 23, backgroundColor: "#456155" },
+    revokeText: { color: colors.danger, fontWeight: "800", fontSize: 13 },
+    doneBtn: { flex: 1, alignItems: "center", justifyContent: "center", height: 46, borderRadius: 23, backgroundColor: colors.primary },
     doneText: { color: "#FFFFFF", fontWeight: "800", fontSize: 13 },
 });

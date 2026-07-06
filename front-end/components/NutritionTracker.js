@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, radius, space, shadow } from "../theme";
+import { radius, space, shadow } from "../theme";
+import { useTheme } from "../context/ThemeContext";
 import { api } from "../utils/api";
 import { nutritionToApp, nutritionFormToRecord, toMilliliters } from "../utils/adapters";
 import { useToast } from "./ui/Toast";
@@ -96,6 +97,8 @@ function milkDurations(milk) {
 
 export default function NutritionTracker({ childId }) {
     const toast = useToast();
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
     const [entries, setEntries] = useState([]);
     const [showModal, setShowModal] = useState(false);
     const [editingId, setEditingId] = useState(null);
@@ -479,7 +482,7 @@ export default function NutritionTracker({ childId }) {
     );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
     rangeRow: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginBottom: space.md },
     rangeChip: {
         paddingHorizontal: space.md,

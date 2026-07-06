@@ -20,11 +20,13 @@
     "expo": "~56.0.12",
     "expo-camera": "~56.0.8",
     "expo-image-picker": "~56.0.19",
+    "expo-linear-gradient": "~56.0.4",
     "expo-notifications": "~56.0.19",
     "expo-status-bar": "~56.0.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.85.3",
+    "react-native-calendars": "^1.1314.0",
     "react-native-web": "~0.21.2"
   },
   "private": true

@@ -6,6 +6,14 @@ const { ApiError, asyncHandler } = require("../middleware/error");
 const { handleValidation } = require("../middleware/validate");
 const { requireAuth, requireChildOwnership } = require("../middleware/auth");
 const { upload, publicUrlFor } = require("../middleware/upload");
+const { encryptFields, decryptRow } = require("../utils/crypto");
+
+// Sensitive child identity/medical text columns encrypted at rest.
+const CHILD_ENCRYPTED = [
+    "first_name", "last_name", "nickname", "blood_type", "place_of_birth",
+    "hospital", "obgyne_name", "pediatrician_name", "emergency_contact",
+    "preferred_health_center",
+];
 
 const router = express.Router();
 
@@ -27,7 +35,8 @@ function pickChildBody(body) {
             out[col] = JSON_COLUMNS.has(col) ? JSON.stringify(body[col]) : body[col];
         }
     }
-    return out;
+    // Encrypt sensitive text columns at rest.
+    return encryptFields(out, CHILD_ENCRYPTED);
 }
 
 // GET /api/children — all children for the user
@@ -39,7 +48,7 @@ router.get(
             "SELECT * FROM children WHERE user_id = $1 ORDER BY created_at ASC",
             [req.user.id]
         );
-        res.json(rows);
+        res.json(rows.map((r) => decryptRow(r, CHILD_ENCRYPTED)));
     })
 );
 
@@ -59,7 +68,7 @@ router.post(
             `INSERT INTO children (${allCols.join(", ")}) VALUES (${placeholders}) RETURNING *`,
             params
         );
-        res.status(201).json(rows[0]);
+        res.status(201).json(decryptRow(rows[0], CHILD_ENCRYPTED));
     })
 );
 
@@ -69,7 +78,7 @@ router.get(
     requireAuth,
     requireChildOwnership,
     asyncHandler(async (req, res) => {
-        res.json(req.child);
+        res.json(decryptRow(req.child, CHILD_ENCRYPTED));
     })
 );
 
@@ -88,7 +97,7 @@ router.put(
             `UPDATE children SET ${setClause} WHERE id = $${cols.length + 1} RETURNING *`,
             params
         );
-        res.json(rows[0]);
+        res.json(decryptRow(rows[0], CHILD_ENCRYPTED));
     })
 );
 
@@ -106,7 +115,7 @@ router.post(
             "UPDATE children SET avatar_url = $1 WHERE id = $2 RETURNING *",
             [avatarUrl, req.child.id]
         );
-        res.json(rows[0]);
+        res.json(decryptRow(rows[0], CHILD_ENCRYPTED));
     })
 );
 

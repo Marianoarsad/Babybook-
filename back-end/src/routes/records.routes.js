@@ -40,18 +40,21 @@ const RESOURCES = [
         table: "vaccinations",
         columns: ["vaccine_name", "visit_name", "due_date", "date_given", "status", "notes"],
         orderBy: "COALESCE(date_given, due_date) DESC NULLS LAST, id DESC",
+        encrypted: ["vaccine_name", "visit_name", "notes"],
     },
     {
         path: "checkups",
         table: "checkups",
         columns: ["title", "checkup_date", "time_of_visit", "doctor_name", "clinic", "status", "notes"],
         orderBy: "checkup_date DESC NULLS LAST, id DESC",
+        encrypted: ["title", "doctor_name", "clinic", "notes"],
     },
     {
         path: "medical-history",
         table: "medical_history",
         columns: ["category", "title", "description", "date_recorded", "resolved", "notes"],
         orderBy: "date_recorded DESC NULLS LAST, id DESC",
+        encrypted: ["title", "description", "notes"],
     },
     {
         path: "growth",
@@ -64,6 +67,7 @@ const RESOURCES = [
         table: "milestones",
         columns: ["title", "age_achieved", "description", "date_recorded", "is_completed", "photo_url"],
         orderBy: "date_recorded DESC NULLS LAST, id DESC",
+        encrypted: ["title", "age_achieved", "description"],
     },
     {
         path: "nutrition",
@@ -74,12 +78,21 @@ const RESOURCES = [
         ],
         orderBy: "entry_date DESC NULLS LAST, entry_time DESC NULLS LAST, id DESC",
         validate: validateNutrition,
+        encrypted: ["formula_brand", "food_introduced", "reaction", "notes"],
     },
     {
         path: "reminders",
         table: "reminders",
         columns: ["reminder_type", "title", "reminder_date", "status", "vaccination_id", "checkup_id"],
         orderBy: "reminder_date ASC, id DESC",
+        encrypted: ["title"],
+    },
+    {
+        path: "calendar-events",
+        table: "calendar_events",
+        columns: ["title", "description", "event_type", "event_date", "event_time", "reminder_settings"],
+        orderBy: "event_date ASC, id DESC",
+        encrypted: ["title", "description"],
     },
 ];
 
@@ -88,7 +101,7 @@ for (const r of RESOURCES) {
         `/:childId/${r.path}`,
         requireAuth,
         requireChildOwnership,
-        createResourceRouter({ table: r.table, columns: r.columns, orderBy: r.orderBy, validate: r.validate })
+        createResourceRouter({ table: r.table, columns: r.columns, orderBy: r.orderBy, validate: r.validate, encrypted: r.encrypted })
     );
 }
 

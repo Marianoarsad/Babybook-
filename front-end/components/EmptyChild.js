@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { View, Text, TouchableOpacity, ScrollView } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, space, radius, shadow } from "../theme";
+import { space, radius, shadow } from "../theme";
+import { useTheme } from "../context/ThemeContext";
 import Field from "./ui/Field";
 import Button from "./ui/Button";
 import DateField from "./ui/DateField";
@@ -11,6 +12,7 @@ import { useToast } from "./ui/Toast";
 // Progressive disclosure: required fields first, optional details behind a toggle.
 export default function EmptyChild({ parentName, onCreate, onLogOut }) {
     const toast = useToast();
+    const { colors } = useTheme();
     const [name, setName] = useState("");
     const [dob, setDob] = useState("");
     const [gender, setGender] = useState("girl");

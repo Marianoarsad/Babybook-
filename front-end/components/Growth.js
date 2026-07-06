@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
     View,
     Text,
@@ -15,6 +15,7 @@ import { scheduleReminder, morningOf } from "../utils/notifications";
 import { pickImage, pickerAvailable } from "../utils/imagePicker";
 import { useToast } from "./ui/Toast";
 import { useLanguage } from "../context/LanguageContext";
+import { useTheme } from "../context/ThemeContext";
 import {
     SectionContainerCard,
     ListEntryCard,
@@ -93,6 +94,8 @@ export default function Growth({
 }) {
     const { language, t } = useLanguage();
     const toast = useToast();
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
     const Alert = {
         alert: (title, message) => {
             const m = message || title || "";
@@ -487,7 +490,7 @@ export default function Growth({
                                                 color={
                                                     isDone
                                                         ? "#FFFFFF"
-                                                        : "#456155"
+                                                        : colors.primary
                                                 }
                                             />
                                         </TouchableOpacity>
@@ -570,7 +573,7 @@ export default function Growth({
                             title="Recent Growth Parameters"
                             subtitle="Latest clinic update"
                             label={
-                                <Text style={{ fontSize: 13, color: "#444" }}>
+                                <Text style={{ fontSize: 13, color: colors.textSecondary }}>
                                     Height:{" "}
                                     {profile.currentHeight ||
                                         profile.birthHeight}
@@ -584,10 +587,10 @@ export default function Growth({
                                 <MaterialCommunityIcons
                                     name="scale"
                                     size={18}
-                                    color="#456155"
+                                    color={colors.primary}
                                 />
                             }
-                            iconBg="#E6F4EA"
+                            iconBg={colors.tintGreen}
                         />
                     </SectionContainerCard>
 
@@ -634,7 +637,7 @@ export default function Growth({
                                     <Text
                                         style={{
                                             fontSize: 12,
-                                            color: "#456155",
+                                            color: colors.primary,
                                             fontWeight: "600",
                                         }}
                                     >
@@ -646,10 +649,10 @@ export default function Growth({
                                     <Ionicons
                                         name="calendar-outline"
                                         size={18}
-                                        color="#456155"
+                                        color={colors.primary}
                                     />
                                 }
-                                iconBg="#E6F4EA"
+                                iconBg={colors.tintGreen}
                             />
                         ))}
                     </SectionContainerCard>
@@ -804,20 +807,20 @@ export default function Growth({
     );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: "#FFFDF9",
+        backgroundColor: colors.background,
         padding: 16,
     },
     tabContainer: {
         flexDirection: "row",
-        backgroundColor: "#F5F5F4",
+        backgroundColor: colors.surfaceAlt,
         borderRadius: 24,
         padding: 4,
         marginBottom: 16,
         borderWidth: 1,
-        borderColor: "#E7E5E4",
+        borderColor: colors.border,
     },
     tabButton: {
         flex: 1,
@@ -836,10 +839,10 @@ const styles = StyleSheet.create({
     tabButtonText: {
         fontSize: 12,
         fontWeight: "600",
-        color: "#78716C",
+        color: colors.textMuted,
     },
     tabButtonTextActive: {
-        color: "#456155",
+        color: colors.primary,
         fontWeight: "750",
     },
     ageSelector: {
@@ -852,21 +855,21 @@ const styles = StyleSheet.create({
         paddingVertical: 8,
         backgroundColor: "#FFFFFF",
         borderWidth: 1,
-        borderColor: "#E7E5E4",
+        borderColor: colors.border,
         borderRadius: 16,
         alignItems: "center",
     },
     ageTabActive: {
-        borderColor: "#FF8A7A",
-        backgroundColor: "#FFF1F0",
+        borderColor: colors.accentStrong,
+        backgroundColor: colors.softCoral,
     },
     ageTabText: {
         fontSize: 12,
         fontWeight: "600",
-        color: "#57534E",
+        color: colors.textSecondary,
     },
     ageTabTextActive: {
-        color: "#FF8A7A",
+        color: colors.accentStrong,
         fontWeight: "700",
     },
     checklistRow: {
@@ -874,7 +877,7 @@ const styles = StyleSheet.create({
         alignItems: "center",
         marginBottom: 12,
         borderBottomWidth: 1,
-        borderBottomColor: "#F5F5F4",
+        borderBottomColor: colors.surfaceAlt,
         paddingBottom: 12,
     },
     checklistImg: {
@@ -886,11 +889,11 @@ const styles = StyleSheet.create({
     checklistTitle: {
         fontSize: 13,
         fontWeight: "700",
-        color: "#1C1917",
+        color: colors.text,
     },
     checklistDesc: {
         fontSize: 11,
-        color: "#78716C",
+        color: colors.textMuted,
         marginTop: 2,
     },
     checkBtn: {
@@ -898,17 +901,17 @@ const styles = StyleSheet.create({
         height: 28,
         borderRadius: 8,
         borderWidth: 1,
-        borderColor: "#456155",
+        borderColor: colors.primary,
         justifyContent: "center",
         alignItems: "center",
     },
     checkBtnActive: {
-        backgroundColor: "#456155",
+        backgroundColor: colors.primary,
     },
     addApptBtn: {
         flexDirection: "row",
         alignItems: "center",
-        backgroundColor: "#FF8A7A",
+        backgroundColor: colors.accentStrong,
         borderRadius: 14,
         paddingHorizontal: 12,
         paddingVertical: 6,
@@ -920,7 +923,7 @@ const styles = StyleSheet.create({
     },
     metricsHeaderBox: {
         flexDirection: "row",
-        backgroundColor: "#F5F5F4",
+        backgroundColor: colors.surfaceAlt,
         borderRadius: 16,
         padding: 16,
         alignItems: "center",
@@ -933,19 +936,19 @@ const styles = StyleSheet.create({
     metricsHeaderLabel: {
         fontSize: 10,
         fontWeight: "700",
-        color: "#888",
+        color: colors.textMuted,
         textTransform: "uppercase",
     },
     metricsHeaderValue: {
         fontSize: 18,
         fontWeight: "800",
-        color: "#456155",
+        color: colors.primary,
         marginTop: 4,
     },
     metricsHeaderDivider: {
         width: 1,
         height: "100%",
-        backgroundColor: "#E7E5E4",
+        backgroundColor: colors.border,
     },
     modalBg: {
         flex: 1,
@@ -955,36 +958,36 @@ const styles = StyleSheet.create({
         padding: 20,
     },
     modalCard: {
-        backgroundColor: "#FFFDF9",
+        backgroundColor: colors.background,
         borderRadius: 24,
         padding: 20,
         width: "100%",
         maxWidth: 340,
         borderWidth: 1,
-        borderColor: "#E7E5E4",
+        borderColor: colors.border,
     },
     modalTitle: {
         fontSize: 18,
         fontWeight: "800",
-        color: "#456155",
+        color: colors.primary,
         marginBottom: 16,
     },
     modalLabel: {
         fontSize: 11,
         fontWeight: "700",
-        color: "#78716C",
+        color: colors.textMuted,
         textTransform: "uppercase",
         marginBottom: 6,
     },
     modalInput: {
-        backgroundColor: "#F5F5F4",
+        backgroundColor: colors.surfaceAlt,
         borderWidth: 1,
-        borderColor: "#E7E5E4",
+        borderColor: colors.border,
         borderRadius: 12,
         paddingHorizontal: 12,
         height: 44,
         fontSize: 14,
-        color: "#1C1917",
+        color: colors.text,
         marginBottom: 16,
     },
     modalButtons: {
@@ -996,18 +999,18 @@ const styles = StyleSheet.create({
         paddingVertical: 10,
         paddingHorizontal: 16,
         borderRadius: 12,
-        backgroundColor: "#F5F5F4",
+        backgroundColor: colors.surfaceAlt,
     },
     modalCancelText: {
         fontSize: 13,
         fontWeight: "600",
-        color: "#78716C",
+        color: colors.textMuted,
     },
     modalSaveBtn: {
         paddingVertical: 10,
         paddingHorizontal: 16,
         borderRadius: 12,
-        backgroundColor: "#FF8A7A",
+        backgroundColor: colors.accentStrong,
     },
     modalSaveText: {
         fontSize: 13,

@@ -5,6 +5,7 @@ const { query } = require("../db/pool");
 const { asyncHandler } = require("../middleware/error");
 const { handleValidation } = require("../middleware/validate");
 const { codeFromQrPayload } = require("../utils/shareCode");
+const { decrypt } = require("../utils/crypto");
 
 const router = express.Router();
 
@@ -40,7 +41,7 @@ router.post(
             [share.child_id]
         );
         const child = childRes.rows[0] || {};
-        const childName = [child.first_name, child.last_name].filter(Boolean).join(" ");
+        const childName = [decrypt(child.first_name), decrypt(child.last_name)].filter(Boolean).join(" ");
 
         const professionalName = (req.body.professionalName || "").trim() || "Unnamed professional";
         await query(

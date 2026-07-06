@@ -7,6 +7,7 @@
 
 DROP TABLE IF EXISTS access_logs CASCADE;
 DROP TABLE IF EXISTS shared_records CASCADE;
+DROP TABLE IF EXISTS calendar_events CASCADE;
 DROP TABLE IF EXISTS reminders CASCADE;
 DROP TABLE IF EXISTS record_attachments CASCADE;
 DROP TABLE IF EXISTS memories CASCADE;
@@ -33,15 +34,20 @@ $$ LANGUAGE plpgsql;
 -- Healthcare professionals access via QR only and have no account.
 -- =========================================================
 CREATE TABLE users (
-    id            SERIAL PRIMARY KEY,
-    full_name     VARCHAR(100) NOT NULL,
-    email         VARCHAR(100) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL,
-    phone_number  VARCHAR(20),
-    gender        VARCHAR(10),
-    avatar_url    TEXT,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    id                  SERIAL PRIMARY KEY,
+    full_name           VARCHAR(100) NOT NULL,
+    email               VARCHAR(100) NOT NULL UNIQUE,
+    password_hash       VARCHAR(255) NOT NULL,
+    phone_number        VARCHAR(20),
+    gender              VARCHAR(10),
+    avatar_url          TEXT,
+    -- Data-retention consent (Data Privacy Act of 2012, RA 10173).
+    consent_accepted    BOOLEAN NOT NULL DEFAULT FALSE,
+    consent_date        TIMESTAMPTZ,     -- when consent was first given
+    consent_reviewed_at TIMESTAMPTZ,     -- last annual re-consent
+    retention_until     DATE,            -- informational initial retention (~6 yrs); NOT an auto-delete trigger
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TRIGGER trg_users_updated BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -244,6 +250,27 @@ CREATE TABLE reminders (
 );
 CREATE INDEX idx_reminders_child ON reminders(child_id);
 CREATE TRIGGER trg_reminders_updated BEFORE UPDATE ON reminders
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =========================================================
+-- CALENDAR EVENTS — user-created custom entries only. Vaccinations,
+-- checkups, medical history and reminders are aggregated for display
+-- directly from their own tables, not duplicated here.
+-- =========================================================
+CREATE TABLE calendar_events (
+    id                SERIAL PRIMARY KEY,
+    child_id          INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    title             VARCHAR(150) NOT NULL,
+    description       TEXT,
+    event_type        VARCHAR(50) NOT NULL DEFAULT 'custom',
+    event_date        DATE NOT NULL,
+    event_time        TIME,
+    reminder_settings JSONB,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_calendar_events_child ON calendar_events(child_id);
+CREATE TRIGGER trg_calendar_events_updated BEFORE UPDATE ON calendar_events
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- =========================================================

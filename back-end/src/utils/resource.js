@@ -1,16 +1,19 @@
 const express = require("express");
 const { query } = require("../db/pool");
 const { ApiError, asyncHandler } = require("../middleware/error");
+const { encryptFields, decryptRow } = require("./crypto");
 
 // Builds a child-scoped CRUD router for a simple record table.
-//   table:   DB table name
-//   columns: writable column names (snake_case) clients may set
-//   orderBy: ORDER BY clause for list (default newest first)
+//   table:     DB table name
+//   columns:   writable column names (snake_case) clients may set
+//   orderBy:   ORDER BY clause for list (default newest first)
+//   validate:  optional (data, { isCreate }) => void, throws on invalid input
+//   encrypted: column names to encrypt at rest (decrypted on the way out)
 //
 // The returned router (mergeParams) expects req.child to be set by
 // requireChildOwnership at mount time. All queries are parameterized and
 // always constrained by child_id, so a user can only touch their own data.
-function createResourceRouter({ table, columns, orderBy = "created_at DESC, id DESC", validate }) {
+function createResourceRouter({ table, columns, orderBy = "created_at DESC, id DESC", validate, encrypted = [] }) {
     const router = express.Router({ mergeParams: true });
 
     const pickBody = (body) => {
@@ -29,7 +32,7 @@ function createResourceRouter({ table, columns, orderBy = "created_at DESC, id D
                 `SELECT * FROM ${table} WHERE child_id = $1 ORDER BY ${orderBy}`,
                 [req.child.id]
             );
-            res.json(rows);
+            res.json(rows.map((r) => decryptRow(r, encrypted)));
         })
     );
 
@@ -39,8 +42,9 @@ function createResourceRouter({ table, columns, orderBy = "created_at DESC, id D
         asyncHandler(async (req, res) => {
             const data = pickBody(req.body);
             if (validate) validate(data, { isCreate: true });
-            const cols = Object.keys(data);
-            const values = Object.values(data);
+            const encData = encrypted.length ? encryptFields(data, encrypted) : data;
+            const cols = Object.keys(encData);
+            const values = Object.values(encData);
             const allCols = ["child_id", ...cols];
             const params = [req.child.id, ...values];
             const placeholders = allCols.map((_, i) => `$${i + 1}`).join(", ");
@@ -48,7 +52,7 @@ function createResourceRouter({ table, columns, orderBy = "created_at DESC, id D
                 `INSERT INTO ${table} (${allCols.join(", ")}) VALUES (${placeholders}) RETURNING *`,
                 params
             );
-            res.status(201).json(rows[0]);
+            res.status(201).json(decryptRow(rows[0], encrypted));
         })
     );
 
@@ -61,7 +65,7 @@ function createResourceRouter({ table, columns, orderBy = "created_at DESC, id D
                 [req.params.id, req.child.id]
             );
             if (!rows[0]) throw new ApiError(404, "Record not found");
-            res.json(rows[0]);
+            res.json(decryptRow(rows[0], encrypted));
         })
     );
 
@@ -71,16 +75,17 @@ function createResourceRouter({ table, columns, orderBy = "created_at DESC, id D
         asyncHandler(async (req, res) => {
             const data = pickBody(req.body);
             if (validate) validate(data, { isCreate: false });
-            const cols = Object.keys(data);
+            const encData = encrypted.length ? encryptFields(data, encrypted) : data;
+            const cols = Object.keys(encData);
             if (cols.length === 0) throw new ApiError(400, "No updatable fields provided");
             const setClause = cols.map((c, i) => `${c} = $${i + 1}`).join(", ");
-            const params = [...Object.values(data), req.params.id, req.child.id];
+            const params = [...Object.values(encData), req.params.id, req.child.id];
             const { rows } = await query(
                 `UPDATE ${table} SET ${setClause} WHERE id = $${cols.length + 1} AND child_id = $${cols.length + 2} RETURNING *`,
                 params
             );
             if (!rows[0]) throw new ApiError(404, "Record not found");
-            res.json(rows[0]);
+            res.json(decryptRow(rows[0], encrypted));
         })
     );
 

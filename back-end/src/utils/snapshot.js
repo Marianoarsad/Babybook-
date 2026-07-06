@@ -1,4 +1,5 @@
 const { query } = require("../db/pool");
+const { decrypt, decryptRow } = require("./crypto");
 
 // Record keys the parent can choose to share (mirrors the app's labels).
 const RECORD_LABELS = {
@@ -19,16 +20,16 @@ async function buildSnapshot(child, keys) {
 
     if (keys.includes("profile")) {
         snap.profile = {
-            name: [child.first_name, child.last_name].filter(Boolean).join(" "),
+            name: [decrypt(child.first_name), decrypt(child.last_name)].filter(Boolean).join(" "),
             dateOfBirth: child.date_of_birth,
             sex: child.sex,
-            bloodType: child.blood_type,
+            bloodType: decrypt(child.blood_type),
             birthWeight: child.birth_weight,
             birthLength: child.birth_length,
-            hospital: child.hospital,
-            pediatrician: child.pediatrician_name,
-            obgyne: child.obgyne_name,
-            emergencyContact: child.emergency_contact,
+            hospital: decrypt(child.hospital),
+            pediatrician: decrypt(child.pediatrician_name),
+            obgyne: decrypt(child.obgyne_name),
+            emergencyContact: decrypt(child.emergency_contact),
         };
     }
 
@@ -44,7 +45,7 @@ async function buildSnapshot(child, keys) {
             "SELECT vaccine_name, visit_name, due_date, date_given, status, notes FROM vaccinations WHERE child_id = $1 ORDER BY COALESCE(date_given, due_date) DESC NULLS LAST",
             [child.id]
         );
-        snap.vaccinations = rows;
+        snap.vaccinations = rows.map((r) => decryptRow(r, ["vaccine_name", "visit_name", "notes"]));
     }
 
     if (keys.includes("growth")) {
@@ -64,7 +65,7 @@ async function buildSnapshot(child, keys) {
             "SELECT title, age_achieved, date_recorded, is_completed FROM milestones WHERE child_id = $1 ORDER BY date_recorded DESC NULLS LAST",
             [child.id]
         );
-        snap.milestones = rows;
+        snap.milestones = rows.map((r) => decryptRow(r, ["title", "age_achieved"]));
     }
 
     if (keys.includes("checkups")) {
@@ -72,7 +73,7 @@ async function buildSnapshot(child, keys) {
             "SELECT title, doctor_name, clinic, checkup_date, time_of_visit, status, notes FROM checkups WHERE child_id = $1 ORDER BY checkup_date DESC NULLS LAST",
             [child.id]
         );
-        snap.checkups = rows;
+        snap.checkups = rows.map((r) => decryptRow(r, ["title", "doctor_name", "clinic", "notes"]));
     }
 
     if (keys.includes("nutrition")) {
@@ -82,7 +83,7 @@ async function buildSnapshot(child, keys) {
              ORDER BY entry_date DESC NULLS LAST, entry_time DESC NULLS LAST`,
             [child.id]
         );
-        snap.nutrition = rows;
+        snap.nutrition = rows.map((r) => decryptRow(r, ["formula_brand", "food_introduced", "reaction", "notes"]));
     }
 
     return snap;

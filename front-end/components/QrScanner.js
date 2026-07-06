@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { useTheme } from "../context/ThemeContext";
 
 // Guarded import so the app runs even if expo-camera isn't installed.
 let ExpoCamera = null;
@@ -16,6 +17,8 @@ export function scannerAvailable() {
 
 // Fullscreen camera that scans a QR code and calls onScanned(data).
 export default function QrScanner({ onScanned, onClose }) {
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
     const [granted, setGranted] = useState(null);
     const [scanned, setScanned] = useState(false);
 
@@ -90,17 +93,17 @@ export default function QrScanner({ onScanned, onClose }) {
     );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
     fill: { flex: 1, backgroundColor: "#000000" },
     center: {
         flex: 1,
         alignItems: "center",
         justifyContent: "center",
         padding: 24,
-        backgroundColor: "#FFFDF9",
+        backgroundColor: colors.background,
     },
-    msg: { fontSize: 14, color: "#57534E", textAlign: "center", marginBottom: 16, lineHeight: 20 },
-    link: { fontSize: 13, color: "#456155", fontWeight: "700" },
+    msg: { fontSize: 14, color: colors.textSecondary, textAlign: "center", marginBottom: 16, lineHeight: 20 },
+    link: { fontSize: 13, color: colors.primary, fontWeight: "700" },
     overlay: {
         position: "absolute",
         bottom: 40,
@@ -125,5 +128,5 @@ const styles = StyleSheet.create({
         paddingVertical: 12,
         borderRadius: 24,
     },
-    cancelText: { color: "#1C1917", fontWeight: "800", fontSize: 14 },
+    cancelText: { color: colors.text, fontWeight: "800", fontSize: 14 },
 });

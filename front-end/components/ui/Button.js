@@ -1,7 +1,8 @@
 import React from "react";
 import { Text, Pressable, ActivityIndicator, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, radius, space, shadow, MIN_TOUCH } from "../../theme";
+import { radius, space, shadow, MIN_TOUCH } from "../../theme";
+import { useTheme } from "../../context/ThemeContext";
 
 // Optional haptics (guarded so it's a no-op if expo-haptics isn't installed).
 let Haptics = null;
@@ -12,13 +13,13 @@ try {
     Haptics = null;
 }
 
-const VARIANTS = {
-    primary: { bg: colors.primary, fg: colors.onPrimary, border: "transparent", elevate: true, ring: "rgba(69,97,85,0.35)" },
-    accent: { bg: colors.accentStrong, fg: colors.onAccent, border: "transparent", elevate: true, ring: "rgba(228,97,76,0.35)" },
-    secondary: { bg: colors.softGreen, fg: colors.primary, border: colors.border, elevate: false, ring: "rgba(69,97,85,0.30)" },
-    ghost: { bg: "transparent", fg: colors.primary, border: colors.border, elevate: false, ring: "rgba(69,97,85,0.30)" },
+const makeVariants = (colors) => ({
+    primary: { bg: colors.primary, fg: colors.onPrimary, border: "transparent", elevate: true, ring: colors.primary + "59" },
+    accent: { bg: colors.accentStrong, fg: colors.onAccent, border: "transparent", elevate: true, ring: colors.accentStrong + "59" },
+    secondary: { bg: colors.softGreen, fg: colors.primary, border: colors.border, elevate: false, ring: colors.primary + "4D" },
+    ghost: { bg: "transparent", fg: colors.primary, border: colors.border, elevate: false, ring: colors.primary + "4D" },
     danger: { bg: colors.dangerBg, fg: colors.danger, border: "#FECACA", elevate: false, ring: "rgba(185,28,28,0.30)" },
-};
+});
 
 // Consistent, touch-friendly, accessible button with hover/focus/pressed states.
 export default function Button({
@@ -31,6 +32,8 @@ export default function Button({
     fullWidth = true,
     style,
 }) {
+    const { colors } = useTheme();
+    const VARIANTS = makeVariants(colors);
     const v = VARIANTS[variant] || VARIANTS.primary;
     const isDisabled = disabled || loading;
 

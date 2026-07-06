@@ -1,6 +1,7 @@
 import React from "react";
 import { View, Text, TextInput } from "react-native";
-import { colors, radius, space } from "../../theme";
+import { radius, space } from "../../theme";
+import { useTheme } from "../../context/ThemeContext";
 
 // Accessible labelled text field with inline error + helper text.
 // Replaces bare TextInputs and alert()-based validation.
@@ -17,6 +18,7 @@ export default function Field({
     multiline,
     style,
 }) {
+    const { colors } = useTheme();
     return (
         <View style={[{ gap: space.xs, marginBottom: space.md }, style]}>
             {label ? (

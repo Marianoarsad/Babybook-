@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
     View,
     Text,
@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { useLanguage } from "../context/LanguageContext";
 import { useToast } from "./ui/Toast";
+import { useTheme } from "../context/ThemeContext";
 import { SectionContainerCard, ListEntryCard } from "./common/Cards";
 import { Ionicons } from "@expo/vector-icons";
 import { initialUpdates, initialClinics } from "../mockData";
@@ -17,6 +18,8 @@ import { initialUpdates, initialClinics } from "../mockData";
 export default function Services() {
     const { language, t } = useLanguage();
     const toast = useToast();
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
     const [selectedCity, setSelectedCity] = useState("QUEZON CITY");
 
     const handleCall = (num) => {
@@ -156,10 +159,10 @@ export default function Services() {
     );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: "#FFFDF9",
+        backgroundColor: colors.background,
         padding: 16,
     },
     header: {
@@ -168,11 +171,11 @@ const styles = StyleSheet.create({
     headerTitle: {
         fontSize: 22,
         fontWeight: "800",
-        color: "#456155",
+        color: colors.primary,
     },
     headerSub: {
         fontSize: 12,
-        color: "#78716C",
+        color: colors.textMuted,
         marginTop: 4,
     },
     hotlinesGrid: {
@@ -216,7 +219,7 @@ const styles = StyleSheet.create({
     },
     bulletinRow: {
         borderBottomWidth: 1,
-        borderBottomColor: "#F5F5F4",
+        borderBottomColor: colors.surfaceAlt,
         paddingBottom: 12,
         marginBottom: 12,
     },
@@ -226,37 +229,37 @@ const styles = StyleSheet.create({
         marginBottom: 6,
     },
     categoryBadge: {
-        backgroundColor: "#E6F4EA",
+        backgroundColor: colors.tintGreen,
         paddingVertical: 2,
         paddingHorizontal: 6,
         borderRadius: 6,
         marginRight: 8,
     },
     alertBadge: {
-        backgroundColor: "#FFF1F0",
+        backgroundColor: colors.softCoral,
     },
     categoryBadgeText: {
         fontSize: 9,
         fontWeight: "800",
-        color: "#456155",
+        color: colors.primary,
     },
     alertBadgeText: {
-        color: "#EF4444",
+        color: colors.danger,
     },
     bulletinDate: {
         fontSize: 10,
-        color: "#A8A29E",
+        color: colors.textMuted,
         fontWeight: "600",
     },
     bulletinTitle: {
         fontSize: 13,
         fontWeight: "700",
-        color: "#1C1917",
+        color: colors.text,
         marginBottom: 4,
     },
     bulletinBody: {
         fontSize: 11,
-        color: "#57534E",
+        color: colors.textSecondary,
         lineHeight: 16,
     },
     clinicRow: {
@@ -264,7 +267,7 @@ const styles = StyleSheet.create({
         alignItems: "center",
         marginBottom: 12,
         borderBottomWidth: 1,
-        borderBottomColor: "#F5F5F4",
+        borderBottomColor: colors.surfaceAlt,
         paddingBottom: 12,
     },
     clinicImg: {
@@ -275,11 +278,11 @@ const styles = StyleSheet.create({
     clinicName: {
         fontSize: 13,
         fontWeight: "700",
-        color: "#1C1917",
+        color: colors.text,
     },
     clinicDistance: {
         fontSize: 11,
-        color: "#78716C",
+        color: colors.textMuted,
         marginTop: 2,
     },
     ratingRow: {
@@ -290,7 +293,7 @@ const styles = StyleSheet.create({
     ratingText: {
         fontSize: 10,
         fontWeight: "700",
-        color: "#D97706",
+        color: colors.warning,
         marginLeft: 4,
     },
 });

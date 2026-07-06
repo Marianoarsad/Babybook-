@@ -6,6 +6,9 @@ const { query } = require("../db/pool");
 const { ApiError, asyncHandler } = require("../middleware/error");
 const { requireAuth, requireChildOwnership } = require("../middleware/auth");
 const { upload, publicUrlFor, UPLOAD_DIR } = require("../middleware/upload");
+const { encrypt, decryptRow } = require("../utils/crypto");
+
+const MEM_ENCRYPTED = ["caption", "notes"];
 
 const router = express.Router();
 
@@ -20,7 +23,7 @@ router.get(
             "SELECT * FROM memories WHERE child_id = $1 ORDER BY date_recorded DESC NULLS LAST, id DESC",
             [req.child.id]
         );
-        res.json(rows);
+        res.json(rows.map((r) => decryptRow(r, MEM_ENCRYPTED)));
     })
 );
 
@@ -34,9 +37,9 @@ router.post(
         const { rows } = await query(
             `INSERT INTO memories (child_id, photo_url, caption, notes, date_recorded)
              VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-            [req.child.id, photoUrl, caption || null, notes || null, date_recorded || null]
+            [req.child.id, photoUrl, encrypt(caption || null), encrypt(notes || null), date_recorded || null]
         );
-        res.status(201).json(rows[0]);
+        res.status(201).json(decryptRow(rows[0], MEM_ENCRYPTED));
     })
 );
 

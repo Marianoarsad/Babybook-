@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
     View,
     Text,
@@ -11,11 +11,14 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { RECORD_LABELS } from "../utils/shareStore";
 import { api } from "../utils/api";
+import { useTheme } from "../context/ThemeContext";
 import QrScanner, { scannerAvailable } from "./QrScanner";
 
 // Secondary actor: healthcare professional. View-only access via a parent's
 // consultation code, resolved against the backend (works across devices).
 export default function ProfessionalView({ onExit }) {
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
     const [name, setName] = useState("");
     const [code, setCode] = useState("");
     const [loading, setLoading] = useState(false);
@@ -84,7 +87,7 @@ export default function ProfessionalView({ onExit }) {
         <ScrollView contentContainerStyle={styles.entryScroll}>
             <View style={styles.entryCard}>
                 <View style={styles.logoCircle}>
-                    <Ionicons name="medkit" size={26} color="#456155" />
+                    <Ionicons name="medkit" size={26} color={colors.primary} />
                 </View>
                 <Text style={styles.title}>Healthcare Professional</Text>
                 <Text style={styles.subtitle}>
@@ -94,11 +97,11 @@ export default function ProfessionalView({ onExit }) {
                 <View style={styles.field}>
                     <Text style={styles.label}>Your Name (for the access log)</Text>
                     <View style={styles.inputWrap}>
-                        <Ionicons name="person-outline" size={16} color="#78716C" style={{ marginRight: 8 }} />
+                        <Ionicons name="person-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
                         <TextInput
                             style={styles.input}
                             placeholder="e.g. Dr. Sarah Chen"
-                            placeholderTextColor="#A8A29E"
+                            placeholderTextColor={colors.textMuted}
                             value={name}
                             onChangeText={setName}
                         />
@@ -108,11 +111,11 @@ export default function ProfessionalView({ onExit }) {
                 <View style={styles.field}>
                     <Text style={styles.label}>Consultation Code</Text>
                     <View style={styles.inputWrap}>
-                        <Ionicons name="qr-code-outline" size={16} color="#78716C" style={{ marginRight: 8 }} />
+                        <Ionicons name="qr-code-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
                         <TextInput
                             style={[styles.input, { letterSpacing: 2, fontWeight: "700" }]}
                             placeholder="ABCD-1234"
-                            placeholderTextColor="#A8A29E"
+                            placeholderTextColor={colors.textMuted}
                             autoCapitalize="characters"
                             value={code}
                             onChangeText={setCode}
@@ -122,7 +125,7 @@ export default function ProfessionalView({ onExit }) {
 
                 {error ? (
                     <View style={styles.errorBox}>
-                        <Ionicons name="alert-circle" size={15} color="#C2410C" />
+                        <Ionicons name="alert-circle" size={15} color={colors.danger} />
                         <Text style={styles.errorText}>{error}</Text>
                     </View>
                 ) : null}
@@ -148,8 +151,8 @@ export default function ProfessionalView({ onExit }) {
                             height: 46,
                             borderRadius: 23,
                             borderWidth: 1,
-                            borderColor: "#C8E6C9",
-                            backgroundColor: "#F1F8F2",
+                            borderColor: colors.border,
+                            backgroundColor: colors.softGreen,
                             marginTop: 12,
                         }}
                         onPress={() => {
@@ -157,14 +160,14 @@ export default function ProfessionalView({ onExit }) {
                             setScanning(true);
                         }}
                     >
-                        <Ionicons name="scan-outline" size={18} color="#456155" />
-                        <Text style={{ color: "#456155", fontWeight: "800", fontSize: 14 }}>
+                        <Ionicons name="scan-outline" size={18} color={colors.primary} />
+                        <Text style={{ color: colors.primary, fontWeight: "800", fontSize: 14 }}>
                             Scan QR Code
                         </Text>
                     </TouchableOpacity>
                 ) : (
                     <View style={styles.scanHint}>
-                        <Ionicons name="camera-outline" size={14} color="#78716C" />
+                        <Ionicons name="camera-outline" size={14} color={colors.textMuted} />
                         <Text style={styles.scanHintText}>
                             Camera scanning isn't available here — type the code shown under the parent's QR.
                         </Text>
@@ -172,7 +175,7 @@ export default function ProfessionalView({ onExit }) {
                 )}
 
                 <TouchableOpacity style={styles.exitLink} onPress={onExit}>
-                    <Ionicons name="arrow-back" size={14} color="#456155" />
+                    <Ionicons name="arrow-back" size={14} color={colors.primary} />
                     <Text style={styles.exitText}>Back to parent sign-in</Text>
                 </TouchableOpacity>
             </View>
@@ -181,6 +184,8 @@ export default function ProfessionalView({ onExit }) {
 }
 
 function Row({ label, value }) {
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
     return (
         <View style={styles.dataRow}>
             <Text style={styles.dataLabel}>{label}</Text>
@@ -190,10 +195,12 @@ function Row({ label, value }) {
 }
 
 function Section({ icon, title, children }) {
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
     return (
         <View style={styles.section}>
             <View style={styles.sectionHead}>
-                <Ionicons name={icon} size={16} color="#456155" />
+                <Ionicons name={icon} size={16} color={colors.primary} />
                 <Text style={styles.sectionTitle}>{title}</Text>
             </View>
             {children}
@@ -202,6 +209,8 @@ function Section({ icon, title, children }) {
 }
 
 function RecordsView({ session, onEnd, onExit }) {
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
     const p = session.payload || {};
     return (
         <ScrollView contentContainerStyle={styles.recScroll}>
@@ -325,7 +334,7 @@ function RecordsView({ session, onEnd, onExit }) {
             )}
 
             <View style={styles.readOnlyNote}>
-                <Ionicons name="lock-closed" size={13} color="#78716C" />
+                <Ionicons name="lock-closed" size={13} color={colors.textMuted} />
                 <Text style={styles.readOnlyText}>
                     These records are read-only. You cannot create, edit, or delete any record. This view has been recorded in the parent's access log.
                 </Text>
@@ -335,73 +344,73 @@ function RecordsView({ session, onEnd, onExit }) {
                 <Text style={styles.endText}>End Session</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.exitLink} onPress={onExit}>
-                <Ionicons name="arrow-back" size={14} color="#456155" />
+                <Ionicons name="arrow-back" size={14} color={colors.primary} />
                 <Text style={styles.exitText}>Back to parent sign-in</Text>
             </TouchableOpacity>
         </ScrollView>
     );
 }
 
-const styles = StyleSheet.create({
-    entryScroll: { flexGrow: 1, justifyContent: "center", padding: 20, backgroundColor: "#FFFDF9" },
+const makeStyles = (colors) => StyleSheet.create({
+    entryScroll: { flexGrow: 1, justifyContent: "center", padding: 20, backgroundColor: colors.background },
     entryCard: {
-        backgroundColor: "#FFFFFF", borderRadius: 28, padding: 24, borderWidth: 1, borderColor: "#EBEBEB",
+        backgroundColor: "#FFFFFF", borderRadius: 28, padding: 24, borderWidth: 1, borderColor: colors.border,
         maxWidth: 440, width: "100%", alignSelf: "center",
     },
     logoCircle: {
-        width: 56, height: 56, borderRadius: 16, backgroundColor: "#E8F5E9",
+        width: 56, height: 56, borderRadius: 16, backgroundColor: colors.softGreen,
         alignItems: "center", justifyContent: "center", alignSelf: "center", marginBottom: 14,
-        borderWidth: 1, borderColor: "#C8E6C9",
+        borderWidth: 1, borderColor: colors.border,
     },
-    title: { fontSize: 21, fontWeight: "800", color: "#456155", textAlign: "center" },
-    subtitle: { fontSize: 12.5, color: "#78716C", textAlign: "center", marginTop: 6, marginBottom: 18, lineHeight: 17 },
+    title: { fontSize: 21, fontWeight: "800", color: colors.primary, textAlign: "center" },
+    subtitle: { fontSize: 12.5, color: colors.textMuted, textAlign: "center", marginTop: 6, marginBottom: 18, lineHeight: 17 },
     field: { marginBottom: 14 },
-    label: { fontSize: 10, fontWeight: "700", color: "#A8A29E", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 },
+    label: { fontSize: 10, fontWeight: "700", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 },
     inputWrap: {
-        flexDirection: "row", alignItems: "center", backgroundColor: "#F5F5F4",
-        borderWidth: 1, borderColor: "#E7E5E4", borderRadius: 12, paddingHorizontal: 12, height: 46,
+        flexDirection: "row", alignItems: "center", backgroundColor: colors.surfaceAlt,
+        borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 12, height: 46,
     },
-    input: { flex: 1, fontSize: 14, color: "#1C1917" },
+    input: { flex: 1, fontSize: 14, color: colors.text },
     errorBox: {
-        flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#FFF1ED",
+        flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.dangerBg,
         borderRadius: 10, padding: 10, marginBottom: 12,
     },
-    errorText: { flex: 1, fontSize: 12, color: "#C2410C", fontWeight: "600" },
+    errorText: { flex: 1, fontSize: 12, color: colors.danger, fontWeight: "600" },
     viewBtn: {
         flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-        backgroundColor: "#456155", height: 48, borderRadius: 24, marginTop: 2,
+        backgroundColor: colors.primary, height: 48, borderRadius: 24, marginTop: 2,
     },
     viewBtnText: { color: "#FFFFFF", fontWeight: "800", fontSize: 14.5 },
     scanHint: { flexDirection: "row", gap: 6, alignItems: "flex-start", marginTop: 14 },
-    scanHintText: { flex: 1, fontSize: 10.5, color: "#78716C", lineHeight: 15 },
+    scanHintText: { flex: 1, fontSize: 10.5, color: colors.textMuted, lineHeight: 15 },
     exitLink: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 16 },
-    exitText: { fontSize: 12.5, color: "#456155", fontWeight: "700" },
+    exitText: { fontSize: 12.5, color: colors.primary, fontWeight: "700" },
     recScroll: { padding: 16, paddingBottom: 40 },
     viewOnlyBanner: {
         flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-        backgroundColor: "#456155", borderRadius: 12, paddingVertical: 9, marginBottom: 14,
+        backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 9, marginBottom: 14,
     },
     viewOnlyText: { color: "#FFFFFF", fontWeight: "800", fontSize: 12, letterSpacing: 1 },
-    childName: { fontSize: 24, fontWeight: "900", color: "#1C1917" },
-    childMeta: { fontSize: 12, color: "#78716C", marginTop: 2, marginBottom: 14 },
+    childName: { fontSize: 24, fontWeight: "900", color: colors.text },
+    childMeta: { fontSize: 12, color: colors.textMuted, marginTop: 2, marginBottom: 14 },
     section: {
-        backgroundColor: "#FFFFFF", borderRadius: 18, padding: 16, borderWidth: 1, borderColor: "#F2F2F2", marginBottom: 12,
+        backgroundColor: "#FFFFFF", borderRadius: 18, padding: 16, borderWidth: 1, borderColor: colors.border, marginBottom: 12,
     },
     sectionHead: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
-    sectionTitle: { fontSize: 14, fontWeight: "800", color: "#456155" },
-    dataRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 6, borderTopWidth: 1, borderTopColor: "#F7F6F4" },
-    dataLabel: { fontSize: 12.5, color: "#78716C", flex: 1 },
-    dataValue: { fontSize: 12.5, color: "#1C1917", fontWeight: "700", flex: 1, textAlign: "right" },
+    sectionTitle: { fontSize: 14, fontWeight: "800", color: colors.primary },
+    dataRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.hairline },
+    dataLabel: { fontSize: 12.5, color: colors.textMuted, flex: 1 },
+    dataValue: { fontSize: 12.5, color: colors.text, fontWeight: "700", flex: 1, textAlign: "right" },
     listItem: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 7 },
     dot: { width: 9, height: 9, borderRadius: 5 },
-    itemTitle: { fontSize: 13, fontWeight: "700", color: "#1C1917" },
-    itemSub: { fontSize: 11, color: "#78716C", marginTop: 1 },
-    empty: { fontSize: 12, color: "#A8A29E", fontStyle: "italic" },
+    itemTitle: { fontSize: 13, fontWeight: "700", color: colors.text },
+    itemSub: { fontSize: 11, color: colors.textMuted, marginTop: 1 },
+    empty: { fontSize: 12, color: colors.textMuted, fontStyle: "italic" },
     readOnlyNote: {
-        flexDirection: "row", gap: 8, alignItems: "flex-start", backgroundColor: "#F5F5F4",
+        flexDirection: "row", gap: 8, alignItems: "flex-start", backgroundColor: colors.surfaceAlt,
         borderRadius: 12, padding: 12, marginTop: 4, marginBottom: 14,
     },
-    readOnlyText: { flex: 1, fontSize: 11, color: "#78716C", lineHeight: 15 },
-    endBtn: { backgroundColor: "#FF8A7A", height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
+    readOnlyText: { flex: 1, fontSize: 11, color: colors.textMuted, lineHeight: 15 },
+    endBtn: { backgroundColor: colors.accentStrong, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
     endText: { color: "#FFFFFF", fontWeight: "800", fontSize: 14 },
 });

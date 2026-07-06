@@ -3,13 +3,15 @@ import { View, Text, ScrollView, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLanguage } from "../context/LanguageContext";
 import { api } from "../utils/api";
-import { colors, space, radius, shadow } from "../theme";
+import { space, radius, shadow } from "../theme";
+import { useTheme } from "../context/ThemeContext";
 import Field from "./ui/Field";
 import Button from "./ui/Button";
 import { useToast } from "./ui/Toast";
 
 export default function Auth({ onLoginSuccess, onProfessional }) {
     const { language } = useLanguage();
+    const { colors } = useTheme();
     const toast = useToast();
     const [scene, setScene] = useState("login");
     const [loading, setLoading] = useState(false);
@@ -68,6 +70,7 @@ export default function Auth({ onLoginSuccess, onProfessional }) {
                 email: regEmail.trim(),
                 password: regPass,
                 gender: regGender,
+                consentAccepted: true,
             });
             onLoginSuccess(user, token);
         } catch (err) {
@@ -243,6 +246,37 @@ export default function Auth({ onLoginSuccess, onProfessional }) {
                             })}
                         </View>
 
+                        {/* Data-retention & privacy agreement (Data Privacy Act of 2012, RA 10173) */}
+                        <View
+                            style={{
+                                borderWidth: 1,
+                                borderColor: colors.border,
+                                borderRadius: radius.md,
+                                borderCurve: "continuous",
+                                backgroundColor: colors.surfaceAlt,
+                                padding: space.md,
+                                marginBottom: space.sm,
+                            }}
+                        >
+                            <Text style={{ fontSize: 12, fontWeight: "800", color: colors.text, marginBottom: 6 }}>
+                                Data Retention & Privacy Agreement
+                            </Text>
+                            <ScrollView style={{ maxHeight: 150 }} nestedScrollEnabled>
+                                <Text style={{ fontSize: 12, color: colors.textSecondary, lineHeight: 18 }}>
+                                    By creating an account, you agree that BabyBook+ will retain your and your
+                                    child's health and development records in its database to support your child's
+                                    first six (6) years of health and development.
+                                    {"\n\n"}Your data is <Text style={{ fontWeight: "800" }}>never deleted automatically.</Text> Each
+                                    year you will be asked whether you still wish to keep your data in the app —
+                                    if you confirm, it is kept for another year. Your account and records are only
+                                    ever deleted if you choose to withdraw your consent.
+                                    {"\n\n"}Your data is securely stored and encrypted with the intention of
+                                    complying with the Data Privacy Act of 2012 (Republic Act No. 10173). You
+                                    retain the right to access, correct, and erase your personal information at any time.
+                                </Text>
+                            </ScrollView>
+                        </View>
+
                         <TouchableOpacity
                             onPress={() => setTermsAgreed((v) => !v)}
                             accessibilityRole="checkbox"
@@ -263,7 +297,9 @@ export default function Auth({ onLoginSuccess, onProfessional }) {
                             >
                                 {termsAgreed ? <Ionicons name="checkmark" size={14} color="#FFFFFF" /> : null}
                             </View>
-                            <Text style={{ fontSize: 12.5, color: colors.textSecondary, flex: 1 }}>I agree to the Terms & Guidelines</Text>
+                            <Text style={{ fontSize: 12.5, color: colors.textSecondary, flex: 1 }}>
+                                I have read and agree to the Data Retention & Privacy Agreement above.
+                            </Text>
                         </TouchableOpacity>
 
                         <Button title="Register Account" onPress={handleRegister} loading={loading} />

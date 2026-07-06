@@ -1,7 +1,8 @@
 import React from "react";
 import { View, Text, TextInput, Image, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, radius, space } from "../../theme";
+import { radius, space } from "../../theme";
+import { useTheme } from "../../context/ThemeContext";
 import { pickImage, pickerAvailable } from "../../utils/imagePicker";
 
 // Required supporting-photo picker used inside health-record add/edit modals.
@@ -16,6 +17,7 @@ export default function PhotoAttach({
     label = "Supporting Photo",
     helper = "e.g. vaccination sticker, prescription, or record photo",
 }) {
+    const { colors } = useTheme();
     const preview = uri || url || "";
     return (
         <View style={{ marginBottom: space.md }}>

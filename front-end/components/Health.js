@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
     View,
     Text,
@@ -19,6 +19,7 @@ import { scheduleReminder, morningOf } from "../utils/notifications";
 import { pickImage, pickerAvailable } from "../utils/imagePicker";
 import { useToast } from "./ui/Toast";
 import { useLanguage } from "../context/LanguageContext";
+import { useTheme } from "../context/ThemeContext";
 import {
     SectionContainerCard,
     ListEntryCard,
@@ -36,6 +37,8 @@ export default function Health({
 }) {
     const { language, t } = useLanguage();
     const toast = useToast();
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
     const Alert = {
         alert: (title, message) => {
             const m = message || title || "";
@@ -372,7 +375,7 @@ export default function Health({
                     <Ionicons
                         name="medical-outline"
                         size={20}
-                        color="#456155"
+                        color={colors.primary}
                     />
                     <Text style={styles.careTeamTitle}>
                         Care Team Directory
@@ -522,7 +525,7 @@ export default function Health({
                             <Ionicons
                                 name="alert-circle-outline"
                                 size={16}
-                                color="#D97706"
+                                color={colors.warning}
                                 style={{ marginRight: 6 }}
                             />
                             <View style={{ flex: 1 }}>
@@ -540,7 +543,7 @@ export default function Health({
                             <Ionicons
                                 name="checkmark-circle-outline"
                                 size={16}
-                                color="#10B981"
+                                color={colors.success}
                                 style={{ marginRight: 6 }}
                             />
                             <View style={{ flex: 1 }}>
@@ -590,7 +593,7 @@ export default function Health({
                                     <Text
                                         style={{
                                             fontSize: 11,
-                                            color: "#78716C",
+                                            color: colors.textMuted,
                                         }}
                                     >
                                         Duration: {med.duration}
@@ -600,10 +603,10 @@ export default function Health({
                                     <Ionicons
                                         name="flask-outline"
                                         size={18}
-                                        color="#456155"
+                                        color={colors.primary}
                                     />
                                 }
-                                iconBg="#E6F4EA"
+                                iconBg={colors.tintGreen}
                             />
                         ))}
                     </SectionContainerCard>
@@ -646,14 +649,14 @@ export default function Health({
                                         <Ionicons
                                             name="close"
                                             size={14}
-                                            color="#EF4444"
+                                            color={colors.danger}
                                             style={{ marginLeft: 4 }}
                                         />
                                     </TouchableOpacity>
                                 </View>
                             ))}
                             {allergies.length === 0 && (
-                                <Text style={{ fontSize: 12, color: "#888" }}>
+                                <Text style={{ fontSize: 12, color: colors.textMuted }}>
                                     No allergies specified.
                                 </Text>
                             )}
@@ -693,10 +696,10 @@ export default function Health({
                                     <Ionicons
                                         name="pulse-outline"
                                         size={18}
-                                        color="#456155"
+                                        color={colors.primary}
                                     />
                                 }
-                                iconBg="#E6F4EA"
+                                iconBg={colors.tintGreen}
                             />
                         ))}
                     </SectionContainerCard>
@@ -726,9 +729,9 @@ export default function Health({
                                 subtitle={h.date}
                                 notes={h.desc}
                                 icon={
-                                    <Ionicons name="bandage-outline" size={18} color="#456155" />
+                                    <Ionicons name="bandage-outline" size={18} color={colors.primary} />
                                 }
-                                iconBg="#E6F4EA"
+                                iconBg={colors.tintGreen}
                             />
                         ))}
                     </SectionContainerCard>
@@ -966,16 +969,16 @@ export default function Health({
     );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: "#FFFDF9",
+        backgroundColor: colors.background,
         padding: 16,
     },
     careTeamBox: {
         backgroundColor: "#FFFFFF",
         borderWidth: 1,
-        borderColor: "#E7E5E4",
+        borderColor: colors.border,
         borderRadius: 16,
         padding: 12,
         marginBottom: 16,
@@ -988,22 +991,22 @@ const styles = StyleSheet.create({
     careTeamTitle: {
         fontSize: 13,
         fontWeight: "750",
-        color: "#456155",
+        color: colors.primary,
         marginLeft: 6,
     },
     careTeamText: {
         fontSize: 11,
-        color: "#57534E",
+        color: colors.textSecondary,
         marginTop: 2,
     },
     tabContainer: {
         flexDirection: "row",
-        backgroundColor: "#F5F5F4",
+        backgroundColor: colors.surfaceAlt,
         borderRadius: 24,
         padding: 4,
         marginBottom: 16,
         borderWidth: 1,
-        borderColor: "#E7E5E4",
+        borderColor: colors.border,
     },
     tabButton: {
         flex: 1,
@@ -1022,10 +1025,10 @@ const styles = StyleSheet.create({
     tabButtonText: {
         fontSize: 12,
         fontWeight: "600",
-        color: "#78716C",
+        color: colors.textMuted,
     },
     tabButtonTextActive: {
-        color: "#456155",
+        color: colors.primary,
         fontWeight: "750",
     },
     vaxRow: {
@@ -1033,7 +1036,7 @@ const styles = StyleSheet.create({
         alignItems: "center",
         paddingVertical: 12,
         borderBottomWidth: 1,
-        borderBottomColor: "#F5F5F4",
+        borderBottomColor: colors.surfaceAlt,
     },
     vaxThumbWrap: {
         width: 42,
@@ -1043,7 +1046,7 @@ const styles = StyleSheet.create({
         marginLeft: 8,
         borderWidth: 1,
         borderColor: "#ECE9E4",
-        backgroundColor: "#F5F5F4",
+        backgroundColor: colors.surfaceAlt,
     },
     vaxThumb: { width: "100%", height: "100%" },
     checkbox: {
@@ -1051,33 +1054,33 @@ const styles = StyleSheet.create({
         height: 20,
         borderRadius: 6,
         borderWidth: 1.5,
-        borderColor: "#456155",
+        borderColor: colors.primary,
         justifyContent: "center",
         alignItems: "center",
         backgroundColor: "#FFFFFF",
     },
     checkboxChecked: {
-        backgroundColor: "#456155",
-        borderColor: "#456155",
+        backgroundColor: colors.primary,
+        borderColor: colors.primary,
     },
     vaxTitle: {
         fontSize: 13,
         fontWeight: "700",
-        color: "#1C1917",
+        color: colors.text,
     },
     vaxTitleCompleted: {
         textDecorationLine: "line-through",
-        color: "#A8A29E",
+        color: colors.textMuted,
     },
     vaxSub: {
         fontSize: 11,
-        color: "#78716C",
+        color: colors.textMuted,
         marginTop: 2,
     },
     vaxNotes: {
         fontSize: 11,
         fontStyle: "italic",
-        color: "#456155",
+        color: colors.primary,
         marginTop: 4,
     },
     bulletRow: {
@@ -1088,17 +1091,17 @@ const styles = StyleSheet.create({
     bulletTitle: {
         fontSize: 12,
         fontWeight: "700",
-        color: "#1C1917",
+        color: colors.text,
     },
     bulletDesc: {
         fontSize: 11,
-        color: "#78716C",
+        color: colors.textMuted,
         marginTop: 2,
     },
     actionBtn: {
         flexDirection: "row",
         alignItems: "center",
-        backgroundColor: "#FF8A7A",
+        backgroundColor: colors.accentStrong,
         borderRadius: 14,
         paddingHorizontal: 12,
         paddingVertical: 6,
@@ -1115,18 +1118,18 @@ const styles = StyleSheet.create({
     },
     inlineInput: {
         flex: 1,
-        backgroundColor: "#F5F5F4",
+        backgroundColor: colors.surfaceAlt,
         borderWidth: 1,
-        borderColor: "#E7E5E4",
+        borderColor: colors.border,
         borderRadius: 12,
         paddingHorizontal: 12,
         height: 40,
         fontSize: 12,
-        color: "#1C1917",
+        color: colors.text,
     },
     addInlineBtn: {
         paddingHorizontal: 16,
-        backgroundColor: "#456155",
+        backgroundColor: colors.primary,
         borderRadius: 12,
         justifyContent: "center",
         alignItems: "center",
@@ -1144,9 +1147,9 @@ const styles = StyleSheet.create({
     chip: {
         flexDirection: "row",
         alignItems: "center",
-        backgroundColor: "#FFF1F0",
+        backgroundColor: colors.softCoral,
         borderWidth: 1,
-        borderColor: "#FFD3CE",
+        borderColor: colors.borderStrong,
         paddingVertical: 4,
         paddingHorizontal: 8,
         borderRadius: 8,
@@ -1154,7 +1157,7 @@ const styles = StyleSheet.create({
     chipText: {
         fontSize: 11,
         fontWeight: "600",
-        color: "#EF4444",
+        color: colors.danger,
     },
     modalBg: {
         flex: 1,
@@ -1164,36 +1167,36 @@ const styles = StyleSheet.create({
         padding: 20,
     },
     modalCard: {
-        backgroundColor: "#FFFDF9",
+        backgroundColor: colors.background,
         borderRadius: 24,
         padding: 20,
         width: "100%",
         maxWidth: 340,
         borderWidth: 1,
-        borderColor: "#E7E5E4",
+        borderColor: colors.border,
     },
     modalTitle: {
         fontSize: 18,
         fontWeight: "800",
-        color: "#456155",
+        color: colors.primary,
         marginBottom: 16,
     },
     modalLabel: {
         fontSize: 11,
         fontWeight: "700",
-        color: "#78716C",
+        color: colors.textMuted,
         textTransform: "uppercase",
         marginBottom: 6,
     },
     modalInput: {
-        backgroundColor: "#F5F5F4",
+        backgroundColor: colors.surfaceAlt,
         borderWidth: 1,
-        borderColor: "#E7E5E4",
+        borderColor: colors.border,
         borderRadius: 12,
         paddingHorizontal: 12,
         height: 44,
         fontSize: 14,
-        color: "#1C1917",
+        color: colors.text,
         marginBottom: 16,
     },
     modalButtons: {
@@ -1205,18 +1208,18 @@ const styles = StyleSheet.create({
         paddingVertical: 10,
         paddingHorizontal: 16,
         borderRadius: 12,
-        backgroundColor: "#F5F5F4",
+        backgroundColor: colors.surfaceAlt,
     },
     modalCancelText: {
         fontSize: 13,
         fontWeight: "600",
-        color: "#78716C",
+        color: colors.textMuted,
     },
     modalSaveBtn: {
         paddingVertical: 10,
         paddingHorizontal: 16,
         borderRadius: 12,
-        backgroundColor: "#FF8A7A",
+        backgroundColor: colors.accentStrong,
     },
     modalSaveText: {
         fontSize: 13,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
     View,
     Text,
@@ -16,7 +16,9 @@ import {
     EmptyStateCard,
 } from "./common/Cards";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, radius, space, shadow } from "../theme";
+import { radius, space, shadow } from "../theme";
+import { useTheme } from "../context/ThemeContext";
+import Gradient from "./ui/Gradient";
 import { api } from "../utils/api";
 import { memoryToApp, milestoneToApp } from "../utils/adapters";
 import { pickImage, pickerAvailable } from "../utils/imagePicker";
@@ -31,7 +33,49 @@ export default function Dashboard({
     onChangeView,
 }) {
     const { t } = useLanguage();
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
     const toast = useToast();
+
+    // Nearest upcoming vaccination/checkup, for the "Upcoming Appointments" widget.
+    const [upcoming, setUpcoming] = useState(null);
+    useEffect(() => {
+        let active = true;
+        (async () => {
+            try {
+                const [vaccinations, checkups] = await Promise.all([
+                    api.listRecords(profile.id, "vaccinations").catch(() => []),
+                    api.listRecords(profile.id, "checkups").catch(() => []),
+                ]);
+                if (!active) return;
+                const todayStr = new Date().toISOString().slice(0, 10);
+                const candidates = [
+                    ...(vaccinations || [])
+                        .filter((v) => v.status !== "completed" && v.due_date && String(v.due_date).slice(0, 10) >= todayStr)
+                        .map((v) => ({
+                            title: v.vaccine_name,
+                            subtitle: v.visit_name || "Vaccination",
+                            date: String(v.due_date).slice(0, 10),
+                            icon: "medkit-outline",
+                        })),
+                    ...(checkups || [])
+                        .filter((c) => c.status !== "completed" && c.checkup_date && String(c.checkup_date).slice(0, 10) >= todayStr)
+                        .map((c) => ({
+                            title: c.title || "Checkup",
+                            subtitle: c.doctor_name || "Checkup",
+                            date: String(c.checkup_date).slice(0, 10),
+                            icon: "calendar-outline",
+                        })),
+                ].sort((a, b) => a.date.localeCompare(b.date));
+                setUpcoming(candidates[0] || null);
+            } catch (e) {
+                console.log("load upcoming:", e.message);
+            }
+        })();
+        return () => {
+            active = false;
+        };
+    }, [profile.id]);
 
     // Completed milestones (shown as memory cards) load from the backend.
     const [mstones, setMstones] = useState([]);
@@ -142,7 +186,7 @@ export default function Dashboard({
             </View>
 
             {/* Active Profile Header Info Card */}
-            <View style={styles.babyCard}>
+            <Gradient colors={colors.gradient} style={styles.babyCard}>
                 <View style={styles.babyAvatarRing}>
                     <Image source={{ uri: profile.avatarUrl }} style={styles.babyAvatar} />
                 </View>
@@ -179,7 +223,7 @@ export default function Dashboard({
                 >
                     <Ionicons name="pencil" size={16} color={colors.onPrimary} />
                 </TouchableOpacity>
-            </View>
+            </Gradient>
 
             {/* Quick links to the record modules */}
             <View style={styles.quickRow}>
@@ -202,6 +246,38 @@ export default function Dashboard({
                     <Text style={styles.quickLabel}>Share via QR</Text>
                 </TouchableOpacity>
             </View>
+
+            {/* Upcoming Appointments widget */}
+            <SectionContainerCard
+                title="Upcoming Appointments"
+                subtitle={upcoming ? "Next on the calendar" : "Nothing scheduled right now"}
+                action={
+                    <TouchableOpacity
+                        onPress={() => onChangeView && onChangeView("calendar")}
+                        style={styles.viewCalendarBtn}
+                        accessibilityRole="button"
+                        accessibilityLabel="View Calendar"
+                    >
+                        <Text style={styles.viewCalendarText}>View Calendar</Text>
+                    </TouchableOpacity>
+                }
+            >
+                {upcoming ? (
+                    <View style={styles.upcomingRow}>
+                        <View style={[styles.upcomingIcon, { backgroundColor: colors.tintBlue }]}>
+                            <Ionicons name={upcoming.icon} size={20} color={colors.primary} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.upcomingTitle}>{upcoming.title}</Text>
+                            <Text style={styles.upcomingSubtitle}>
+                                {upcoming.subtitle} · {upcoming.date}
+                            </Text>
+                        </View>
+                    </View>
+                ) : (
+                    <EmptyStateCard message="No upcoming vaccinations or checkups." icon="calendar-outline" />
+                )}
+            </SectionContainerCard>
 
             {/* Milestone memory grids */}
             <SectionContainerCard title={t("dashMemoriesTitle")} subtitle={t("dashMemoriesSub")}>
@@ -316,7 +392,7 @@ export default function Dashboard({
     );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: colors.background,
@@ -354,7 +430,6 @@ const styles = StyleSheet.create({
     },
     addProfileText: { fontSize: 13, fontWeight: "700", color: colors.primary, marginLeft: 3 },
     babyCard: {
-        backgroundColor: colors.primary,
         borderRadius: radius.xl,
         borderCurve: "continuous",
         padding: space.lg + 2,
@@ -419,6 +494,26 @@ const styles = StyleSheet.create({
         justifyContent: "center",
     },
     quickLabel: { fontSize: 11, fontWeight: "700", color: colors.textSecondary, textAlign: "center" },
+    viewCalendarBtn: {
+        paddingVertical: 6,
+        paddingHorizontal: space.md,
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
+        backgroundColor: colors.softGreen,
+    },
+    viewCalendarText: { fontSize: 12, fontWeight: "800", color: colors.accentStrong },
+    upcomingRow: { flexDirection: "row", alignItems: "center" },
+    upcomingIcon: {
+        width: 44,
+        height: 44,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
+        alignItems: "center",
+        justifyContent: "center",
+        marginRight: space.md,
+    },
+    upcomingTitle: { fontSize: 15, fontWeight: "700", color: colors.text },
+    upcomingSubtitle: { fontSize: 12, color: colors.textMuted, marginTop: 3, fontWeight: "600" },
     memoriesGrid: { marginTop: space.xs },
     addPill: {
         flexDirection: "row",
