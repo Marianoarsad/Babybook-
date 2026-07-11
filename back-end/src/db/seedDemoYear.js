@@ -168,6 +168,50 @@ async function seed() {
                  VALUES ($1,'15 Month Wellness Checkup',$2,'10:00','Dr. Michael Tan','Metro General Pediatric Clinic','scheduled','Bring vaccination card.')`,
                 [childId, ymd(addMonths(DOB, 15))]
             );
+            // Extra past visits (relative to now) to fill out a busy, lived-in
+            // year of appointment history.
+            await c.query(
+                `INSERT INTO checkups (child_id, title, checkup_date, time_of_visit, doctor_name, clinic, status, notes)
+                 VALUES
+                  ($1,'Newborn Jaundice Follow-up',$2,'09:15','Dr. Michael Tan','Metro General Pediatric Clinic','completed','Bilirubin normalized. No phototherapy needed.'),
+                  ($1,'Lactation & Feeding Consultation',$3,'10:30','Nurse Aida Reyes','Barangay Health Center — Sampaloc','completed','Latching improved. Continue exclusive breastfeeding.'),
+                  ($1,'Sick Visit — Diaper Rash',$4,'15:00','Dr. Michael Tan','Metro General Pediatric Clinic','completed','Mild contact dermatitis. Advised barrier cream.'),
+                  ($1,'Pediatric Dental — First Tooth Check',$5,'13:30','Dr. Liza Gomez','BrightSmile Pediatric Dental','completed','First lower incisors erupting. Gum care discussed.'),
+                  ($1,'Sick Visit — Fever & Teething',$6,'16:45','Dr. Michael Tan','Metro General Pediatric Clinic','completed','Low-grade fever from teething. Fluids and rest advised.'),
+                  ($1,'Growth & Nutrition Review',$7,'11:00','Dr. Michael Tan','Metro General Pediatric Clinic','completed','On track with WHO growth curve. Introduced more solids.')`,
+                [
+                    childId,
+                    ymd(addMonths(NOW, -11)),
+                    ymd(addMonths(NOW, -10)),
+                    ymd(addMonths(NOW, -7)),
+                    ymd(addMonths(NOW, -5)),
+                    ymd(addMonths(NOW, -3)),
+                    ymd(addMonths(NOW, -1)),
+                ]
+            );
+            // Several months of advance (scheduled) appointments so the calendar
+            // and appointments list look actively planned into the future.
+            await c.query(
+                `INSERT INTO checkups (child_id, title, checkup_date, time_of_visit, doctor_name, clinic, status, notes)
+                 VALUES
+                  ($1,'Follow-up — Growth & Nutrition',$2,'10:00','Dr. Michael Tan','Metro General Pediatric Clinic','scheduled','Recheck weight and discuss toddler diet.'),
+                  ($1,'Pediatric Dental — Routine Cleaning',$3,'13:00','Dr. Liza Gomez','BrightSmile Pediatric Dental','scheduled','Routine cleaning and fluoride varnish.'),
+                  ($1,'18-Month Wellness Checkup',$4,'09:30','Dr. Michael Tan','Metro General Pediatric Clinic','scheduled','Bring vaccination card and growth diary.'),
+                  ($1,'Vaccination Visit — MMR & Varicella',$5,'14:00','Dr. Michael Tan','Metro General Pediatric Clinic','scheduled','MMR and Varicella booster doses due.'),
+                  ($1,'Developmental Screening — Speech & Motor',$6,'10:45','Dr. Elena Cruz','Child Development Center — QC','scheduled','Routine milestone and speech assessment.'),
+                  ($1,'Nutritionist Consult — Toddler Meal Plan',$7,'15:15','RND Karen Lim','Metro General Nutrition Unit','scheduled','Plan balanced toddler meals; iron-rich foods.'),
+                  ($1,'21-Month Wellness Checkup',$8,'09:00','Dr. Michael Tan','Metro General Pediatric Clinic','scheduled','General wellness and growth review.')`,
+                [
+                    childId,
+                    ymd(addDays(NOW, 14)),
+                    ymd(addMonths(NOW, 1)),
+                    ymd(addMonths(NOW, 2)),
+                    ymd(addMonths(NOW, 3)),
+                    ymd(addMonths(NOW, 4)),
+                    ymd(addMonths(NOW, 5)),
+                    ymd(addMonths(NOW, 6)),
+                ]
+            );
 
             // ================= MEDICAL HISTORY =================
             await c.query(
