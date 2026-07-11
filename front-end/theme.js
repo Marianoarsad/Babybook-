@@ -17,6 +17,9 @@ const SHARED = {
     text: "#1B1F3B", // ink
     textSecondary: "#3A4066",
     textMuted: "#5B618A",
+    // Neutral placeholder gray: readable contrast on light inputs, clearly
+    // subtler than entered text (colors.text) and muted labels (textMuted).
+    placeholder: "#9AA0B4",
     textOnDark: "#FFFFFF",
     textOnDarkMuted: "rgba(255,255,255,0.85)",
     surface: "#FFFFFF",

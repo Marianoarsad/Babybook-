@@ -6,6 +6,7 @@ import { useTheme } from "../context/ThemeContext";
 import { api } from "../utils/api";
 import { nutritionToApp, nutritionFormToRecord, toMilliliters } from "../utils/adapters";
 import { useToast } from "./ui/Toast";
+import { DateField, TimeField } from "./ui/DateField";
 import { SectionContainerCard, ListEntryCard, EmptyStateCard } from "./common/Cards";
 
 const MILK_TYPES = ["Formula", "Breastmilk", "Mixed"];
@@ -354,7 +355,7 @@ export default function NutritionTracker({ childId }) {
                                             <TextInput
                                                 style={styles.input}
                                                 placeholder="e.g. Enfamil A+"
-                                                placeholderTextColor={colors.textMuted}
+                                                placeholderTextColor={colors.placeholder}
                                                 value={form.formulaBrand}
                                                 onChangeText={(v) => setF("formulaBrand", v)}
                                             />
@@ -366,7 +367,7 @@ export default function NutritionTracker({ childId }) {
                                         style={styles.input}
                                         keyboardType="numeric"
                                         placeholder="e.g. 120"
-                                        placeholderTextColor={colors.textMuted}
+                                        placeholderTextColor={colors.placeholder}
                                         value={form.quantity}
                                         onChangeText={(v) => setF("quantity", v)}
                                     />
@@ -421,7 +422,7 @@ export default function NutritionTracker({ childId }) {
                                     <TextInput
                                         style={styles.input}
                                         placeholder="e.g. Mashed banana"
-                                        placeholderTextColor={colors.textMuted}
+                                        placeholderTextColor={colors.placeholder}
                                         value={form.foodIntroduced}
                                         onChangeText={(v) => setF("foodIntroduced", v)}
                                     />
@@ -429,7 +430,7 @@ export default function NutritionTracker({ childId }) {
                                     <TextInput
                                         style={styles.input}
                                         placeholder="e.g. None, mild rash"
-                                        placeholderTextColor={colors.textMuted}
+                                        placeholderTextColor={colors.placeholder}
                                         value={form.reaction}
                                         onChangeText={(v) => setF("reaction", v)}
                                     />
@@ -439,23 +440,11 @@ export default function NutritionTracker({ childId }) {
                             <View style={{ flexDirection: "row", gap: space.sm }}>
                                 <View style={{ flex: 1 }}>
                                     <Text style={styles.label}>Date</Text>
-                                    <TextInput
-                                        style={styles.input}
-                                        placeholder="YYYY-MM-DD"
-                                        placeholderTextColor={colors.textMuted}
-                                        value={form.date}
-                                        onChangeText={(v) => setF("date", v)}
-                                    />
+                                    <DateField value={form.date} onChange={(v) => setF("date", v)} />
                                 </View>
                                 <View style={{ flex: 1 }}>
                                     <Text style={styles.label}>Time</Text>
-                                    <TextInput
-                                        style={styles.input}
-                                        placeholder="HH:MM"
-                                        placeholderTextColor={colors.textMuted}
-                                        value={form.time}
-                                        onChangeText={(v) => setF("time", v)}
-                                    />
+                                    <TimeField value={form.time} onChange={(v) => setF("time", v)} />
                                 </View>
                             </View>
 

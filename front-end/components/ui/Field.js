@@ -30,7 +30,7 @@ export default function Field({
                 value={value}
                 onChangeText={onChangeText}
                 placeholder={placeholder}
-                placeholderTextColor={colors.textMuted}
+                placeholderTextColor={colors.placeholder}
                 keyboardType={keyboardType}
                 secureTextEntry={secureTextEntry}
                 autoCapitalize={autoCapitalize}

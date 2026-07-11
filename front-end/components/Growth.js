@@ -23,6 +23,8 @@ import {
     EmptyStateCard,
 } from "./common/Cards";
 import PhotoAttach from "./ui/PhotoAttach";
+import { MemoriesSkeleton, AppointmentsSkeleton } from "./ui/Skeleton";
+import { DateField, TimeField } from "./ui/DateField";
 import ImageViewer from "./ui/ImageViewer";
 import NutritionTracker from "./NutritionTracker";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -91,6 +93,8 @@ export default function Growth({
     setMilestones,
     appointments,
     setAppointments,
+    initialTab,
+    navKey,
 }) {
     const { language, t } = useLanguage();
     const toast = useToast();
@@ -105,12 +109,20 @@ export default function Growth({
     };
     const [growthTab, setGrowthTab] = useState("milestones");
     const [selectedAgeGroup, setSelectedAgeGroup] = useState("0-3m");
+    // Apply a deep-link tab request from the Dashboard quick actions.
+    useEffect(() => {
+        const valid = ["milestones", "growth", "nutrition", "checkups"];
+        if (initialTab && valid.includes(initialTab)) setGrowthTab(initialTab);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [navKey]);
 
     // Milestones, appointments and nutrition load from / persist to the backend.
     const [mstones, setMstones] = useState([]);
     const [appts, setAppts] = useState([]);
+    const [growthLoading, setGrowthLoading] = useState(true);
     useEffect(() => {
         let active = true;
+        setGrowthLoading(true);
         (async () => {
             try {
                 const [mRows, cRows] = await Promise.all([
@@ -122,6 +134,8 @@ export default function Growth({
                 setAppts(cRows.map(checkupToApp));
             } catch (e) {
                 console.log("load growth records:", e.message);
+            } finally {
+                if (active) setGrowthLoading(false);
             }
         })();
         return () => {
@@ -131,7 +145,6 @@ export default function Growth({
 
     // ===== Checkup supporting-photo attachments =====
     const [attachUri, setAttachUri] = useState("");
-    const [attachUrl, setAttachUrl] = useState("");
     const [attachMap, setAttachMap] = useState({});
     const [viewer, setViewer] = useState(null);
     const loadAttachments = async () => {
@@ -149,10 +162,9 @@ export default function Growth({
     }, [profile.id]);
     const resetAttach = () => {
         setAttachUri("");
-        setAttachUrl("");
     };
     const requireAttach = () => {
-        if (!(attachUri || attachUrl)) {
+        if (!attachUri) {
             toast.error("A supporting photo is required for this record.");
             return false;
         }
@@ -164,7 +176,6 @@ export default function Growth({
                 recordType,
                 recordId,
                 photoUri: attachUri,
-                fileUrl: attachUrl,
             });
             setAttachMap((prev) => ({ ...prev, [`${recordType}:${recordId}`]: a }));
         } catch (e) {
@@ -504,20 +515,23 @@ export default function Growth({
                         title={t("dashMemoriesTitle")}
                         subtitle={t("dashMemoriesSub")}
                     >
-                        {mstones
-                            .filter((m) => m.isCompleted)
-                            .map((m, idx) => (
-                                <MemoryVisualCard
-                                    key={m.id || idx}
-                                    title={m.title}
-                                    description={m.description}
-                                    date={m.date}
-                                    photoUrl={m.photoUrl}
-                                />
-                            ))}
-                        {mstones.filter((m) => m.isCompleted).length === 0 && (
-                            <EmptyStateCard message="No milestones reached yet." />
-                        )}
+                        {growthLoading && <MemoriesSkeleton count={2} />}
+                        {!growthLoading &&
+                            mstones
+                                .filter((m) => m.isCompleted)
+                                .map((m, idx) => (
+                                    <MemoryVisualCard
+                                        key={m.id || idx}
+                                        title={m.title}
+                                        description={m.description}
+                                        date={m.date}
+                                        photoUrl={m.photoUrl}
+                                    />
+                                ))}
+                        {!growthLoading &&
+                            mstones.filter((m) => m.isCompleted).length === 0 && (
+                                <EmptyStateCard message="No milestones reached yet." />
+                            )}
                     </SectionContainerCard>
                 </View>
             )}
@@ -623,10 +637,11 @@ export default function Growth({
                             </TouchableOpacity>
                         }
                     >
-                        {appts.length === 0 && (
+                        {growthLoading && <AppointmentsSkeleton count={3} />}
+                        {!growthLoading && appts.length === 0 && (
                             <EmptyStateCard message="No appointments scheduled yet." />
                         )}
-                        {appts.map((appt, idx) => (
+                        {!growthLoading && appts.map((appt, idx) => (
                             <ListEntryCard
                                 key={appt.id || idx}
                                 thumbnailUrl={attachUrlFor("checkup", appt.id)}
@@ -690,6 +705,7 @@ export default function Growth({
                             keyboardType="numeric"
                             style={styles.modalInput}
                             placeholder="e.g. 43.5"
+                            placeholderTextColor={colors.placeholder}
                             value={metricHead}
                             onChangeText={setMetricHead}
                         />
@@ -741,19 +757,11 @@ export default function Growth({
                         <View style={{ flexDirection: "row", gap: 8 }}>
                             <View style={{ flex: 1 }}>
                                 <Text style={styles.modalLabel}>Date</Text>
-                                <TextInput
-                                    style={styles.modalInput}
-                                    value={apptDate}
-                                    onChangeText={setApptDate}
-                                />
+                                <DateField value={apptDate} onChange={setApptDate} />
                             </View>
                             <View style={{ flex: 1 }}>
                                 <Text style={styles.modalLabel}>Time</Text>
-                                <TextInput
-                                    style={styles.modalInput}
-                                    value={apptTime}
-                                    onChangeText={setApptTime}
-                                />
+                                <TimeField value={apptTime} onChange={setApptTime} />
                             </View>
                         </View>
 
@@ -769,9 +777,7 @@ export default function Growth({
                         <PhotoAttach
                             required
                             uri={attachUri}
-                            url={attachUrl}
                             onChangeUri={setAttachUri}
-                            onChangeUrl={setAttachUrl}
                         />
 
                         <View style={styles.modalButtons}>

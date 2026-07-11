@@ -26,6 +26,8 @@ import {
     EmptyStateCard,
 } from "./common/Cards";
 import PhotoAttach from "./ui/PhotoAttach";
+import { ImmunizationsSkeleton } from "./ui/Skeleton";
+import { DateField } from "./ui/DateField";
 import ImageViewer from "./ui/ImageViewer";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
@@ -34,6 +36,8 @@ export default function Health({
     onUpdateProfile,
     immunizations,
     setImmunizations,
+    initialTab,
+    navKey,
 }) {
     const { language, t } = useLanguage();
     const toast = useToast();
@@ -47,17 +51,27 @@ export default function Health({
         },
     };
     const [activeTab, setActiveTab] = useState("immunizations");
+    // Apply a deep-link tab request from the Dashboard quick actions.
+    useEffect(() => {
+        const valid = ["immunizations", "medications", "illnesses"];
+        if (initialTab && valid.includes(initialTab)) setActiveTab(initialTab);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [navKey]);
 
     // Vaccinations now load from and persist to the backend.
     const [vaccines, setVaccines] = useState([]);
+    const [vaxLoading, setVaxLoading] = useState(true);
     useEffect(() => {
         let active = true;
+        setVaxLoading(true);
         (async () => {
             try {
                 const rows = await api.listRecords(profile.id, "vaccinations");
                 if (active) setVaccines(rows.map(vaccinationToApp));
             } catch (e) {
                 console.log("load vaccines:", e.message);
+            } finally {
+                if (active) setVaxLoading(false);
             }
         })();
         return () => {
@@ -124,7 +138,6 @@ export default function Health({
 
     // ===== Mandatory supporting-photo attachments =====
     const [attachUri, setAttachUri] = useState("");
-    const [attachUrl, setAttachUrl] = useState("");
     const [attachMap, setAttachMap] = useState({}); // `${type}:${id}` -> attachment row
     const [viewer, setViewer] = useState(null); // { uri, type, recordId, attachId }
 
@@ -144,9 +157,8 @@ export default function Health({
 
     const resetAttach = () => {
         setAttachUri("");
-        setAttachUrl("");
     };
-    const hasAttach = () => !!(attachUri || attachUrl);
+    const hasAttach = () => !!attachUri;
     const requireAttach = () => {
         if (!hasAttach()) {
             toast.error("A supporting photo is required for this record.");
@@ -160,7 +172,6 @@ export default function Health({
                 recordType,
                 recordId,
                 photoUri: attachUri,
-                fileUrl: attachUrl,
             });
             setAttachMap((prev) => ({ ...prev, [`${recordType}:${recordId}`]: a }));
         } catch (e) {
@@ -458,10 +469,11 @@ export default function Health({
                             </TouchableOpacity>
                         }
                     >
-                        {vaccines.length === 0 && (
+                        {vaxLoading && <ImmunizationsSkeleton count={4} />}
+                        {!vaxLoading && vaccines.length === 0 && (
                             <EmptyStateCard message="No vaccination records yet." />
                         )}
-                        {vaccines.map((vax, idx) => (
+                        {!vaxLoading && vaccines.map((vax, idx) => (
                             <TouchableOpacity
                                 key={vax.id || idx}
                                 onPress={() => handleToggleVaccine(vax.id)}
@@ -625,6 +637,7 @@ export default function Health({
                             <TextInput
                                 style={styles.inlineInput}
                                 placeholder="Add new allergy target..."
+                                placeholderTextColor={colors.placeholder}
                                 value={newAllergy}
                                 onChangeText={setNewAllergy}
                             />
@@ -748,6 +761,7 @@ export default function Health({
                         <TextInput
                             style={styles.modalInput}
                             placeholder="e.g. Dengue admission"
+                            placeholderTextColor={colors.placeholder}
                             value={hospTitle}
                             onChangeText={setHospTitle}
                         />
@@ -762,9 +776,7 @@ export default function Health({
                         <PhotoAttach
                             required
                             uri={attachUri}
-                            url={attachUrl}
                             onChangeUri={setAttachUri}
-                            onChangeUrl={setAttachUrl}
                         />
 
                         <View style={styles.modalButtons}>
@@ -814,9 +826,7 @@ export default function Health({
                         <PhotoAttach
                             required
                             uri={attachUri}
-                            url={attachUrl}
                             onChangeUri={setAttachUri}
-                            onChangeUrl={setAttachUrl}
                         />
 
                         <View style={styles.modalButtons}>
@@ -868,9 +878,7 @@ export default function Health({
                         <PhotoAttach
                             required
                             uri={attachUri}
-                            url={attachUrl}
                             onChangeUri={setAttachUri}
-                            onChangeUrl={setAttachUrl}
                         />
 
                         <View style={styles.modalButtons}>
@@ -905,6 +913,7 @@ export default function Health({
                         <TextInput
                             style={styles.modalInput}
                             placeholder="e.g. MMR"
+                            placeholderTextColor={colors.placeholder}
                             value={vaxName}
                             onChangeText={setVaxName}
                         />
@@ -918,22 +927,12 @@ export default function Health({
                             onChangeText={setVaxVisit}
                         />
 
-                        <Text style={styles.modalLabel}>
-                            Due Date (YYYY-MM-DD)
-                        </Text>
-                        <TextInput
-                            style={styles.modalInput}
-                            placeholder="2026-12-16"
-                            value={vaxDue}
-                            onChangeText={setVaxDue}
-                        />
+                        <DateField label="Due Date" value={vaxDue} onChange={setVaxDue} />
 
                         <PhotoAttach
                             required
                             uri={attachUri}
-                            url={attachUrl}
                             onChangeUri={setAttachUri}
-                            onChangeUrl={setAttachUrl}
                         />
 
                         <View style={styles.modalButtons}>

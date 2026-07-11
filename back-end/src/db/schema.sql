@@ -35,10 +35,10 @@ $$ LANGUAGE plpgsql;
 -- =========================================================
 CREATE TABLE users (
     id                  SERIAL PRIMARY KEY,
-    full_name           VARCHAR(100) NOT NULL,
+    full_name           TEXT NOT NULL,          -- encrypted at rest (enc:v1:...)
     email               VARCHAR(100) NOT NULL UNIQUE,
     password_hash       VARCHAR(255) NOT NULL,
-    phone_number        VARCHAR(20),
+    phone_number        TEXT,                   -- encrypted at rest
     gender              VARCHAR(10),
     avatar_url          TEXT,
     -- Data-retention consent (Data Privacy Act of 2012, RA 10173).
@@ -68,21 +68,23 @@ CREATE INDEX idx_password_resets_token ON password_resets(token);
 CREATE TABLE children (
     id                      SERIAL PRIMARY KEY,
     user_id                 INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    first_name              VARCHAR(50) NOT NULL,
-    last_name               VARCHAR(50),
-    nickname                VARCHAR(50),
+    -- Sensitive identity/medical text below is encrypted at rest (enc:v1:...),
+    -- so these columns are TEXT to hold variable-length ciphertext.
+    first_name              TEXT NOT NULL,
+    last_name               TEXT,
+    nickname                TEXT,
     date_of_birth           DATE,
     time_of_birth           TIME,
     sex                     VARCHAR(10),
-    blood_type              VARCHAR(5),
+    blood_type              TEXT,
     birth_weight            DECIMAL(5,2),
     birth_length            DECIMAL(5,2),
-    place_of_birth          VARCHAR(150),
-    hospital                VARCHAR(150),
-    obgyne_name             VARCHAR(100),
-    pediatrician_name       VARCHAR(100),
-    emergency_contact       VARCHAR(100),
-    preferred_health_center VARCHAR(150),
+    place_of_birth          TEXT,
+    hospital                TEXT,
+    obgyne_name             TEXT,
+    pediatrician_name       TEXT,
+    emergency_contact       TEXT,
+    preferred_health_center TEXT,
     avatar_url              TEXT,
     allergies               JSONB NOT NULL DEFAULT '[]',
     hereditary_conditions   JSONB NOT NULL DEFAULT '[]',
@@ -99,8 +101,8 @@ CREATE TRIGGER trg_children_updated BEFORE UPDATE ON children
 CREATE TABLE vaccinations (
     id            SERIAL PRIMARY KEY,
     child_id      INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
-    vaccine_name  VARCHAR(150) NOT NULL,
-    visit_name    VARCHAR(100),
+    vaccine_name  TEXT NOT NULL,     -- encrypted at rest
+    visit_name    TEXT,              -- encrypted at rest
     due_date      DATE,
     date_given    DATE,
     status        VARCHAR(20) NOT NULL DEFAULT 'scheduled'
@@ -119,11 +121,11 @@ CREATE TRIGGER trg_vaccinations_updated BEFORE UPDATE ON vaccinations
 CREATE TABLE checkups (
     id            SERIAL PRIMARY KEY,
     child_id      INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
-    title         VARCHAR(150),
+    title         TEXT,              -- encrypted at rest
     checkup_date  DATE,
     time_of_visit TIME,
-    doctor_name   VARCHAR(100),
-    clinic        VARCHAR(150),
+    doctor_name   TEXT,              -- encrypted at rest
+    clinic        TEXT,              -- encrypted at rest
     status        VARCHAR(20) NOT NULL DEFAULT 'scheduled'
                   CHECK (status IN ('scheduled', 'completed')),
     notes         TEXT,
@@ -142,7 +144,7 @@ CREATE TABLE medical_history (
     child_id      INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
     category      VARCHAR(50) NOT NULL
                   CHECK (category IN ('Illness', 'Allergy', 'Medication', 'Hospitalization', 'Hereditary Condition')),
-    title         VARCHAR(150),
+    title         TEXT,              -- encrypted at rest
     description   TEXT,
     date_recorded DATE,
     resolved      BOOLEAN NOT NULL DEFAULT FALSE,
@@ -174,8 +176,8 @@ CREATE INDEX idx_growth_child ON growth_records(child_id);
 CREATE TABLE milestones (
     id            SERIAL PRIMARY KEY,
     child_id      INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
-    title         VARCHAR(150) NOT NULL,
-    age_achieved  VARCHAR(50),
+    title         TEXT NOT NULL,     -- encrypted at rest
+    age_achieved  TEXT,              -- encrypted at rest
     description   TEXT,
     date_recorded DATE,
     is_completed  BOOLEAN NOT NULL DEFAULT TRUE,
@@ -200,12 +202,12 @@ CREATE TABLE nutrition_records (
                     CHECK (entry_type IN ('milk', 'solid')),
     -- milk fields
     milk_type       VARCHAR(20) CHECK (milk_type IN ('Formula', 'Breastmilk', 'Mixed')),
-    formula_brand   VARCHAR(100),
+    formula_brand   TEXT,          -- encrypted at rest
     quantity        DECIMAL(7,2),
     unit            VARCHAR(5) CHECK (unit IN ('oz', 'mL', 'L')),
     -- solid fields
-    food_introduced VARCHAR(150),
-    reaction        VARCHAR(150),
+    food_introduced TEXT,          -- encrypted at rest
+    reaction        TEXT,          -- encrypted at rest
     -- shared
     entry_date      DATE NOT NULL DEFAULT CURRENT_DATE,
     entry_time      TIME,
@@ -225,7 +227,7 @@ CREATE TABLE memories (
     id            SERIAL PRIMARY KEY,
     child_id      INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
     photo_url     TEXT,
-    caption       VARCHAR(255),
+    caption       TEXT,              -- encrypted at rest
     notes         TEXT,
     date_recorded DATE,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -239,7 +241,7 @@ CREATE TABLE reminders (
     id             SERIAL PRIMARY KEY,
     child_id       INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
     reminder_type  VARCHAR(50) NOT NULL CHECK (reminder_type IN ('Vaccination', 'Checkup')),
-    title          VARCHAR(150),
+    title          TEXT,              -- encrypted at rest
     reminder_date  DATE NOT NULL,
     status         VARCHAR(20) NOT NULL DEFAULT 'Pending'
                    CHECK (status IN ('Pending', 'Completed')),
@@ -260,7 +262,7 @@ CREATE TRIGGER trg_reminders_updated BEFORE UPDATE ON reminders
 CREATE TABLE calendar_events (
     id                SERIAL PRIMARY KEY,
     child_id          INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
-    title             VARCHAR(150) NOT NULL,
+    title             TEXT NOT NULL,          -- encrypted at rest
     description       TEXT,
     event_type        VARCHAR(50) NOT NULL DEFAULT 'custom',
     event_date        DATE NOT NULL,

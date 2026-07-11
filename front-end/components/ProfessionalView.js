@@ -101,7 +101,7 @@ export default function ProfessionalView({ onExit }) {
                         <TextInput
                             style={styles.input}
                             placeholder="e.g. Dr. Sarah Chen"
-                            placeholderTextColor={colors.textMuted}
+                            placeholderTextColor={colors.placeholder}
                             value={name}
                             onChangeText={setName}
                         />
@@ -115,7 +115,7 @@ export default function ProfessionalView({ onExit }) {
                         <TextInput
                             style={[styles.input, { letterSpacing: 2, fontWeight: "700" }]}
                             placeholder="ABCD-1234"
-                            placeholderTextColor={colors.textMuted}
+                            placeholderTextColor={colors.placeholder}
                             autoCapitalize="characters"
                             value={code}
                             onChangeText={setCode}

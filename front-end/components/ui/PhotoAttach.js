@@ -1,24 +1,22 @@
 import React from "react";
-import { View, Text, TextInput, Image, TouchableOpacity } from "react-native";
+import { View, Text, Image, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { radius, space } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
 import { pickImage, pickerAvailable } from "../../utils/imagePicker";
 
 // Required supporting-photo picker used inside health-record add/edit modals.
-// Manages one image, provided either as a device URI (uploaded on save) or a
-// pasted URL. The parent enforces "required" before allowing save.
+// Manages one image, provided as a device URI (uploaded on save). The parent
+// enforces "required" before allowing save.
 export default function PhotoAttach({
     uri,
-    url,
     onChangeUri,
-    onChangeUrl,
     required = true,
     label = "Supporting Photo",
     helper = "e.g. vaccination sticker, prescription, or record photo",
 }) {
     const { colors } = useTheme();
-    const preview = uri || url || "";
+    const preview = uri || "";
     return (
         <View style={{ marginBottom: space.md }}>
             <Text style={{ fontSize: 13, fontWeight: "700", color: colors.textSecondary, marginBottom: 6 }}>
@@ -30,10 +28,7 @@ export default function PhotoAttach({
                     onPress={async () => {
                         if (!pickerAvailable()) return;
                         const picked = await pickImage();
-                        if (picked) {
-                            onChangeUri(picked);
-                            onChangeUrl("");
-                        }
+                        if (picked) onChangeUri(picked);
                     }}
                     style={{
                         width: 66,
@@ -58,31 +53,9 @@ export default function PhotoAttach({
                     )}
                 </TouchableOpacity>
                 <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 11, color: colors.textMuted, marginBottom: 4 }}>
-                        {uri ? "Photo selected ✓" : pickerAvailable() ? "Tap the box to choose a photo," : helper}
+                    <Text style={{ fontSize: 12, color: colors.textMuted }}>
+                        {uri ? "Photo selected ✓" : pickerAvailable() ? "Tap the box to choose a photo." : helper}
                     </Text>
-                    <TextInput
-                        placeholder="or paste an image URL"
-                        placeholderTextColor={colors.textMuted}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        value={url}
-                        onChangeText={(v) => {
-                            onChangeUrl(v);
-                            if (v) onChangeUri("");
-                        }}
-                        style={{
-                            height: 42,
-                            backgroundColor: colors.surfaceAlt,
-                            borderWidth: 1,
-                            borderColor: colors.border,
-                            borderRadius: radius.sm,
-                            borderCurve: "continuous",
-                            paddingHorizontal: space.sm,
-                            fontSize: 13,
-                            color: colors.text,
-                        }}
-                    />
                 </View>
             </View>
         </View>

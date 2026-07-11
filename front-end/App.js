@@ -11,13 +11,35 @@ import {
     Image,
     Alert,
     ScrollView,
-    ActivityIndicator,
+    Platform,
 } from "react-native";
 import { LanguageProvider, useLanguage } from "./context/LanguageContext";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { colors, radius, space, shadow } from "./theme";
+
+// Guarded expo-font so the app still runs if it isn't available.
+let ExpoFont = null;
+try {
+    // eslint-disable-next-line global-require
+    ExpoFont = require("expo-font");
+} catch (e) {
+    ExpoFont = null;
+}
 import ThemeProvider, { useTheme } from "./context/ThemeContext";
 import { storage } from "./utils/storageAdapter";
+
+// Web only: one consistent muted-gray placeholder across every input, so raw
+// TextInputs match the themed `colors.placeholder` used by shared components.
+if (Platform.OS === "web" && typeof document !== "undefined") {
+    const STYLE_ID = "bb-placeholder-style";
+    if (!document.getElementById(STYLE_ID)) {
+        const el = document.createElement("style");
+        el.id = STYLE_ID;
+        el.textContent =
+            "input::placeholder,textarea::placeholder{color:#9AA0B4;opacity:1;}";
+        document.head.appendChild(el);
+    }
+}
 
 // Import Screen Components
 import Auth from "./components/Auth";
@@ -31,6 +53,8 @@ import EmptyChild from "./components/EmptyChild";
 import ToastProvider from "./components/ui/Toast";
 import SideMenu from "./components/SideMenu";
 import CalendarView from "./components/CalendarView";
+import AppLoadingScreen from "./components/AppLoadingScreen";
+import { DateField, TimeField } from "./components/ui/DateField";
 import ViewProfile from "./components/settings/ViewProfile";
 import EditProfile from "./components/settings/EditProfile";
 import GeneralSettings from "./components/settings/GeneralSettings";
@@ -49,6 +73,27 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
 
+    // Preload the icon fonts (@expo/vector-icons) so buttons/icons never render
+    // blank. The app shows AppLoadingScreen until these are ready.
+    const [fontsReady, setFontsReady] = useState(false);
+    useEffect(() => {
+        let active = true;
+        (async () => {
+            try {
+                if (ExpoFont && ExpoFont.loadAsync) {
+                    await ExpoFont.loadAsync({ ...Ionicons.font, ...MaterialCommunityIcons.font });
+                }
+            } catch (e) {
+                console.log("font preload:", e.message);
+            } finally {
+                if (active) setFontsReady(true);
+            }
+        })();
+        return () => {
+            active = false;
+        };
+    }, []);
+
     // Authentication State
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     // Healthcare Professional mode (separate actor, no parent account)
@@ -61,6 +106,17 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
 
     // Main navigation view
     const [currentView, setCurrentView] = useState("dashboard");
+    // Optional deep-link sub-tab for Health/Growth (set by Dashboard quick actions).
+    // navKey bumps on every request so repeated taps re-apply the tab.
+    const [navTab, setNavTab] = useState(null);
+    const [navKey, setNavKey] = useState(0);
+    const changeView = (view, tab = null) => {
+        setCurrentView(view);
+        if (tab) {
+            setNavTab(tab);
+            setNavKey((k) => k + 1);
+        }
+    };
 
     // Core records lists — children now load from the backend.
     const [profiles, setProfiles] = useState([]);
@@ -99,7 +155,6 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
     const [formHealthCenter, setFormHealthCenter] = useState("");
     // Profile picture: a picked device photo (uploaded on save) or a pasted URL.
     const [formAvatarUri, setFormAvatarUri] = useState("");
-    const [formAvatarUrl, setFormAvatarUrl] = useState("");
 
     const activeProfile =
         profiles.find((p) => p.id === selectedProfileId) || profiles[0];
@@ -225,7 +280,6 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                         obgyne: formObgyne,
                         emergencyContact: formEmergency,
                         preferredHealthCenter: formHealthCenter,
-                        avatarUrl: formAvatarUrl,
                     },
                     { includeBirth: true },
                 ),
@@ -253,7 +307,6 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
             setFormEmergency("");
             setFormHealthCenter("");
             setFormAvatarUri("");
-            setFormAvatarUrl("");
         } catch (e) {
             Alert.alert("Error", e.message || "Could not add child");
         }
@@ -281,7 +334,6 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                         obgyne: formObgyne,
                         emergencyContact: formEmergency,
                         preferredHealthCenter: formHealthCenter,
-                        avatarUrl: formAvatarUrl,
                     },
                     { includeBirth: false },
                 ),
@@ -298,7 +350,6 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
             setProfiles((prev) => prev.map((p) => (p.id === prof.id ? prof : p)));
             setShowEditProfileModal(false);
             setFormAvatarUri("");
-            setFormAvatarUrl("");
         } catch (e) {
             Alert.alert("Error", e.message || "Could not update child");
         }
@@ -324,7 +375,6 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
         setFormTimeOfBirth(activeProfile.timeOfBirth || "");
         setFormHealthCenter(activeProfile.preferredHealthCenter || "");
         setFormAvatarUri("");
-        setFormAvatarUrl("");
         setShowEditProfileModal(true);
     };
 
@@ -335,14 +385,13 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
         setFormTimeOfBirth("");
         setFormHealthCenter("");
         setFormAvatarUri("");
-        setFormAvatarUrl("");
         setShowAddProfileModal(true);
     };
 
     // Reusable avatar picker used in both the add and edit baby modals.
     // `currentUrl` is the baby's existing photo (edit) shown until a new one is chosen.
     const renderAvatarPicker = (currentUrl) => {
-        const preview = formAvatarUri || formAvatarUrl || currentUrl || "";
+        const preview = formAvatarUri || currentUrl || "";
         return (
             <View style={styles.avatarPickerWrap}>
                 <TouchableOpacity
@@ -350,10 +399,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                     onPress={async () => {
                         if (!pickerAvailable()) return;
                         const uri = await pickImage();
-                        if (uri) {
-                            setFormAvatarUri(uri);
-                            setFormAvatarUrl("");
-                        }
+                        if (uri) setFormAvatarUri(uri);
                     }}
                     accessibilityRole="button"
                     accessibilityLabel="Choose baby photo"
@@ -374,31 +420,18 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                         {formAvatarUri ? "Photo selected — tap to change" : "Tap to choose a photo"}
                     </Text>
                 ) : null}
-                <TextInput
-                    style={[styles.modalInput, styles.avatarUrlInput]}
-                    placeholder="…or paste an image URL"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    value={formAvatarUrl}
-                    onChangeText={(v) => {
-                        setFormAvatarUrl(v);
-                        if (v) setFormAvatarUri("");
-                    }}
-                />
             </View>
         );
     };
 
-    if (professionalMode) {
-        return <ProfessionalView onExit={() => setProfessionalMode(false)} />;
+    // Show the branded loading screen until icon fonts are ready and the saved
+    // session has been restored — so no screen ever renders with blank icons.
+    if (!fontsReady || bootstrapping) {
+        return <AppLoadingScreen />;
     }
 
-    if (bootstrapping) {
-        return (
-            <View style={[styles.container, { justifyContent: "center", alignItems: "center" }]}>
-                <ActivityIndicator size="large" color="#FF8A7A" />
-            </View>
-        );
+    if (professionalMode) {
+        return <ProfessionalView onExit={() => setProfessionalMode(false)} />;
     }
 
     if (!isAuthenticated) {
@@ -465,6 +498,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                     <Dashboard
                         profile={activeProfile}
                         profiles={profiles}
+                        parentName={parentName}
                         onSelectProfile={setSelectedProfileId}
                         onOpenAddModal={openAddModal}
                         onOpenEditModal={openEditModal}
@@ -475,7 +509,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                                 ),
                             )
                         }
-                        onChangeView={setCurrentView}
+                        onChangeView={changeView}
                     />
                 )}
                 {currentView === "health" && (
@@ -490,6 +524,8 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                         }
                         immunizations={immunizations}
                         setImmunizations={setImmunizations}
+                        initialTab={navTab}
+                        navKey={navKey}
                     />
                 )}
                 {currentView === "growth" && (
@@ -506,6 +542,8 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                         setMilestones={setMilestones}
                         appointments={appointments}
                         setAppointments={setAppointments}
+                        initialTab={navTab}
+                        navKey={navKey}
                     />
                 )}
                 {currentView === "services" && <Services />}
@@ -611,6 +649,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                             <TextInput
                                 style={styles.modalInput}
                                 placeholder="Baby Full Name"
+                                placeholderTextColor={colors.placeholder}
                                 value={formName}
                                 onChangeText={setFormName}
                             />
@@ -619,17 +658,16 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                             <TextInput
                                 style={styles.modalInput}
                                 placeholder="e.g. Baby E"
+                                placeholderTextColor={colors.placeholder}
                                 value={formNickname}
                                 onChangeText={setFormNickname}
                             />
 
-                            <Text style={styles.modalLabel}>
-                                {t("profileDobLabel")} (YYYY-MM-DD)
-                            </Text>
-                            <TextInput
-                                style={styles.modalInput}
+                            <DateField
+                                label={t("profileDobLabel")}
                                 value={formDob}
-                                onChangeText={setFormDob}
+                                onChange={setFormDob}
+                                maximumDate={new Date().toISOString().slice(0, 10)}
                             />
 
                             <Text style={styles.modalLabel}>
@@ -704,6 +742,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                                 style={styles.modalInput}
                                 autoCapitalize="characters"
                                 placeholder="e.g. O+"
+                                placeholderTextColor={colors.placeholder}
                                 value={formBloodType}
                                 onChangeText={setFormBloodType}
                             />
@@ -738,12 +777,10 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                                 value={formPlaceOfBirth}
                                 onChangeText={setFormPlaceOfBirth}
                             />
-                            <Text style={styles.modalLabel}>Time of Birth (HH:MM)</Text>
-                            <TextInput
-                                style={styles.modalInput}
-                                placeholder="e.g. 14:30"
+                            <TimeField
+                                label="Time of Birth"
                                 value={formTimeOfBirth}
-                                onChangeText={setFormTimeOfBirth}
+                                onChange={setFormTimeOfBirth}
                             />
                             <Text style={styles.modalLabel}>Preferred Health Center</Text>
                             <TextInput
@@ -805,17 +842,16 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                             <TextInput
                                 style={styles.modalInput}
                                 placeholder="e.g. Baby E"
+                                placeholderTextColor={colors.placeholder}
                                 value={formNickname}
                                 onChangeText={setFormNickname}
                             />
 
-                            <Text style={styles.modalLabel}>
-                                {t("profileDobLabel")} (YYYY-MM-DD)
-                            </Text>
-                            <TextInput
-                                style={styles.modalInput}
+                            <DateField
+                                label={t("profileDobLabel")}
                                 value={formDob}
-                                onChangeText={setFormDob}
+                                onChange={setFormDob}
+                                maximumDate={new Date().toISOString().slice(0, 10)}
                             />
 
                             <Text style={styles.modalLabel}>
@@ -890,6 +926,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                                 style={styles.modalInput}
                                 autoCapitalize="characters"
                                 placeholder="e.g. O+"
+                                placeholderTextColor={colors.placeholder}
                                 value={formBloodType}
                                 onChangeText={setFormBloodType}
                             />
@@ -924,12 +961,10 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                                 value={formPlaceOfBirth}
                                 onChangeText={setFormPlaceOfBirth}
                             />
-                            <Text style={styles.modalLabel}>Time of Birth (HH:MM)</Text>
-                            <TextInput
-                                style={styles.modalInput}
-                                placeholder="e.g. 14:30"
+                            <TimeField
+                                label="Time of Birth"
                                 value={formTimeOfBirth}
-                                onChangeText={setFormTimeOfBirth}
+                                onChange={setFormTimeOfBirth}
                             />
                             <Text style={styles.modalLabel}>Preferred Health Center</Text>
                             <TextInput
@@ -1214,11 +1249,6 @@ const makeStyles = (colors) => StyleSheet.create({
         fontSize: 12,
         fontWeight: "600",
         color: colors.textMuted,
-    },
-    avatarUrlInput: {
-        marginTop: space.md,
-        width: "100%",
-        marginBottom: 0,
     },
     modalCard: {
         backgroundColor: colors.background,

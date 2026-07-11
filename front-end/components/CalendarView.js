@@ -6,6 +6,7 @@ import { useTheme } from "../context/ThemeContext";
 import { space, radius, shadow } from "../theme";
 import { api } from "../utils/api";
 import { EmptyStateCard } from "./common/Cards";
+import { DateField, TimeField } from "./ui/DateField";
 import { useToast } from "./ui/Toast";
 import { scheduleReminder } from "../utils/notifications";
 import { storage } from "../utils/storageAdapter";
@@ -432,16 +433,22 @@ export default function CalendarView({ profile }) {
                             <Text style={styles.modalTitle}>{editingEventId ? "Edit Event" : "Add Custom Event"}</Text>
 
                             <Text style={styles.formLabel}>Title</Text>
-                            <TextInput style={styles.formInput} value={formTitle} onChangeText={setFormTitle} placeholder="e.g. Grandma's visit" />
+                            <TextInput
+                                style={styles.formInput}
+                                value={formTitle}
+                                onChangeText={setFormTitle}
+                                placeholder="e.g. Grandma's visit"
+                                placeholderTextColor={colors.placeholder}
+                            />
 
                             <Text style={styles.formLabel}>Description (optional)</Text>
                             <TextInput style={styles.formInput} value={formDescription} onChangeText={setFormDescription} />
 
-                            <Text style={styles.formLabel}>Date (YYYY-MM-DD)</Text>
-                            <TextInput style={styles.formInput} value={formDate} onChangeText={setFormDate} />
+                            <Text style={styles.formLabel}>Date</Text>
+                            <DateField value={formDate} onChange={setFormDate} />
 
-                            <Text style={styles.formLabel}>Time (optional, HH:MM)</Text>
-                            <TextInput style={styles.formInput} value={formTime} onChangeText={setFormTime} placeholder="e.g. 14:30" />
+                            <Text style={styles.formLabel}>Time (optional)</Text>
+                            <TimeField value={formTime} onChange={setFormTime} />
 
                             <Text style={styles.formLabel}>Remind me</Text>
                             <View style={styles.leadRow}>
