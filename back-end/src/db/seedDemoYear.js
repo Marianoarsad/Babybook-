@@ -212,6 +212,31 @@ async function seed() {
                     ymd(addMonths(NOW, 6)),
                 ]
             );
+            // ================= CALENDAR EVENTS (custom) =================
+            // Parent-created personal events (baptism, playdates, haircut...) —
+            // a past + upcoming mix so the calendar's custom-event layer looks
+            // actively used, not empty. reminder_settings matches the app shape
+            // ({ leadDays }). Title/description are plaintext (decrypt is
+            // pass-through), same as every other seeded row.
+            await c.query(
+                `INSERT INTO calendar_events (child_id, title, description, event_type, event_date, event_time, reminder_settings)
+                 VALUES
+                  ($1,'Baptism / Christening','Family gathering and blessing at the parish, followed by lunch.','custom',$2,'08:00','{"leadDays":7}'::jsonb),
+                  ($1,'First Playdate with Cousins','Met cousins at the village playground — lots of giggles.','custom',$3,'15:30','{"leadDays":1}'::jsonb),
+                  ($1,'Baby''s First Haircut','First trim at the mall salon; kept a lock of hair as a keepsake.','custom',$4,'11:00','{"leadDays":0}'::jsonb),
+                  ($1,'Grandma Visits from the Province','Lola staying over for the weekend.','custom',$5,NULL,'{"leadDays":1}'::jsonb),
+                  ($1,'Family Photo Session','Studio shoot booked in the afternoon — bring the blue outfit.','custom',$6,'15:00','{"leadDays":3}'::jsonb),
+                  ($1,'Toddler Swim Class Trial','Trial class at the community pool.','custom',$7,'10:00','{"leadDays":3}'::jsonb)`,
+                [
+                    childId,
+                    ymd(addMonths(NOW, -6)),
+                    ymd(addMonths(NOW, -3)),
+                    ymd(addMonths(NOW, -1)),
+                    ymd(addDays(NOW, 10)),
+                    ymd(addMonths(NOW, 1)),
+                    ymd(addMonths(NOW, 2)),
+                ]
+            );
 
             // ================= MEDICAL HISTORY =================
             await c.query(

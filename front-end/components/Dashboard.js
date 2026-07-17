@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useLanguage } from "../context/LanguageContext";
 import { EmptyStateCard } from "./common/Cards";
+import MemoryDetail from "./MemoryDetail";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { radius, space, shadow } from "../theme";
 import { useTheme } from "../context/ThemeContext";
@@ -168,6 +169,7 @@ export default function Dashboard({
 
     // Photo memories load from and persist to the backend.
     const [memories, setMemories] = useState([]);
+    const [detailMemory, setDetailMemory] = useState(null);
     const [showMemoryModal, setShowMemoryModal] = useState(false);
     const [memCaption, setMemCaption] = useState("");
     const [memNotes, setMemNotes] = useState("");
@@ -344,7 +346,14 @@ export default function Dashboard({
                 {memories.length ? (
                     <View style={styles.galleryGrid}>
                         {memories.slice(0, 6).map((m, idx) => (
-                            <View key={m.id || idx} style={styles.galleryCard}>
+                            <TouchableOpacity
+                                key={m.id || idx}
+                                style={styles.galleryCard}
+                                activeOpacity={0.85}
+                                onPress={() => setDetailMemory(m)}
+                                accessibilityRole="button"
+                                accessibilityLabel={`View memory: ${m.title}`}
+                            >
                                 {m.photoUrl ? (
                                     <Image source={{ uri: m.photoUrl }} style={styles.galleryImg} />
                                 ) : (
@@ -357,13 +366,21 @@ export default function Dashboard({
                                     <Text style={styles.galleryTitle} numberOfLines={1}>{m.title}</Text>
                                     {m.date ? <Text style={styles.galleryDate}>{m.date}</Text> : null}
                                 </View>
-                            </View>
+                            </TouchableOpacity>
                         ))}
                     </View>
                 ) : (
                     <EmptyStateCard message="No memories yet. Tap Add to save your baby's precious moments." icon="image-outline" />
                 )}
             </View>
+
+            <MemoryDetail
+                visible={!!detailMemory}
+                memory={detailMemory}
+                dob={profile.dateOfBirth}
+                typeLabel="Photo Memory"
+                onClose={() => setDetailMemory(null)}
+            />
 
             {/* Recent Activity */}
             <Text style={styles.sectionHeading}>Recent Activity</Text>
