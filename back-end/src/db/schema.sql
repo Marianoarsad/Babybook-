@@ -108,6 +108,8 @@ CREATE TABLE vaccinations (
     status        VARCHAR(20) NOT NULL DEFAULT 'scheduled'
                   CHECK (status IN ('scheduled', 'completed')),
     notes         TEXT,
+    source        VARCHAR(20) NOT NULL DEFAULT 'manual'
+                  CHECK (source IN ('manual', 'epi')),  -- 'epi' = auto-generated DOH schedule dose
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -304,7 +306,10 @@ CREATE TABLE access_logs (
     code              VARCHAR(20),
     professional_name VARCHAR(100),
     action            VARCHAR(50),
-    access_date       TIMESTAMPTZ NOT NULL DEFAULT now()
+    access_date       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ip_address        VARCHAR(45),     -- fits full IPv6; not encrypted, parent needs to read/group by it
+    user_agent        TEXT,            -- not encrypted; operational metadata
+    seen_by_parent    BOOLEAN NOT NULL DEFAULT FALSE
 );
 CREATE INDEX idx_access_share ON access_logs(share_id);
 CREATE INDEX idx_access_child ON access_logs(child_id);

@@ -1,4 +1,16 @@
-const { Pool } = require("pg");
+const { Pool, types } = require("pg");
+
+// DATE (oid 1082) has no time-of-day/timezone component — it's a bare
+// calendar date. pg's default parser still builds a JS Date at local
+// midnight, and any later JSON/toISOString() serialization converts that to
+// UTC, silently shifting the date backward a day on any server running
+// ahead of UTC (e.g. Philippines, UTC+8 — this app's actual deployment
+// timezone). Keep DATE as the raw "YYYY-MM-DD" string pg received instead;
+// every consumer in this codebase already treats date fields as strings
+// (String(x).slice(0, 10)), so this is what they were assuming all along.
+// TIMESTAMPTZ (oid 1184) is unaffected — it's a genuine instant in time and
+// round-trips correctly through Date/toISOString().
+types.setTypeParser(1082, (val) => val);
 
 // SSL handling:
 //   DB_SSL=true  -> force SSL (Supabase / any hosted Postgres)

@@ -104,4 +104,32 @@ router.get(
     })
 );
 
+// GET /api/children/:childId/access-log/unseen — count + rows the parent hasn't seen yet
+router.get(
+    "/:childId/access-log/unseen",
+    requireAuth,
+    requireChildOwnership,
+    asyncHandler(async (req, res) => {
+        const { rows } = await query(
+            "SELECT * FROM access_logs WHERE child_id = $1 AND seen_by_parent = FALSE ORDER BY access_date DESC",
+            [req.child.id]
+        );
+        res.json({ count: rows.length, rows });
+    })
+);
+
+// POST /api/children/:childId/access-log/mark-seen — clear the unseen flag
+router.post(
+    "/:childId/access-log/mark-seen",
+    requireAuth,
+    requireChildOwnership,
+    asyncHandler(async (req, res) => {
+        await query(
+            "UPDATE access_logs SET seen_by_parent = TRUE WHERE child_id = $1 AND seen_by_parent = FALSE",
+            [req.child.id]
+        );
+        res.json({ status: "ok" });
+    })
+);
+
 module.exports = router;

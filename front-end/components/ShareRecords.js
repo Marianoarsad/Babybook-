@@ -14,6 +14,23 @@ import { api } from "../utils/api";
 import { useToast } from "./ui/Toast";
 import { useTheme } from "../context/ThemeContext";
 
+// Turns a raw user-agent string into a short readable summary, e.g. "Chrome on Android".
+function parseUserAgent(ua) {
+    if (!ua) return null;
+    const browser = /Edg\//.test(ua) ? "Edge"
+        : /Chrome\//.test(ua) ? "Chrome"
+        : /Firefox\//.test(ua) ? "Firefox"
+        : /Safari\//.test(ua) ? "Safari"
+        : "Browser";
+    const os = /Android/.test(ua) ? "Android"
+        : /iPhone|iPad|iOS/.test(ua) ? "iOS"
+        : /Windows/.test(ua) ? "Windows"
+        : /Mac OS X/.test(ua) ? "Mac"
+        : /Linux/.test(ua) ? "Linux"
+        : null;
+    return os ? `${browser} on ${os}` : browser;
+}
+
 const TTL_OPTIONS = [
     { label: "15 min", min: 15 },
     { label: "1 hour", min: 60 },
@@ -41,6 +58,7 @@ export default function ShareRecords({ profile }) {
             ]);
             setHistory(shares);
             setAccessLog(log);
+            api.markAccessLogSeen(profile.id).catch(() => {});
         } catch (e) {
             console.log("share refresh:", e.message);
         }
@@ -179,6 +197,9 @@ export default function ShareRecords({ profile }) {
                         </TouchableOpacity>
                     ))}
                 </View>
+                {ttl >= 1440 && (
+                    <Text style={styles.ttlHint}>Longer codes may show older data by the time they're viewed.</Text>
+                )}
             </View>
 
             <TouchableOpacity
@@ -235,6 +256,9 @@ export default function ShareRecords({ profile }) {
                                     {l.action} · code {l.code} ·{" "}
                                     {new Date(l.access_date).toLocaleString()}
                                 </Text>
+                                <Text style={styles.logMeta}>
+                                    {[parseUserAgent(l.user_agent), l.ip_address].filter(Boolean).join(" · ") || "Device info unavailable"}
+                                </Text>
                             </View>
                         </View>
                     ))}
@@ -269,6 +293,7 @@ const makeStyles = (colors) => StyleSheet.create({
     checkboxOn: { backgroundColor: colors.primary, borderColor: colors.primary },
     recLabel: { flex: 1, fontSize: 13.5, color: colors.text, fontWeight: "500" },
     ttlRow: { flexDirection: "row", backgroundColor: colors.surfaceAlt, borderRadius: 12, padding: 4 },
+    ttlHint: { fontSize: 10.5, color: colors.textMuted, marginTop: 8, lineHeight: 14 },
     ttlBtn: { flex: 1, paddingVertical: 9, borderRadius: 9, alignItems: "center" },
     ttlBtnOn: { backgroundColor: "#FFFFFF", shadowColor: "#374151", shadowOpacity: 0.06, shadowRadius: 4, elevation: 1 },
     ttlText: { fontSize: 12.5, fontWeight: "600", color: colors.textMuted },

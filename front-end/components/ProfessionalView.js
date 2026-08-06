@@ -49,6 +49,7 @@ export default function ProfessionalView({ onExit }) {
                 recordKeys: r.recordKeys || [],
                 payload: r.payload || {},
                 code: raw.toUpperCase(),
+                capturedAt: r.capturedAt,
             });
         } catch (e) {
             const s = e.data && e.data.status;
@@ -130,6 +131,10 @@ export default function ProfessionalView({ onExit }) {
                     </View>
                 ) : null}
 
+                <Text style={styles.accessNotice}>
+                    Your name, device, and network address will be recorded in the parent's access log.
+                </Text>
+
                 <TouchableOpacity style={styles.viewBtn} onPress={() => handleView()} disabled={loading}>
                     {loading ? (
                         <ActivityIndicator color="#FFFFFF" />
@@ -183,6 +188,46 @@ export default function ProfessionalView({ onExit }) {
     );
 }
 
+function formatCapturedAt(iso) {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return null;
+    const datePart = d.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+    const timePart = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    return `${datePart}, ${timePart}`;
+}
+
+function SnapshotTimestamp({ capturedAt }) {
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
+    const formatted = formatCapturedAt(capturedAt);
+    if (!formatted) return null;
+
+    const ageMs = Date.now() - new Date(capturedAt).getTime();
+    const ageHours = ageMs / (1000 * 60 * 60);
+    const stale = ageHours >= 24;
+
+    return (
+        <View style={[styles.snapshotBanner, stale && styles.snapshotBannerStale]}>
+            <Ionicons
+                name={stale ? "warning-outline" : "time-outline"}
+                size={14}
+                color={stale ? colors.warning : colors.textMuted}
+            />
+            <View style={{ flex: 1 }}>
+                <Text style={[styles.snapshotText, stale && styles.snapshotTextStale]}>
+                    Records as of {formatted}
+                </Text>
+                {stale && (
+                    <Text style={styles.snapshotWarningText}>
+                        This snapshot is {Math.floor(ageHours / 24)} day{Math.floor(ageHours / 24) === 1 ? "" : "s"} old. Records may have changed since. Ask the parent for a new code.
+                    </Text>
+                )}
+            </View>
+        </View>
+    );
+}
+
 function Row({ label, value }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -223,6 +268,7 @@ function RecordsView({ session, onEnd, onExit }) {
             <Text style={styles.childMeta}>
                 {(session.recordKeys || []).length} record types shared · code {session.code}
             </Text>
+            <SnapshotTimestamp capturedAt={session.capturedAt} />
 
             {p.profile && (
                 <Section icon="person-circle-outline" title={RECORD_LABELS.profile}>
@@ -376,6 +422,7 @@ const makeStyles = (colors) => StyleSheet.create({
         borderRadius: 10, padding: 10, marginBottom: 12,
     },
     errorText: { flex: 1, fontSize: 12, color: colors.danger, fontWeight: "600" },
+    accessNotice: { fontSize: 10.5, color: colors.textMuted, textAlign: "center", marginBottom: 10, lineHeight: 14 },
     viewBtn: {
         flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
         backgroundColor: colors.primary, height: 48, borderRadius: 24, marginTop: 2,
@@ -392,7 +439,15 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     viewOnlyText: { color: "#FFFFFF", fontWeight: "800", fontSize: 12, letterSpacing: 1 },
     childName: { fontSize: 24, fontWeight: "900", color: colors.text },
-    childMeta: { fontSize: 12, color: colors.textMuted, marginTop: 2, marginBottom: 14 },
+    childMeta: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+    snapshotBanner: {
+        flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: colors.surfaceAlt,
+        borderRadius: 12, padding: 10, marginTop: 10, marginBottom: 14,
+    },
+    snapshotBannerStale: { backgroundColor: colors.tintAmber },
+    snapshotText: { fontSize: 12, color: colors.textMuted, fontWeight: "600" },
+    snapshotTextStale: { color: colors.warning, fontWeight: "800" },
+    snapshotWarningText: { fontSize: 11, color: colors.warning, marginTop: 3, lineHeight: 15 },
     section: {
         backgroundColor: "#FFFFFF", borderRadius: 18, padding: 16, borderWidth: 1, borderColor: colors.border, marginBottom: 12,
     },

@@ -44,10 +44,11 @@ router.post(
         const childName = [decrypt(child.first_name), decrypt(child.last_name)].filter(Boolean).join(" ");
 
         const professionalName = (req.body.professionalName || "").trim() || "Unnamed professional";
+        const userAgent = (req.get("user-agent") || "").slice(0, 512);
         await query(
-            `INSERT INTO access_logs (share_id, child_id, code, professional_name, action)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [share.id, share.child_id, share.code, professionalName, "Viewed shared records"]
+            `INSERT INTO access_logs (share_id, child_id, code, professional_name, action, ip_address, user_agent)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [share.id, share.child_id, share.code, professionalName, "Viewed shared records", req.ip, userAgent]
         );
 
         res.json({
@@ -56,6 +57,7 @@ router.post(
             recordKeys: share.shared_record_keys,
             payload: share.payload,
             expiresAt: share.expiration_date,
+            capturedAt: share.generate_date,
         });
     })
 );

@@ -38,7 +38,8 @@
         {
           "cameraPermission": "BabyBook+ needs access to your camera to scan consultation QR codes."
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "extra": {
       "eas": {

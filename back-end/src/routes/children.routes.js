@@ -7,6 +7,7 @@ const { handleValidation } = require("../middleware/validate");
 const { requireAuth, requireChildOwnership } = require("../middleware/auth");
 const { upload, publicUrlFor } = require("../middleware/upload");
 const { encryptFields, decryptRow } = require("../utils/crypto");
+const { insertEpiSchedule } = require("../utils/epiGenerator");
 
 // Sensitive child identity/medical text columns encrypted at rest.
 const CHILD_ENCRYPTED = [
@@ -68,7 +69,42 @@ router.post(
             `INSERT INTO children (${allCols.join(", ")}) VALUES (${placeholders}) RETURNING *`,
             params
         );
-        res.status(201).json(decryptRow(rows[0], CHILD_ENCRYPTED));
+        const child = rows[0];
+
+        // Don't let schedule generation failure block child creation — the
+        // parent still gets their child profile either way. Flag failure so
+        // the app can offer a retry via the generate-schedule endpoint.
+        let scheduleGenerated = false;
+        if (child.date_of_birth) {
+            try {
+                await insertEpiSchedule(child.id, child.date_of_birth, "all");
+                scheduleGenerated = true;
+            } catch (e) {
+                console.error("[children] EPI schedule generation failed:", e.message);
+            }
+        }
+
+        res.status(201).json({ ...decryptRow(child, CHILD_ENCRYPTED), scheduleGenerated });
+    })
+);
+
+// POST /api/children/:childId/vaccinations/generate-schedule
+// Generates/backfills the DOH EPI schedule for a child that has none (or is
+// missing doses): the child predates this feature, DOB was added/corrected
+// later, generation failed on first attempt, or the schedule was revised.
+router.post(
+    "/:childId/vaccinations/generate-schedule",
+    requireAuth,
+    requireChildOwnership,
+    [body("mode").optional().isIn(["fill-gaps", "replace"])],
+    handleValidation,
+    asyncHandler(async (req, res) => {
+        if (!req.child.date_of_birth) {
+            throw new ApiError(400, "This child has no date of birth on file — add one first.");
+        }
+        const mode = req.body.mode || "fill-gaps";
+        const result = await insertEpiSchedule(req.child.id, req.child.date_of_birth, mode);
+        res.json({ status: "ok", ...result });
     })
 );
 
