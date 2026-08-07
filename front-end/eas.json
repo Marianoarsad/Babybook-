@@ -16,13 +16,13 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://babybook-production-bc91.up.railway.app"
+        "EXPO_PUBLIC_API_BASE_URL": "https://babybook-xi2w.onrender.com"
       }
     },
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://babybook-production-bc91.up.railway.app"
+        "EXPO_PUBLIC_API_BASE_URL": "https://babybook-xi2w.onrender.com"
       }
     }
   },

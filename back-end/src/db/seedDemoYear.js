@@ -246,8 +246,9 @@ async function seed() {
                   ($1,'Illness','Common Cold','Runny nose, mild cough, low-grade fever.',$3,TRUE,'Resolved within a week with rest and fluids.'),
                   ($1,'Allergy','Mild Egg Sensitivity','Slight rash around the mouth after first egg exposure.',$4,FALSE,'Pediatrician says likely mild; continue small exposures and monitor.'),
                   ($1,'Illness','Ear Infection (Otitis Media)','Fussiness, tugging at ear, fever up to 38.4°C.',$5,TRUE,'Treated with amoxicillin; follow-up exam clear.'),
-                  ($1,'Medication','Amoxicillin','400mg/5mL suspension, twice daily.',$5,TRUE,'10-day course completed, no side effects.')`,
-                [childId, ymd(DOB), ymd(addMonths(DOB, 5)), ymd(addMonths(DOB, 8)), ymd(addMonths(DOB, 9.5))]
+                  ($1,'Medication','Amoxicillin','400mg/5mL suspension, twice daily.',$5,TRUE,'10-day course completed, no side effects.'),
+                  ($1,'Hospitalization','Neonatal Jaundice — Phototherapy','Elevated bilirubin noted before discharge; kept an extra day for phototherapy.',$6,TRUE,'Levels normalized; cleared by pediatrician, see Newborn Jaundice Follow-up checkup.')`,
+                [childId, ymd(DOB), ymd(addMonths(DOB, 5)), ymd(addMonths(DOB, 8)), ymd(addMonths(DOB, 9.5)), ymd(addDays(DOB, 2))]
             );
 
             // ================= GROWTH RECORDS =================
@@ -342,6 +343,57 @@ async function seed() {
                     `INSERT INTO memories (child_id, photo_url, caption, notes, date_recorded)
                      VALUES ($1,$2,$3,$4,$5)`,
                     [childId, photo, caption, notes, ymd(date)]
+                );
+            }
+
+            // ================= RECORD ATTACHMENTS (seed demo photo) =================
+            // A single committed placeholder image stands in for the mandatory
+            // supporting photo on one representative record of each of the 5
+            // attachment-required types, so the demo still has working
+            // attachments after a fresh Render redeploy wipes the ephemeral
+            // uploads disk (see Documents/plans/BabyBook+_Web_Demo_Hosting_
+            // Migration_Plan.md, Risk 1). Put your own JPG/PNG at
+            // back-end/uploads/seed/sample-record.jpg — the filename below
+            // must match exactly.
+            function seedAttachmentUrl(filename) {
+                const base = (process.env.PUBLIC_URL || "").replace(/\/$/, "");
+                return `${base}/uploads/seed/${filename}`;
+            }
+            const SEED_PHOTO = seedAttachmentUrl("sample-record.jpg");
+
+            const hepBVax = (await c.query(
+                `SELECT id FROM vaccinations WHERE child_id = $1 AND vaccine_name = 'HepB (Hepatitis B)' LIMIT 1`,
+                [childId]
+            )).rows[0];
+            const earCheckup = (await c.query(
+                `SELECT id FROM checkups WHERE child_id = $1 AND title = 'Sick Visit — Ear Pain & Fever' LIMIT 1`,
+                [childId]
+            )).rows[0];
+            const earIllness = (await c.query(
+                `SELECT id FROM medical_history WHERE child_id = $1 AND title = 'Ear Infection (Otitis Media)' LIMIT 1`,
+                [childId]
+            )).rows[0];
+            const amoxMed = (await c.query(
+                `SELECT id FROM medical_history WHERE child_id = $1 AND title = 'Amoxicillin' LIMIT 1`,
+                [childId]
+            )).rows[0];
+            const jaundiceHosp = (await c.query(
+                `SELECT id FROM medical_history WHERE child_id = $1 AND title = 'Neonatal Jaundice — Phototherapy' LIMIT 1`,
+                [childId]
+            )).rows[0];
+
+            const attachTargets = [
+                hepBVax && ["vaccination", hepBVax.id],
+                earCheckup && ["checkup", earCheckup.id],
+                earIllness && ["illness", earIllness.id],
+                amoxMed && ["medication", amoxMed.id],
+                jaundiceHosp && ["hospitalization", jaundiceHosp.id],
+            ].filter(Boolean);
+
+            for (const [recordType, recordId] of attachTargets) {
+                await c.query(
+                    `INSERT INTO record_attachments (child_id, record_type, record_id, file_url) VALUES ($1,$2,$3,$4)`,
+                    [childId, recordType, recordId, SEED_PHOTO]
                 );
             }
 

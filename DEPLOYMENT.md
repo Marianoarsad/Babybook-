@@ -2,6 +2,13 @@
 
 Covers: deploying the Express/Postgres backend to **Render** and **Railway** (pick one), then building the Expo app for **internal mobile testing** via EAS.
 
+> **Status (August 2026): the live web demo backend runs on Render.** The original Railway free
+> trial expired and its service was left paused (not deleted). Render is the current, active
+> choice — see §1.2 below, and `Documents/plans/BabyBook+_Web_Demo_Hosting_Migration_Plan.md` for
+> the exact free-tier settings, cost comparison, and demo-day risk notes (cold starts, ephemeral
+> disk, SMTP port blocking) that guide that setup. §1.3 (Railway) is kept only as historical
+> reference in case you set up a fresh Railway account later.
+
 ## 0. Prep already done to the repo
 
 Before this could be deployed, three things needed fixing — done for you:
@@ -42,6 +49,13 @@ Everything below works with either — just use the matching `DATABASE_URL`.
 
 ### 1.2 Option A — Render
 
+> **This is the option currently in use for the live web demo.** The steps below are the general
+> case (including a paid persistent disk for uploads, useful for the eventual Android/iOS MVP). If
+> you're re-doing the **free-tier web-demo setup specifically**, use
+> `Documents/plans/BabyBook+_Web_Demo_Hosting_Migration_Plan.md` §5 instead — it has the exact
+> env-var list for the free instance and the accepted risk list (ephemeral disk mitigated via
+> committed seed photos, cold starts, SMTP blocked) rather than the paid-disk path below.
+
 1. Push this repo to GitHub if it isn't already.
 2. **Database:** either paste your **Supabase Session pooler** URL (recommended, see 1.1b) into
    `DATABASE_URL` in step 4 and skip creating a Render DB — **or** Render Dashboard →
@@ -71,7 +85,11 @@ Everything below works with either — just use the matching `DATABASE_URL`.
 6. Deploy. Once live, confirm with `https://<your-service>.onrender.com/api/health` → `{"ok":true,...}`.
 7. **Run the migration once** (see 1.4 below) against this database, then move to Part 2.
 
-### 1.3 Option B — Railway
+### 1.3 Option B — Railway ⚠️ Inactive
+
+> The Railway free trial used for this project expired in August 2026 and its service was left
+> paused, not deleted — Render (§1.2) is the current live backend host. This section is kept as
+> reference only, in case a fresh Railway account/trial is set up later.
 
 1. Push this repo to GitHub if it isn't already.
 2. Railway Dashboard → **New Project** → **Deploy from GitHub repo** → select this repo.
