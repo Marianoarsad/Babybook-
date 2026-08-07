@@ -33,8 +33,8 @@ BabyBook+/
 │   │   ├── SideMenu.js                                    # slide-in drawer (avatar tap) — replaces the old Profile tab
 │   │   ├── settings/                                      # side-menu destination screens: ViewProfile, EditProfile, GeneralSettings, ThemePreferences, LanguagePreferences, HelpSupport, AboutApp, ChangePassword, PrivacySettings
 │   │   ├── Auth.js Landing.js EmptyChild.js AppLoadingScreen.js MemoryDetail.js
-│   │   ├── common/Cards.js                                # shared card components (SectionContainerCard, ListEntryCard, MemoryVisualCard, EmptyStateCard, MetricWidgetCard)
-│   │   └── ui/                                            # Button, Field, DateField, PhotoAttach, ImageViewer, Gradient, Toast, Screen, Grid, Skeleton
+│   │   ├── common/Cards.js                                # shared card components (SectionContainerCard, ListEntryCard, MemoryVisualCard, EmptyStateCard)
+│   │   └── ui/                                            # Button, Field, DateField, PhotoAttach, ImageViewer, Gradient, Toast, Skeleton
 │   ├── utils/
 │   │   ├── api.js              # fetch client to the backend (all endpoints)
 │   │   ├── adapters.js         # DB row <-> app-shape mappers (vaccinationToApp, checkupToApp, milestoneToApp, medHistoryTo*, childToProfile, ...)
@@ -56,10 +56,11 @@ BabyBook+/
 │   ├── tests/api.test.js       # `npm test` — see §6 for the DATABASE_URL caveat
 │   └── .env (git-ignored)
 │
-├── BabyBook+_Alignment_Evaluation_2026-07.md, _Application_Evaluation.md, _Research_Alignment_Evaluation.md,
-│   _Responsive_UI_System.md, _UIUX_Evaluation.md, _UIUX_Redesign_Direction.md, _DPA_RA10173_Compliance.md
-│                                               # research-doc alignment / UX evaluation / DPA compliance write-ups
-├── DEPLOYMENT.md  DEVELOPMENT_ROADMAP.md
+├── README.md  CLAUDE.md  DEPLOYMENT.md          # repo front page, this file, deployment guide
+├── BabyBook+_App_Overview.md                    # plain-language explanation of the app
+├── PROJECT_HISTORY_SUMMARY.md                   # chronological build history
+├── Documents/                                   # research paper, evaluations, DPA compliance,
+│   └── plans/                                   #   implementation plans (this cleanup's audit lives here)
 └── graphify-out/                                # code knowledge graph (see §11)
 ```
 
