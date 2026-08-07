@@ -177,3 +177,4 @@ Rules:
 - If `graphify-out/wiki/index.md` exists, use it for broad navigation instead of raw source browsing.
 - Read `graphify-out/GRAPH_REPORT.md` only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- **Hooks are installed** (as of 2026-08-07): a git `post-commit` hook auto-rebuilds the graph (AST-only, code files only) after every commit, and a `post-checkout` hook keeps it in sync when switching branches. Manual `graphify update .` is now only needed for doc/image changes, which the hooks don't cover. Check status with `graphify hook status`; reinstall with `graphify hook install` if a fresh clone or a wiped `.git/hooks/` ever loses them.
