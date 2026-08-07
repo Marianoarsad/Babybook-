@@ -41,7 +41,7 @@ BabyBook+/
 │   │   ├── notifications.js    # scheduleReminder(), morningOf() (local notifications, guarded for web)
 │   │   ├── imagePicker.js qrcode.js shareStore.js responsive.js storageAdapter.js
 │   ├── translations.js  mockData.js
-│   ├── app.json  eas.json  vercel.json  .env (git-ignored)
+│   ├── app.json  eas.json  .env (git-ignored)
 │
 ├── back-end/                  # Express API
 │   ├── src/
@@ -103,7 +103,7 @@ Children belong to a parent (`users`). Per-child records are reached through `ap
 
 ## 6. Environments, commands, deploy
 
-**Front-end** (`front-end/`): `npm run web` (`expo start --web`) · `npm run build` (`expo export -p web`). `.env` holds the API base URL. Web demo is deployed via **EAS Hosting** (`expo export -p web` then `eas deploy --prod`); Android via **EAS Build**. `vercel.json` also present.
+**Front-end** (`front-end/`): `npm run web` (`expo start --web`) · `npm run build` (`expo export -p web`). `.env` holds the API base URL. Web demo is deployed via **EAS Hosting** (`expo export -p web` then `eas deploy --prod`); Android via **EAS Build**.
 
 **Back-end** (`back-end/`): `npm run dev` (nodemon) · `npm start`. DB scripts: `npm run db:migrate` (⚠️ destructive — drops and recreates every table, first-time setup only), `npm run db:migrate:up` (additive — applies any new `back-end/src/db/migrations/*.sql` not yet recorded, safe against live data), `npm run db:seed`, `npm run db:seed:demo`. Deployed on **Render** (Free instance) with **Root Directory = `back-end`**, `PORT` (injected), `DATABASE_URL` = Supabase **Session pooler** URL (IPv4), plus `JWT_SECRET`, `DATA_ENCRYPTION_KEY`, `DB_SSL=true` (SMTP vars currently omitted — Render Free blocks outbound SMTP ports, see `DEPLOYMENT.md`). Health check: `GET /api/health` → `{"ok":true}`. Render's free instance spins down after 15 min idle (~1 min cold start on the next request) — expected, not a bug.
 
