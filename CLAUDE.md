@@ -33,15 +33,15 @@ BabyBook+/
 │   │   ├── SideMenu.js                                    # slide-in drawer (avatar tap) — replaces the old Profile tab
 │   │   ├── settings/                                      # side-menu destination screens: ViewProfile, EditProfile, GeneralSettings, ThemePreferences, LanguagePreferences, HelpSupport, AboutApp, ChangePassword, PrivacySettings
 │   │   ├── Auth.js Landing.js EmptyChild.js AppLoadingScreen.js MemoryDetail.js
-│   │   ├── common/Cards.js                                # shared card components (SectionContainerCard, ListEntryCard, MemoryVisualCard, EmptyStateCard, MetricWidgetCard)
-│   │   └── ui/                                            # Button, Field, DateField, PhotoAttach, ImageViewer, Gradient, Toast, Screen, Grid, Skeleton
+│   │   ├── common/Cards.js                                # shared card components (SectionContainerCard, ListEntryCard, MemoryVisualCard, EmptyStateCard)
+│   │   └── ui/                                            # Button, Field, DateField, PhotoAttach, ImageViewer, Gradient, Toast, Skeleton
 │   ├── utils/
 │   │   ├── api.js              # fetch client to the backend (all endpoints)
 │   │   ├── adapters.js         # DB row <-> app-shape mappers (vaccinationToApp, checkupToApp, milestoneToApp, medHistoryTo*, childToProfile, ...)
 │   │   ├── notifications.js    # scheduleReminder(), morningOf() (local notifications, guarded for web)
 │   │   ├── imagePicker.js qrcode.js shareStore.js responsive.js storageAdapter.js
 │   ├── translations.js  mockData.js
-│   ├── app.json  eas.json  vercel.json  .env (git-ignored)
+│   ├── app.json  eas.json  .env (git-ignored)
 │
 ├── back-end/                  # Express API
 │   ├── src/
@@ -56,10 +56,11 @@ BabyBook+/
 │   ├── tests/api.test.js       # `npm test` — see §6 for the DATABASE_URL caveat
 │   └── .env (git-ignored)
 │
-├── BabyBook+_Alignment_Evaluation_2026-07.md, _Application_Evaluation.md, _Research_Alignment_Evaluation.md,
-│   _Responsive_UI_System.md, _UIUX_Evaluation.md, _UIUX_Redesign_Direction.md, _DPA_RA10173_Compliance.md
-│                                               # research-doc alignment / UX evaluation / DPA compliance write-ups
-├── DEPLOYMENT.md  DEVELOPMENT_ROADMAP.md
+├── README.md  CLAUDE.md  DEPLOYMENT.md          # repo front page, this file, deployment guide
+├── BabyBook+_App_Overview.md                    # plain-language explanation of the app
+├── PROJECT_HISTORY_SUMMARY.md                   # chronological build history
+├── Documents/                                   # research paper, evaluations, DPA compliance,
+│   └── plans/                                   #   implementation plans (this cleanup's audit lives here)
 └── graphify-out/                                # code knowledge graph (see §11)
 ```
 
@@ -103,7 +104,7 @@ Children belong to a parent (`users`). Per-child records are reached through `ap
 
 ## 6. Environments, commands, deploy
 
-**Front-end** (`front-end/`): `npm run web` (`expo start --web`) · `npm run build` (`expo export -p web`). `.env` holds the API base URL. Web demo is deployed via **EAS Hosting** (`expo export -p web` then `eas deploy --prod`); Android via **EAS Build**. `vercel.json` also present.
+**Front-end** (`front-end/`): `npm run web` (`expo start --web`) · `npm run build` (`expo export -p web`). `.env` holds the API base URL. Web demo is deployed via **EAS Hosting** (`expo export -p web` then `eas deploy --prod`); Android via **EAS Build**.
 
 **Back-end** (`back-end/`): `npm run dev` (nodemon) · `npm start`. DB scripts: `npm run db:migrate` (⚠️ destructive — drops and recreates every table, first-time setup only), `npm run db:migrate:up` (additive — applies any new `back-end/src/db/migrations/*.sql` not yet recorded, safe against live data), `npm run db:seed`, `npm run db:seed:demo`. Deployed on **Render** (Free instance) with **Root Directory = `back-end`**, `PORT` (injected), `DATABASE_URL` = Supabase **Session pooler** URL (IPv4), plus `JWT_SECRET`, `DATA_ENCRYPTION_KEY`, `DB_SSL=true` (SMTP vars currently omitted — Render Free blocks outbound SMTP ports, see `DEPLOYMENT.md`). Health check: `GET /api/health` → `{"ok":true}`. Render's free instance spins down after 15 min idle (~1 min cold start on the next request) — expected, not a bug.
 

@@ -29,7 +29,6 @@ export const translations = {
         navHealth: "Health",
         navGrowth: "Growth",
         navServices: "Services",
-        navSettings: "Profile",
         navLogout: "Log Out",
         backToTop: "Back to Top",
 
@@ -42,16 +41,7 @@ export const translations = {
         dashHeaderSub:
             "Let's check your little one's growth and healthcare routines.",
         dashQuickStats: "Quick Activity Stats",
-        dashFeedingTitle: "Feeding Tracker",
-        dashFeedingSub: "Log milk volumes and schedule feeding intervals",
-        dashSleepTitle: "Sleep Tracker",
-        dashSleepSub: "Monitor sleep durations and continuous bed routines",
-        dashTempTitle: "Body Temperature",
-        dashTempSub: "Keep body temperature records within normal bounds",
         dashTempLabel: "Current Baby Temp",
-        dashTempStatusNormal: "Normal temp",
-        dashTempStatusHot: "Warm, monitor baby!",
-        dashTempStatusCold: "Cold, wrap baby!",
         dashAddLogBtn: "Add Log",
         dashDiagTitle: "Health Diagnostics Summary",
         dashDiagSub:
@@ -195,7 +185,6 @@ export const translations = {
         navHealth: "Kalusugan",
         navGrowth: "Paglaki",
         navServices: "Serbisyo",
-        navSettings: "Profile",
         navLogout: "Mag-log Out",
         backToTop: "Bumalik sa Taas",
 
@@ -209,16 +198,7 @@ export const translations = {
         dashHeaderSub:
             "Suriin natin ang paglaki at mga medikal na iskedyul ng iyong munting anak.",
         dashQuickStats: "Mabilisang Stats ng Aktibidad",
-        dashFeedingTitle: "Talaan ng Pagpapakain",
-        dashFeedingSub: "Itala ang dami ng gatas at iskedyul ng pagpapakain",
-        dashSleepTitle: "Talaan ng Pagtulog",
-        dashSleepSub: "Subaybayan ang tagal ng tulog at oras ng pamamahinga",
-        dashTempTitle: "Temperatura ng Katawan",
-        dashTempSub: "Panatilihing normal ang temperatura ng katawan ni baby",
         dashTempLabel: "Kasalukuyang Temp ni Baby",
-        dashTempStatusNormal: "Normal ang temperatura",
-        dashTempStatusHot: "Medyo mainit si baby, subaybayan nang mabuti!",
-        dashTempStatusCold: "Malamig si baby, kumutan si baby!",
         dashAddLogBtn: "Magdagdag ng Tala",
         dashDiagTitle: "Buod ng Kalusugan",
         dashDiagSub:
@@ -368,7 +348,6 @@ export const translations = {
         navHealth: "Health",
         navGrowth: "Growth",
         navServices: "Services",
-        navSettings: "Profile",
         navLogout: "Log Out",
         backToTop: "Back sa Taas",
 
@@ -381,16 +360,7 @@ export const translations = {
         dashHeaderSub:
             "Suriin natin ang growth at healthcare routines ng inyong baby.",
         dashQuickStats: "Quick Activity Stats",
-        dashFeedingTitle: "Feeding Tracker",
-        dashFeedingSub: "I-log ang milk volumes at schedule ng feeding",
-        dashSleepTitle: "Sleep Tracker",
-        dashSleepSub: "Monitor natin ang tulog at rest routines ni baby",
-        dashTempTitle: "Body Temp Tracker",
-        dashTempSub: "Keep body temperature records safe at normal lagi",
         dashTempLabel: "Current Temp ni Baby",
-        dashTempStatusNormal: "Normal temp ni baby",
-        dashTempStatusHot: "Medyo mainit si baby, monitor natin!",
-        dashTempStatusCold: "Malamig si baby, balutin natin!",
         dashAddLogBtn: "Add bagong Tala",
         dashDiagTitle: "Health Diagnostics Summary",
         dashDiagSub:

@@ -22,25 +22,6 @@ export function SectionContainerCard({ title, subtitle, action, children }) {
     );
 }
 
-// 2. METRIC WIDGET CARD
-export function MetricWidgetCard({ title, value, subtitle, icon, iconBg, action }) {
-    const { colors } = useTheme();
-    const styles = useMemo(() => makeStyles(colors), [colors]);
-    return (
-        <View style={styles.metricCard}>
-            <View style={styles.metricHeader}>
-                <View style={[styles.iconWrapper, { backgroundColor: iconBg || colors.tintGreen }]}>{icon}</View>
-                {action ? <View>{action}</View> : null}
-            </View>
-            <View style={styles.metricContent}>
-                <Text style={styles.metricLabel} numberOfLines={1}>{title}</Text>
-                <Text style={styles.metricValue} numberOfLines={1}>{value}</Text>
-                {subtitle ? <Text style={styles.metricSub} numberOfLines={1}>{subtitle}</Text> : null}
-            </View>
-        </View>
-    );
-}
-
 // 3. LIST ENTRY CARD
 export function ListEntryCard({ title, subtitle, label, notes, icon, iconBg, actions, thumbnailUrl, onThumbnailPress }) {
     const { colors } = useTheme();
@@ -137,32 +118,6 @@ const makeStyles = (colors) => StyleSheet.create({
     sectionTitle: { fontSize: 17, fontWeight: "800", color: colors.text, letterSpacing: 0.1 },
     sectionSubtitle: { fontSize: 12, color: colors.textMuted, marginTop: 3, lineHeight: 16 },
     sectionAction: { marginLeft: space.sm },
-
-    metricCard: {
-        backgroundColor: colors.surface,
-        borderRadius: radius.xl,
-        borderCurve: "continuous",
-        padding: space.lg,
-        borderWidth: 1,
-        borderColor: colors.hairline,
-        ...shadow.card,
-        flex: 1,
-        marginHorizontal: space.xs,
-        marginBottom: space.sm,
-    },
-    metricHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-    iconWrapper: {
-        width: 46,
-        height: 46,
-        borderRadius: radius.lg,
-        borderCurve: "continuous",
-        justifyContent: "center",
-        alignItems: "center",
-    },
-    metricContent: { marginTop: space.lg },
-    metricLabel: { fontSize: 13, fontWeight: "700", color: colors.textSecondary, letterSpacing: 0.1 },
-    metricValue: { fontSize: 27, fontWeight: "800", color: colors.text, marginTop: 5, letterSpacing: -0.3 },
-    metricSub: { fontSize: 12, color: colors.textMuted, marginTop: 4, fontWeight: "500" },
 
     listCard: {
         padding: space.md,

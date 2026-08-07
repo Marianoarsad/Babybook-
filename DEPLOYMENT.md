@@ -193,10 +193,11 @@ This produces an installable Android `.apk` (and an iOS build you can install vi
 ### 3.1 Fastest cross-platform prototype (no build, no Apple account)
 
 If you just want a shareable link that works on **any** Android or iOS phone today, publish the
-**Expo web** build (this app already runs on web). Push to GitHub and import into Vercel/Netlify
-(the repo already has `vercel.json` and a `build` script). Testers open the URL in their phone
-browser. Caveat: web can't use native camera/notification features the same way a real build can —
-use this for UI/flow demos, and the EAS builds above for the true native prototype.
+**Expo web** build (this app already runs on web) via **EAS Hosting** — the same workflow already
+in use for the live web demo (`expo export -p web` then `eas deploy --prod`). Testers open the URL
+in their phone browser. Caveat: web can't use native camera/notification features the same way a
+real build can — use this for UI/flow demos, and the EAS builds above for the true native
+prototype.
 
 ---
 
