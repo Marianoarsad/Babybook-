@@ -133,12 +133,5 @@
   "131": "t() translation function (LanguageContext.js)",
   "132": "utils/adapters.js (DB row <-> app-shape mappers)",
   "133": "api.listRecords(childId, type)",
-  "134": "utils/notifications.js",
-  "135": "Architecture & Conventions",
-  "136": "License & Credits",
-  "137": "Deployment",
-  "138": "Tech Stack",
-  "139": "Roadmap & Known Limitations",
-  "140": "Environment Variables",
-  "141": "Features"
+  "134": "utils/notifications.js"
 }
