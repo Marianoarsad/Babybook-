@@ -38,6 +38,7 @@ describe("BabyBook+ API", () => {
             fullName: "Test Parent",
             email: `t${Date.now()}@example.com`,
             password: "password123",
+            consentAccepted: true,
         });
         expect(res.status).toBe(201);
         expect(res.body.token).toBeTruthy();
@@ -110,7 +111,7 @@ describe("BabyBook+ API", () => {
 
     test("blocks access to another user's child", async () => {
         const other = await request(app).post("/api/auth/register").send({
-            fullName: "Other", email: `o${Date.now()}@example.com`, password: "password123",
+            fullName: "Other", email: `o${Date.now()}@example.com`, password: "password123", consentAccepted: true,
         });
         const res = await request(app)
             .get(`/api/children/${childId}/vaccinations`)

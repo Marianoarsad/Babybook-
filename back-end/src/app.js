@@ -15,6 +15,11 @@ const consultRoutes = require("./routes/consult.routes");
 
 const app = express();
 
+// Trust Railway's (or any) reverse proxy so req.ip is the real client
+// address, not the proxy's — required for access-log IP capture to be
+// meaningful rather than logging the same proxy IP for every request.
+app.set("trust proxy", 1);
+
 // --- global middleware ---
 const origins = (process.env.CORS_ORIGIN || "")
     .split(",")

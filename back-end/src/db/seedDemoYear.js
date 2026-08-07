@@ -168,6 +168,75 @@ async function seed() {
                  VALUES ($1,'15 Month Wellness Checkup',$2,'10:00','Dr. Michael Tan','Metro General Pediatric Clinic','scheduled','Bring vaccination card.')`,
                 [childId, ymd(addMonths(DOB, 15))]
             );
+            // Extra past visits (relative to now) to fill out a busy, lived-in
+            // year of appointment history.
+            await c.query(
+                `INSERT INTO checkups (child_id, title, checkup_date, time_of_visit, doctor_name, clinic, status, notes)
+                 VALUES
+                  ($1,'Newborn Jaundice Follow-up',$2,'09:15','Dr. Michael Tan','Metro General Pediatric Clinic','completed','Bilirubin normalized. No phototherapy needed.'),
+                  ($1,'Lactation & Feeding Consultation',$3,'10:30','Nurse Aida Reyes','Barangay Health Center — Sampaloc','completed','Latching improved. Continue exclusive breastfeeding.'),
+                  ($1,'Sick Visit — Diaper Rash',$4,'15:00','Dr. Michael Tan','Metro General Pediatric Clinic','completed','Mild contact dermatitis. Advised barrier cream.'),
+                  ($1,'Pediatric Dental — First Tooth Check',$5,'13:30','Dr. Liza Gomez','BrightSmile Pediatric Dental','completed','First lower incisors erupting. Gum care discussed.'),
+                  ($1,'Sick Visit — Fever & Teething',$6,'16:45','Dr. Michael Tan','Metro General Pediatric Clinic','completed','Low-grade fever from teething. Fluids and rest advised.'),
+                  ($1,'Growth & Nutrition Review',$7,'11:00','Dr. Michael Tan','Metro General Pediatric Clinic','completed','On track with WHO growth curve. Introduced more solids.')`,
+                [
+                    childId,
+                    ymd(addMonths(NOW, -11)),
+                    ymd(addMonths(NOW, -10)),
+                    ymd(addMonths(NOW, -7)),
+                    ymd(addMonths(NOW, -5)),
+                    ymd(addMonths(NOW, -3)),
+                    ymd(addMonths(NOW, -1)),
+                ]
+            );
+            // Several months of advance (scheduled) appointments so the calendar
+            // and appointments list look actively planned into the future.
+            await c.query(
+                `INSERT INTO checkups (child_id, title, checkup_date, time_of_visit, doctor_name, clinic, status, notes)
+                 VALUES
+                  ($1,'Follow-up — Growth & Nutrition',$2,'10:00','Dr. Michael Tan','Metro General Pediatric Clinic','scheduled','Recheck weight and discuss toddler diet.'),
+                  ($1,'Pediatric Dental — Routine Cleaning',$3,'13:00','Dr. Liza Gomez','BrightSmile Pediatric Dental','scheduled','Routine cleaning and fluoride varnish.'),
+                  ($1,'18-Month Wellness Checkup',$4,'09:30','Dr. Michael Tan','Metro General Pediatric Clinic','scheduled','Bring vaccination card and growth diary.'),
+                  ($1,'Vaccination Visit — MMR & Varicella',$5,'14:00','Dr. Michael Tan','Metro General Pediatric Clinic','scheduled','MMR and Varicella booster doses due.'),
+                  ($1,'Developmental Screening — Speech & Motor',$6,'10:45','Dr. Elena Cruz','Child Development Center — QC','scheduled','Routine milestone and speech assessment.'),
+                  ($1,'Nutritionist Consult — Toddler Meal Plan',$7,'15:15','RND Karen Lim','Metro General Nutrition Unit','scheduled','Plan balanced toddler meals; iron-rich foods.'),
+                  ($1,'21-Month Wellness Checkup',$8,'09:00','Dr. Michael Tan','Metro General Pediatric Clinic','scheduled','General wellness and growth review.')`,
+                [
+                    childId,
+                    ymd(addDays(NOW, 14)),
+                    ymd(addMonths(NOW, 1)),
+                    ymd(addMonths(NOW, 2)),
+                    ymd(addMonths(NOW, 3)),
+                    ymd(addMonths(NOW, 4)),
+                    ymd(addMonths(NOW, 5)),
+                    ymd(addMonths(NOW, 6)),
+                ]
+            );
+            // ================= CALENDAR EVENTS (custom) =================
+            // Parent-created personal events (baptism, playdates, haircut...) —
+            // a past + upcoming mix so the calendar's custom-event layer looks
+            // actively used, not empty. reminder_settings matches the app shape
+            // ({ leadDays }). Title/description are plaintext (decrypt is
+            // pass-through), same as every other seeded row.
+            await c.query(
+                `INSERT INTO calendar_events (child_id, title, description, event_type, event_date, event_time, reminder_settings)
+                 VALUES
+                  ($1,'Baptism / Christening','Family gathering and blessing at the parish, followed by lunch.','custom',$2,'08:00','{"leadDays":7}'::jsonb),
+                  ($1,'First Playdate with Cousins','Met cousins at the village playground — lots of giggles.','custom',$3,'15:30','{"leadDays":1}'::jsonb),
+                  ($1,'Baby''s First Haircut','First trim at the mall salon; kept a lock of hair as a keepsake.','custom',$4,'11:00','{"leadDays":0}'::jsonb),
+                  ($1,'Grandma Visits from the Province','Lola staying over for the weekend.','custom',$5,NULL,'{"leadDays":1}'::jsonb),
+                  ($1,'Family Photo Session','Studio shoot booked in the afternoon — bring the blue outfit.','custom',$6,'15:00','{"leadDays":3}'::jsonb),
+                  ($1,'Toddler Swim Class Trial','Trial class at the community pool.','custom',$7,'10:00','{"leadDays":3}'::jsonb)`,
+                [
+                    childId,
+                    ymd(addMonths(NOW, -6)),
+                    ymd(addMonths(NOW, -3)),
+                    ymd(addMonths(NOW, -1)),
+                    ymd(addDays(NOW, 10)),
+                    ymd(addMonths(NOW, 1)),
+                    ymd(addMonths(NOW, 2)),
+                ]
+            );
 
             // ================= MEDICAL HISTORY =================
             await c.query(
@@ -177,8 +246,9 @@ async function seed() {
                   ($1,'Illness','Common Cold','Runny nose, mild cough, low-grade fever.',$3,TRUE,'Resolved within a week with rest and fluids.'),
                   ($1,'Allergy','Mild Egg Sensitivity','Slight rash around the mouth after first egg exposure.',$4,FALSE,'Pediatrician says likely mild; continue small exposures and monitor.'),
                   ($1,'Illness','Ear Infection (Otitis Media)','Fussiness, tugging at ear, fever up to 38.4°C.',$5,TRUE,'Treated with amoxicillin; follow-up exam clear.'),
-                  ($1,'Medication','Amoxicillin','400mg/5mL suspension, twice daily.',$5,TRUE,'10-day course completed, no side effects.')`,
-                [childId, ymd(DOB), ymd(addMonths(DOB, 5)), ymd(addMonths(DOB, 8)), ymd(addMonths(DOB, 9.5))]
+                  ($1,'Medication','Amoxicillin','400mg/5mL suspension, twice daily.',$5,TRUE,'10-day course completed, no side effects.'),
+                  ($1,'Hospitalization','Neonatal Jaundice — Phototherapy','Elevated bilirubin noted before discharge; kept an extra day for phototherapy.',$6,TRUE,'Levels normalized; cleared by pediatrician, see Newborn Jaundice Follow-up checkup.')`,
+                [childId, ymd(DOB), ymd(addMonths(DOB, 5)), ymd(addMonths(DOB, 8)), ymd(addMonths(DOB, 9.5)), ymd(addDays(DOB, 2))]
             );
 
             // ================= GROWTH RECORDS =================
@@ -273,6 +343,57 @@ async function seed() {
                     `INSERT INTO memories (child_id, photo_url, caption, notes, date_recorded)
                      VALUES ($1,$2,$3,$4,$5)`,
                     [childId, photo, caption, notes, ymd(date)]
+                );
+            }
+
+            // ================= RECORD ATTACHMENTS (seed demo photo) =================
+            // A single committed placeholder image stands in for the mandatory
+            // supporting photo on one representative record of each of the 5
+            // attachment-required types, so the demo still has working
+            // attachments after a fresh Render redeploy wipes the ephemeral
+            // uploads disk (see Documents/plans/BabyBook+_Web_Demo_Hosting_
+            // Migration_Plan.md, Risk 1). Put your own JPG/PNG at
+            // back-end/uploads/seed/sample-record.jpg — the filename below
+            // must match exactly.
+            function seedAttachmentUrl(filename) {
+                const base = (process.env.PUBLIC_URL || "").replace(/\/$/, "");
+                return `${base}/uploads/seed/${filename}`;
+            }
+            const SEED_PHOTO = seedAttachmentUrl("sample-record.jpg");
+
+            const hepBVax = (await c.query(
+                `SELECT id FROM vaccinations WHERE child_id = $1 AND vaccine_name = 'HepB (Hepatitis B)' LIMIT 1`,
+                [childId]
+            )).rows[0];
+            const earCheckup = (await c.query(
+                `SELECT id FROM checkups WHERE child_id = $1 AND title = 'Sick Visit — Ear Pain & Fever' LIMIT 1`,
+                [childId]
+            )).rows[0];
+            const earIllness = (await c.query(
+                `SELECT id FROM medical_history WHERE child_id = $1 AND title = 'Ear Infection (Otitis Media)' LIMIT 1`,
+                [childId]
+            )).rows[0];
+            const amoxMed = (await c.query(
+                `SELECT id FROM medical_history WHERE child_id = $1 AND title = 'Amoxicillin' LIMIT 1`,
+                [childId]
+            )).rows[0];
+            const jaundiceHosp = (await c.query(
+                `SELECT id FROM medical_history WHERE child_id = $1 AND title = 'Neonatal Jaundice — Phototherapy' LIMIT 1`,
+                [childId]
+            )).rows[0];
+
+            const attachTargets = [
+                hepBVax && ["vaccination", hepBVax.id],
+                earCheckup && ["checkup", earCheckup.id],
+                earIllness && ["illness", earIllness.id],
+                amoxMed && ["medication", amoxMed.id],
+                jaundiceHosp && ["hospitalization", jaundiceHosp.id],
+            ].filter(Boolean);
+
+            for (const [recordType, recordId] of attachTargets) {
+                await c.query(
+                    `INSERT INTO record_attachments (child_id, record_type, record_id, file_url) VALUES ($1,$2,$3,$4)`,
+                    [childId, recordType, recordId, SEED_PHOTO]
                 );
             }
 

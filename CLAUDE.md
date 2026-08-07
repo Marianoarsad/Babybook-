@@ -13,7 +13,7 @@ records through a **QR / consultation code** the parent generates.
 
 - **Front-end**: Expo / React Native (`front-end/`), also exported to web for the demo.
 - **Back-end**: Express + PostgreSQL (`back-end/`), DB hosted on Supabase.
-- Two live targets today: an **EAS-hosted web build** (defense demo) and the **Railway**-hosted API pointed at Supabase.
+- Two live targets today: an **EAS-hosted web build** (defense demo) and the **Render**-hosted API pointed at Supabase. (Migrated from Railway in August 2026 after its free trial expired — see `DEPLOYMENT.md` and `Documents/plans/BabyBook+_Web_Demo_Hosting_Migration_Plan.md`.)
 
 ## 2. Repository layout
 
@@ -26,14 +26,15 @@ BabyBook+/
 │   │   ├── ThemeContext.js     # ThemeProvider / useTheme() — dynamic gender palette
 │   │   └── LanguageContext.js  # useLanguage() / t() — i18n (see translations.js)
 │   ├── components/
-│   │   ├── Dashboard.js Health.js Growth.js Services.js  # primary tab screens
+│   │   ├── Dashboard.js Health.js Growth.js Services.js CalendarView.js  # primary tab screens (bottom nav)
 │   │   ├── NutritionTracker.js                            # unified milk+solids tracker w/ dependency-free charts
 │   │   ├── ShareRecords.js QrCodeView.js QrScanner.js     # parent QR share + scan
 │   │   ├── ProfessionalView.js                            # healthcare-pro view-only portal
-│   │   ├── UserProfile.js                                 # parent "Settings/Profile" screen (theme + language + logout)
-│   │   ├── Auth.js EmptyChild.js
+│   │   ├── SideMenu.js                                    # slide-in drawer (avatar tap) — replaces the old Profile tab
+│   │   ├── settings/                                      # side-menu destination screens: ViewProfile, EditProfile, GeneralSettings, ThemePreferences, LanguagePreferences, HelpSupport, AboutApp, ChangePassword, PrivacySettings
+│   │   ├── Auth.js Landing.js EmptyChild.js AppLoadingScreen.js MemoryDetail.js
 │   │   ├── common/Cards.js                                # shared card components (SectionContainerCard, ListEntryCard, MemoryVisualCard, EmptyStateCard, MetricWidgetCard)
-│   │   └── ui/                                            # Button, Field, DateField, PhotoAttach, ImageViewer, Gradient, Toast, Screen, Grid
+│   │   └── ui/                                            # Button, Field, DateField, PhotoAttach, ImageViewer, Gradient, Toast, Screen, Grid, Skeleton
 │   ├── utils/
 │   │   ├── api.js              # fetch client to the backend (all endpoints)
 │   │   ├── adapters.js         # DB row <-> app-shape mappers (vaccinationToApp, checkupToApp, milestoneToApp, medHistoryTo*, childToProfile, ...)
@@ -49,18 +50,22 @@ BabyBook+/
 │   │   ├── middleware/ auth.js validate.js upload.js error.js
 │   │   ├── routes/ auth.routes.js children.routes.js records.routes.js
 │   │   │           memories.routes.js attachments.routes.js share.routes.js consult.routes.js
+│   │   │           (no separate calendar.routes.js — custom calendar events are just another
+│   │   │            generic resource registered inside records.routes.js, path "calendar-events")
 │   │   └── utils/ jwt.js crypto.js resource.js snapshot.js shareCode.js mailer.js
-│   ├── tests/api.test.js
+│   ├── tests/api.test.js       # `npm test` — see §6 for the DATABASE_URL caveat
 │   └── .env (git-ignored)
 │
-├── BabyBook+_Alignment_Evaluation_2026-07.md   # research-doc alignment report (~90% -> now aligned)
-├── BabyBook+_DPA_RA10173_Compliance.md          # PH Data Privacy Act compliance write-up
-└── graphify-out/                                # code knowledge graph (see §12)
+├── BabyBook+_Alignment_Evaluation_2026-07.md, _Application_Evaluation.md, _Research_Alignment_Evaluation.md,
+│   _Responsive_UI_System.md, _UIUX_Evaluation.md, _UIUX_Redesign_Direction.md, _DPA_RA10173_Compliance.md
+│                                               # research-doc alignment / UX evaluation / DPA compliance write-ups
+├── DEPLOYMENT.md  DEVELOPMENT_ROADMAP.md
+└── graphify-out/                                # code knowledge graph (see §11)
 ```
 
 ## 3. Architecture & conventions (follow these)
 
-- **Navigation is custom, not expo-router.** `App.js` holds `currentView` state (`"dashboard" | "health" | "growth" | "services" | "settings" | "share"`) and swaps screens with conditional rendering. The bottom tab bar and header buttons call `setCurrentView(...)`. There is **no React Navigation / expo-router**; do not introduce it without discussion.
+- **Navigation is custom, not expo-router.** `App.js` holds `currentView` state and swaps screens with conditional rendering (`front-end/App.js:520-612`). Bottom-nav values: `"dashboard" | "health" | "growth" | "services" | "calendar"`. Side-menu/modal values: `"share" | "viewProfile" | "editProfile" | "generalSettings" | "themePreferences" | "languagePreferences" | "helpSupport" | "aboutApp" | "changePassword" | "privacySettings"`. The bottom tab bar and header/menu buttons call `setCurrentView(...)`. There is **no React Navigation / expo-router**; do not introduce it without discussion.
 - **Icons**: `@expo/vector-icons` (`Ionicons`, `MaterialCommunityIcons`). Verify icon names exist (past bug: invalid Ionicons names).
 - **Styling pattern (IMPORTANT — every screen now uses this):**
   ```js
@@ -93,16 +98,18 @@ Children belong to a parent (`users`). Per-child records are reached through `ap
 - Reminders (`reminders`) are created alongside future-dated vaccinations/checkups and drive local notifications.
 
 ### Security features already shipped
-- **Field encryption** (`utils/crypto.js`): AES-256-GCM, values prefixed `enc:v1:`, decrypt is pass-through/back-compatible. Wired into resource/records/children/memories/auth/snapshot/consult. Key from `DATA_ENCRYPTION_KEY` (falls back to `JWT_SECRET`). **This key must be identical on local + Railway and must never change**, or existing ciphertext becomes unreadable.
+- **Field encryption** (`utils/crypto.js`): AES-256-GCM, values prefixed `enc:v1:`, decrypt is pass-through/back-compatible. Wired into resource/records/children/memories/auth/snapshot/consult. Key from `DATA_ENCRYPTION_KEY` (falls back to `JWT_SECRET`). **This key must be identical on local + the deployed backend (Render) and must never change**, or existing ciphertext becomes unreadable.
 - **Consent** (`auth.routes.js`): registration requires `consentAccepted`; columns `consent_accepted/consent_date/consent_reviewed_at/retention_until` (6-year retention). Annual re-consent modal in `App.js`. Endpoints `POST /auth/consent/renew` and `DELETE /auth/me`. **Accounts are NEVER auto-deleted** — the annual notice is the only decision point; deletion is user-initiated only.
 
 ## 6. Environments, commands, deploy
 
 **Front-end** (`front-end/`): `npm run web` (`expo start --web`) · `npm run build` (`expo export -p web`). `.env` holds the API base URL. Web demo is deployed via **EAS Hosting** (`expo export -p web` then `eas deploy --prod`); Android via **EAS Build**. `vercel.json` also present.
 
-**Back-end** (`back-end/`): `npm run dev` (nodemon) · `npm start`. DB scripts: `npm run db:migrate`, `npm run db:seed`, `npm run db:seed:demo`. Deployed on **Railway** with **Root Directory = `back-end`**, `PORT=8080` (injected), `DATABASE_URL` = Supabase **Session pooler** URL (IPv4), plus `JWT_SECRET`, `DATA_ENCRYPTION_KEY`, SMTP vars, and `DB_SSL=true`. Health check: `GET /api/health` → `{"ok":true}`.
+**Back-end** (`back-end/`): `npm run dev` (nodemon) · `npm start`. DB scripts: `npm run db:migrate` (⚠️ destructive — drops and recreates every table, first-time setup only), `npm run db:migrate:up` (additive — applies any new `back-end/src/db/migrations/*.sql` not yet recorded, safe against live data), `npm run db:seed`, `npm run db:seed:demo`. Deployed on **Render** (Free instance) with **Root Directory = `back-end`**, `PORT` (injected), `DATABASE_URL` = Supabase **Session pooler** URL (IPv4), plus `JWT_SECRET`, `DATA_ENCRYPTION_KEY`, `DB_SSL=true` (SMTP vars currently omitted — Render Free blocks outbound SMTP ports, see `DEPLOYMENT.md`). Health check: `GET /api/health` → `{"ok":true}`. Render's free instance spins down after 15 min idle (~1 min cold start on the next request) — expected, not a bug.
 
-**Env vars** (never commit; `.env` is git-ignored): `DATABASE_URL`, `DB_SSL`, `JWT_SECRET`, `DATA_ENCRYPTION_KEY`, SMTP creds (backend); `EXPO_PUBLIC_*` API base URL (frontend). After schema changes, **re-run `db:migrate` against Supabase, reseed, and `git push` so Railway redeploys** — a stale Railway build against the new schema causes `column ... does not exist` errors.
+**Env vars** (never commit; `.env` is git-ignored): `DATABASE_URL`, `DB_SSL`, `JWT_SECRET`, `DATA_ENCRYPTION_KEY`, SMTP creds (backend); `EXPO_PUBLIC_*` API base URL (frontend). After schema changes, **run `db:migrate:up` against Supabase (never `db:migrate` once real data exists), reseed if needed, and `git push` to `main` so Render redeploys** — a stale backend build against the new schema causes `column ... does not exist` errors.
+
+**Tests** (`back-end/`): `npm test` (`jest --runInBand`, integration tests in `tests/api.test.js` via `supertest`). Single test: `npx jest -t "test name"`. **The suite runs `schema.sql` — which starts with `DROP TABLE ... CASCADE` for every table — against whatever `DATABASE_URL` is currently set**, so always point it at a throwaway/local DB first (`DATABASE_URL=postgres://...test npm test`), never at the Supabase URL used for local dev or prod. There is no front-end test suite.
 
 ## 7. Gotchas (real, hit during development)
 
@@ -112,11 +119,11 @@ Children belong to a parent (`users`). Per-child records are reached through `ap
 
 ## 8. Current status
 
-**Done:** full research-doc alignment (attachments, unified nutrition, removed sleep/temp/feed, child fields); QR share + professional portal; backend with field encryption + consent + DPA doc; **dynamic girl/boy theme across every screen** + Settings override; deployment (Railway API + Supabase + EAS web demo, all in sync).
+**Done:** full research-doc alignment (attachments, unified nutrition, removed sleep/temp/feed, child fields); QR share + professional portal; backend with field encryption + consent + DPA doc; **dynamic girl/boy theme across every screen** + Settings override; deployment (Render API + Supabase + EAS web demo, all in sync — migrated off Railway in August 2026 after its trial expired, see `DEPLOYMENT.md`).
 
 **Also done — Navigation Overhaul + Calendar module (§9 below), increments A–F:** side menu (slide-in drawer) replacing the old Profile tab; bottom nav is now **Dashboard, Health, Growth, Services, Calendar**; all 9 menu destinations built (`front-end/components/settings/`: ViewProfile, EditProfile, GeneralSettings, ThemePreferences, LanguagePreferences, HelpSupport, AboutApp, ChangePassword, PrivacySettings) + `POST /api/auth/change-password`; full Month/Week/Day calendar (`front-end/components/CalendarView.js`, `react-native-calendars`) aggregating vaccinations/checkups/medical-history with tap-to-detail; `calendar_events` table + generic CRUD (reuses `utils/resource.js`, resource path `calendar-events`) for user-created events with reminder lead-time + local notifications; Dashboard "Upcoming Appointments" widget. All verified live against the `back-end-api`/`front-end-web` preview servers (`.claude/launch.json`) using the demo account below.
 
-**⚠️ Pending user action:** the `calendar_events` table exists only in `back-end/src/db/schema.sql` so far — it has **not** been migrated onto the live Supabase DB (that command drops and recreates every table, so it's intentionally left for you to run, not something Claude should do unattended). Until you run `npm run db:migrate` (back-end/, pointed at Supabase) + reseed + `git push` (Railway redeploy), custom calendar events will 404/500 gracefully (calendar still works for vaccinations/checkups/medical-history) but won't persist.
+**⚠️ Pending user action:** three additive migrations under `back-end/src/db/migrations/` (`000_calendar_events.sql`, `001_access_log_context.sql`, `002_vaccination_source.sql`) exist in the repo but as of this writing are **not confirmed applied to the live Supabase DB** — only to the local dev database. Run `npm run db:migrate:up` (back-end/, `DATABASE_URL` pointed at Supabase's Session pooler, `DB_SSL=true`) — **not** `db:migrate`, which drops and recreates every table and is intentionally left for you to run, not something Claude should do unattended. Until this runs against Supabase: custom calendar events 404/500 gracefully (calendar still works for vaccinations/checkups/medical-history) but won't persist; auto-generated EPI vaccination doses silently fail to generate (child creation itself still succeeds, `scheduleGenerated: false` in the response). **The QR consultation `POST /api/consult/resolve` flow will hard-fail with a 500** — it unconditionally writes to the new `ip_address`/`user_agent` columns on `access_logs`, so this is not a "degrades gracefully" case for the app's headline feature. Do not consider the deployed backend demo-ready until this migration has run against Supabase.
 
 **Demo account** (officially adopted, replaces the old `sarah@example.com` seed creds for live testing): `demo.parent@babybookplus.app` / `Demo1234!`.
 
@@ -136,14 +143,14 @@ This was fully scoped with the user; decisions are **locked**. Build it in incre
 2. **Bottom nav**: remove the Profile/`settings` tab (the `person` icon) and add a **Calendar** tab. New order: **Dashboard, Health, Growth, Services, Calendar**. All profile/settings functions move into the side menu.
 3. **Calendar uses the `react-native-calendars` library** (install: `npx expo install react-native-calendars`; pure-JS, Expo-compatible, works on web). Provide **Monthly / Weekly / Daily** views with a switcher. Library API: `Calendar`, `CalendarList`, `Agenda`, and (for week/day/agenda) `CalendarProvider` + `ExpandableCalendar` + `WeekCalendar` + `AgendaList` from the same package; theme via the `theme` prop; multi-dot `markedDates` for category colors; `LocaleConfig` for locale. **Must be theme-aware** (feed it `colors.*`, honor girl/boy switching). Jump-to-today, tap event → detail, edit/delete/create.
 4. **Build ALL menu destinations fully now** (user chose the complete option):
-   - View Profile / Edit Profile (parent account; reuse `UserProfile.js` pieces), Settings, Theme Preferences (reuse the App-Appearance override selector), Language Preferences (reuse language selector).
+   - View Profile / Edit Profile (parent account; the old `UserProfile.js` was split into `components/settings/ViewProfile.js` + `EditProfile.js`), Settings, Theme Preferences (reuse the App-Appearance override selector), Language Preferences (reuse language selector).
    - Help & Support, About BabyBook+ (info screens).
    - **Change Password** — needs a **new backend endpoint** `POST /auth/change-password` (verify current password with bcrypt, set new). Build the feature; the user enters their own credentials.
    - **Privacy Settings** — surface consent status/retention, and reuse existing consent + `DELETE /auth/me` (withdraw/delete) APIs; add data-export if feasible.
 
 **Calendar data design (recommended to avoid duplication)**
 - **Aggregate existing records** for display: vaccinations (`due_date`), checkups (`checkup_date`), medical-history/medication, hospitalizations, and `reminders` (`reminder_date`) — read them and render as calendar events, color-coded by type. Do **not** duplicate these into a new table.
-- **New `calendar_events` table** only for **user-created custom events**: `id, child_id, title, description, event_type, event_date, event_time, reminder_settings(jsonb), created_at, updated_at`. Add backend CRUD routes (`calendar.routes.js`) + a **migration** the user runs on Supabase (then reseed + push so Railway picks it up). FK to `children`.
+- **New `calendar_events` table** only for **user-created custom events**: `id, child_id, title, description, event_type, event_date, event_time, reminder_settings(jsonb), created_at, updated_at`. FK to `children`. Implemented as CRUD (not a separate `calendar.routes.js` — it's a generic resource registered inside `records.routes.js`, path `calendar-events`, via `utils/resource.js`) + a **migration** the user runs on Supabase (then reseed + push so Render picks it up).
 - **Color coding** by category (vaccination / checkup / medication / hospitalization / custom) using theme-derived colors.
 - **Notifications**: reuse `utils/notifications.js` `scheduleReminder`; support configurable lead time (same day / 1 day / 3 days / 1 week).
 
@@ -158,7 +165,7 @@ After this feature: return to **Phase 4 (UI/UX polish)** — accessibility/contr
 ## 10. Working agreements
 - Ask before adding new dependencies or changing the navigation paradigm.
 - Preserve existing functionality when refactoring (esp. QR share, encryption, consent).
-- After schema changes: migrate Supabase → reseed → `git push` (Railway redeploy).
+- After schema changes: run `db:migrate:up` against Supabase (additive; never `db:migrate` once real data exists) → reseed if needed → `git push` (Render redeploy).
 
 ## 11. graphify
 

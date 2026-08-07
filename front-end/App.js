@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
     View,
     Text,
@@ -12,6 +12,7 @@ import {
     Alert,
     ScrollView,
     Platform,
+    AppState,
 } from "react-native";
 import { LanguageProvider, useLanguage } from "./context/LanguageContext";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -43,6 +44,7 @@ if (Platform.OS === "web" && typeof document !== "undefined") {
 
 // Import Screen Components
 import Auth from "./components/Auth";
+import Landing from "./components/Landing";
 import Dashboard from "./components/Dashboard";
 import Health from "./components/Health";
 import Growth from "./components/Growth";
@@ -50,7 +52,7 @@ import Services from "./components/Services";
 import ShareRecords from "./components/ShareRecords";
 import ProfessionalView from "./components/ProfessionalView";
 import EmptyChild from "./components/EmptyChild";
-import ToastProvider from "./components/ui/Toast";
+import ToastProvider, { useToast } from "./components/ui/Toast";
 import SideMenu from "./components/SideMenu";
 import CalendarView from "./components/CalendarView";
 import AppLoadingScreen from "./components/AppLoadingScreen";
@@ -65,6 +67,7 @@ import AboutApp from "./components/settings/AboutApp";
 import ChangePassword from "./components/settings/ChangePassword";
 import PrivacySettings from "./components/settings/PrivacySettings";
 import { api, getToken, setToken, clearToken } from "./utils/api";
+import { scheduleReminder, morningOf } from "./utils/notifications";
 import { childToProfile, profileFormToChild } from "./utils/adapters";
 import { pickImage, pickerAvailable } from "./utils/imagePicker";
 
@@ -96,6 +99,9 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
 
     // Authentication State
     const [isAuthenticated, setIsAuthenticated] = useState(false);
+    // Pre-login landing page; its CTAs pick which Auth scene opens.
+    const [showLanding, setShowLanding] = useState(true);
+    const [authScene, setAuthScene] = useState("login");
     // Healthcare Professional mode (separate actor, no parent account)
     const [professionalMode, setProfessionalMode] = useState(false);
     const [parentName, setParentName] = useState("Sarah");
@@ -159,6 +165,48 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
     const activeProfile =
         profiles.find((p) => p.id === selectedProfileId) || profiles[0];
 
+    // Unseen QR-access-log notifications: poll while the app is open (no
+    // server push exists yet — see CLAUDE.md 4.5, deferred). Toast + badge
+    // only, cleared when the parent opens Share Records (ShareRecords.js
+    // calls markAccessLogSeen on load).
+    const toast = useToast();
+    const [unseenCount, setUnseenCount] = useState(0);
+    const toastedIdsRef = useRef(new Set());
+    const seenFirstCheckRef = useRef(false);
+    const checkUnseenAccess = async () => {
+        if (!activeProfile) return;
+        try {
+            const { count, rows } = await api.unseenAccessLog(activeProfile.id);
+            setUnseenCount(count);
+            const freshRows = (rows || []).filter((r) => !toastedIdsRef.current.has(r.id));
+            if (seenFirstCheckRef.current && freshRows.length > 0) {
+                const latest = freshRows[0];
+                const when = new Date(latest.access_date).toLocaleTimeString(undefined, {
+                    hour: "numeric",
+                    minute: "2-digit",
+                });
+                toast.info(`Your records were viewed by ${latest.professional_name} at ${when}`);
+            }
+            (rows || []).forEach((r) => toastedIdsRef.current.add(r.id));
+            seenFirstCheckRef.current = true;
+        } catch (e) {
+            console.log("unseen access check:", e.message);
+        }
+    };
+    useEffect(() => {
+        checkUnseenAccess();
+        const interval = setInterval(checkUnseenAccess, 90000);
+        const sub = AppState.addEventListener
+            ? AppState.addEventListener("change", (state) => {
+                  if (state === "active") checkUnseenAccess();
+              })
+            : null;
+        return () => {
+            clearInterval(interval);
+            if (sub && sub.remove) sub.remove();
+        };
+    }, [activeProfile ? activeProfile.id : null]);
+
     // Drive the app theme from the selected child's gender (girl/boy).
     useEffect(() => {
         if (onThemeGenderChange) onThemeGenderChange(activeProfile ? activeProfile.gender : undefined);
@@ -195,6 +243,34 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
         handleLogOut();
     };
 
+    // Arms local notifications for vaccination doses due within the next 6
+    // months only. A full EPI schedule is ~13 doses per child; scheduling
+    // every dose for every child up front risks silently exceeding iOS's
+    // ~64-pending-local-notification cap. Re-run on every app launch (via
+    // loadChildren) and after creating a child so the window keeps sliding
+    // forward — a stopgap until server-side push exists (see CLAUDE.md 4.5).
+    const scheduleUpcomingVaccineReminders = async (childId) => {
+        try {
+            const rows = await api.listRecords(childId, "reminders");
+            const cutoff = new Date();
+            cutoff.setMonth(cutoff.getMonth() + 6);
+            const cutoffStr = cutoff.toISOString().split("T")[0];
+            const upcoming = rows.filter(
+                (r) =>
+                    r.reminder_type === "Vaccination" &&
+                    r.status === "Pending" &&
+                    r.reminder_date &&
+                    r.reminder_date <= cutoffStr,
+            );
+            for (const r of upcoming) {
+                const when = morningOf(r.reminder_date);
+                if (when) scheduleReminder("Vaccination reminder", `${r.title} due`, when);
+            }
+        } catch (e) {
+            console.log("scheduleUpcomingVaccineReminders:", e.message);
+        }
+    };
+
     // Load this user's children from the backend into the app's profile shape.
     const loadChildren = async () => {
         try {
@@ -202,6 +278,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
             const mapped = rows.map(childToProfile);
             setProfiles(mapped);
             setSelectedProfileId(mapped.length ? mapped[0].id : null);
+            mapped.forEach((p) => scheduleUpcomingVaccineReminders(p.id));
         } catch (e) {
             console.log("loadChildren:", e.message);
         }
@@ -239,6 +316,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
 
     const handleLogOut = async () => {
         setIsAuthenticated(false);
+        setShowLanding(true); // back to the landing page, not straight to login
         setProfiles([]);
         setSelectedProfileId(null);
         setCurrentView("dashboard");
@@ -255,6 +333,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
         const prof = childToProfile(created);
         setProfiles((prev) => [...prev, prof]);
         setSelectedProfileId(prof.id);
+        scheduleUpcomingVaccineReminders(prof.id);
     };
 
     const handleAddProfile = async () => {
@@ -295,6 +374,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
             }
             setProfiles((prev) => [...prev, prof]);
             setSelectedProfileId(prof.id);
+            scheduleUpcomingVaccineReminders(prof.id);
             setShowAddProfileModal(false);
             setFormName("");
             setFormNickname("");
@@ -435,10 +515,28 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
     }
 
     if (!isAuthenticated) {
+        // Landing page first; its CTAs decide which Auth scene opens.
+        if (showLanding) {
+            return (
+                <Landing
+                    onGetStarted={() => {
+                        setAuthScene("register");
+                        setShowLanding(false);
+                    }}
+                    onLogin={() => {
+                        setAuthScene("login");
+                        setShowLanding(false);
+                    }}
+                    onProfessional={() => setProfessionalMode(true)}
+                />
+            );
+        }
         return (
             <Auth
                 onLoginSuccess={handleLoginSuccess}
                 onProfessional={() => setProfessionalMode(true)}
+                onBack={() => setShowLanding(true)}
+                initialScene={authScene}
             />
         );
     }
@@ -474,10 +572,20 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                 </View>
                 <View style={styles.headerRight}>
                     <TouchableOpacity
-                        onPress={() => setCurrentView("share")}
+                        onPress={() => {
+                            setUnseenCount(0);
+                            setCurrentView("share");
+                        }}
                         style={styles.headerQrBtn}
                     >
                         <Ionicons name="qr-code" size={20} color={colors.primary} />
+                        {unseenCount > 0 && (
+                            <View style={styles.headerBadge}>
+                                <Text style={styles.headerBadgeText}>
+                                    {unseenCount > 9 ? "9+" : unseenCount}
+                                </Text>
+                            </View>
+                        )}
                     </TouchableOpacity>
                     <TouchableOpacity
                         onPress={() => setMenuOpen(true)}
@@ -587,7 +695,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                 {currentView === "aboutApp" && <AboutApp />}
                 {currentView === "changePassword" && <ChangePassword />}
                 {currentView === "privacySettings" && (
-                    <PrivacySettings onAccountDeleted={handleLogOut} />
+                    <PrivacySettings profile={activeProfile} onAccountDeleted={handleLogOut} />
                 )}
             </View>
 
@@ -1134,6 +1242,21 @@ const makeStyles = (colors) => StyleSheet.create({
         justifyContent: "center",
         marginRight: space.md,
     },
+    headerBadge: {
+        position: "absolute",
+        top: -4,
+        right: -4,
+        minWidth: 18,
+        height: 18,
+        borderRadius: 9,
+        paddingHorizontal: 4,
+        backgroundColor: colors.danger,
+        alignItems: "center",
+        justifyContent: "center",
+        borderWidth: 2,
+        borderColor: colors.surface,
+    },
+    headerBadgeText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
     avatarMini: {
         width: 44,
         height: 44,

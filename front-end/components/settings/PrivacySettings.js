@@ -1,14 +1,17 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { SectionContainerCard } from "../common/Cards";
 import { api } from "../../utils/api";
 import { useToast } from "../ui/Toast";
 import { useTheme } from "../../context/ThemeContext";
 import { space, radius } from "../../theme";
+import { exportChildRecordsPdf, pdfExportAvailable } from "../../utils/exportPdf";
+import { CATEGORY_LABELS } from "../../utils/pdfTemplate";
 
 // Consent status/retention + the existing withdraw-and-delete flow, surfaced
 // as its own destination instead of only appearing in the annual reminder.
-export default function PrivacySettings({ onAccountDeleted }) {
+export default function PrivacySettings({ profile, onAccountDeleted }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const toast = useToast();
@@ -16,6 +19,33 @@ export default function PrivacySettings({ onAccountDeleted }) {
     const [user, setUser] = useState(null);
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [renewing, setRenewing] = useState(false);
+
+    const exportKeys = Object.keys(CATEGORY_LABELS);
+    const [exportSelected, setExportSelected] = useState(() => new Set(exportKeys));
+    const [exporting, setExporting] = useState(false);
+    const toggleExportKey = (key) => {
+        setExportSelected((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    };
+    const handleExport = async () => {
+        if (!profile) return;
+        if (exportSelected.size === 0) {
+            toast.error("Select at least one category to export.");
+            return;
+        }
+        setExporting(true);
+        try {
+            await exportChildRecordsPdf(profile, { scope: exportSelected });
+        } catch (e) {
+            toast.error(e.message || "Could not export records");
+        } finally {
+            setExporting(false);
+        }
+    };
 
     const load = async () => {
         try {
@@ -86,6 +116,62 @@ export default function PrivacySettings({ onAccountDeleted }) {
                 </TouchableOpacity>
             </SectionContainerCard>
 
+            <SectionContainerCard
+                title="Export My Child's Records"
+                subtitle="Download a PDF — also works offline once saved"
+            >
+                {pdfExportAvailable() ? (
+                    <>
+                        <View style={styles.exportGrid}>
+                            {exportKeys.map((key) => {
+                                const on = exportSelected.has(key);
+                                return (
+                                    <TouchableOpacity
+                                        key={key}
+                                        style={styles.exportRow}
+                                        onPress={() => toggleExportKey(key)}
+                                        accessibilityRole="checkbox"
+                                        accessibilityState={{ checked: on }}
+                                    >
+                                        <View style={[styles.checkbox, on && styles.checkboxOn]}>
+                                            {on && <Ionicons name="checkmark" size={13} color="#FFFFFF" />}
+                                        </View>
+                                        <Text style={styles.exportLabel}>{CATEGORY_LABELS[key]}</Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+                        <TouchableOpacity
+                            onPress={handleExport}
+                            style={styles.renewBtn}
+                            disabled={exporting || !profile}
+                            accessibilityRole="button"
+                            accessibilityLabel="Export selected records as PDF"
+                        >
+                            {exporting ? (
+                                <ActivityIndicator color={colors.onAccent} />
+                            ) : (
+                                <Text style={styles.renewBtnText}>Export as PDF</Text>
+                            )}
+                        </TouchableOpacity>
+                    </>
+                ) : (
+                    <Text style={styles.warnText}>PDF export isn't available on this build.</Text>
+                )}
+            </SectionContainerCard>
+
+            <SectionContainerCard
+                title="QR Consultation Access Log"
+                subtitle="What's recorded when a healthcare professional views shared records"
+            >
+                <Text style={styles.warnText}>
+                    When a healthcare professional resolves a consultation code, we record their name, the
+                    exact time, their network (IP) address, and a summary of their device. This is shown in
+                    your Share Records access log and helps you notice a code being viewed from somewhere
+                    unexpected.
+                </Text>
+            </SectionContainerCard>
+
             <SectionContainerCard title="Withdraw Consent" subtitle="Permanently delete your account and all child records">
                 {!confirmDelete ? (
                     <TouchableOpacity
@@ -136,6 +222,14 @@ const makeStyles = (colors) =>
         },
         rowLabel: { fontSize: 13, fontWeight: "700", color: colors.textMuted },
         rowValue: { fontSize: 13, fontWeight: "600", color: colors.text },
+        exportGrid: { marginBottom: space.md },
+        exportRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 7 },
+        exportLabel: { fontSize: 13, color: colors.text, fontWeight: "600" },
+        checkbox: {
+            width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: colors.primary,
+            alignItems: "center", justifyContent: "center", backgroundColor: colors.surface,
+        },
+        checkboxOn: { backgroundColor: colors.primary },
         renewBtn: {
             height: 44,
             borderRadius: radius.md,

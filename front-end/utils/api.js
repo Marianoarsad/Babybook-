@@ -138,6 +138,8 @@ export const api = {
     // --- children ---
     listChildren: () => request("GET", "/api/children"),
     createChild: (b) => request("POST", "/api/children", b),
+    generateEpiSchedule: (childId, mode) =>
+        request("POST", `/api/children/${childId}/vaccinations/generate-schedule`, mode ? { mode } : {}),
     updateChild: (id, b) => request("PUT", `/api/children/${id}`, b),
     deleteChild: (id) => request("DELETE", `/api/children/${id}`),
 
@@ -184,6 +186,8 @@ export const api = {
     listShares: (childId) => request("GET", `/api/children/${childId}/shares`),
     revokeShare: (childId, id) => request("POST", `/api/children/${childId}/shares/${id}/revoke`),
     accessLog: (childId) => request("GET", `/api/children/${childId}/access-log`),
+    unseenAccessLog: (childId) => request("GET", `/api/children/${childId}/access-log/unseen`),
+    markAccessLogSeen: (childId) => request("POST", `/api/children/${childId}/access-log/mark-seen`),
 
     // --- QR consultation (healthcare professional, public) ---
     resolveConsult: (b) => request("POST", "/api/consult/resolve", b, { auth: false }),

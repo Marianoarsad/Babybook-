@@ -24,6 +24,7 @@ import {
 } from "./common/Cards";
 import PhotoAttach from "./ui/PhotoAttach";
 import { MemoriesSkeleton, AppointmentsSkeleton } from "./ui/Skeleton";
+import MemoryDetail from "./MemoryDetail";
 import { DateField, TimeField } from "./ui/DateField";
 import ImageViewer from "./ui/ImageViewer";
 import NutritionTracker from "./NutritionTracker";
@@ -120,6 +121,7 @@ export default function Growth({
     const [mstones, setMstones] = useState([]);
     const [appts, setAppts] = useState([]);
     const [growthLoading, setGrowthLoading] = useState(true);
+    const [detailMemory, setDetailMemory] = useState(null);
     useEffect(() => {
         let active = true;
         setGrowthLoading(true);
@@ -526,6 +528,7 @@ export default function Growth({
                                         description={m.description}
                                         date={m.date}
                                         photoUrl={m.photoUrl}
+                                        onClick={() => setDetailMemory(m)}
                                     />
                                 ))}
                         {!growthLoading &&
@@ -808,6 +811,14 @@ export default function Growth({
                 onClose={() => setViewer(null)}
                 onReplace={replaceInViewer}
                 onDelete={deleteInViewer}
+            />
+
+            <MemoryDetail
+                visible={!!detailMemory}
+                memory={detailMemory}
+                dob={profile.dateOfBirth}
+                typeLabel="Milestone"
+                onClose={() => setDetailMemory(null)}
             />
         </ScrollView>
     );

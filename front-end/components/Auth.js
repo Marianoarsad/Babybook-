@@ -3,17 +3,17 @@ import { View, Text, ScrollView, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLanguage } from "../context/LanguageContext";
 import { api } from "../utils/api";
-import { space, radius, shadow } from "../theme";
+import { space, radius, shadow, MIN_TOUCH } from "../theme";
 import { useTheme } from "../context/ThemeContext";
 import Field from "./ui/Field";
 import Button from "./ui/Button";
 import { useToast } from "./ui/Toast";
 
-export default function Auth({ onLoginSuccess, onProfessional }) {
+export default function Auth({ onLoginSuccess, onProfessional, onBack, initialScene = "login" }) {
     const { language } = useLanguage();
     const { colors } = useTheme();
     const toast = useToast();
-    const [scene, setScene] = useState("login");
+    const [scene, setScene] = useState(initialScene);
     const [loading, setLoading] = useState(false);
 
     // login
@@ -117,6 +117,30 @@ export default function Auth({ onLoginSuccess, onProfessional }) {
                     shadow.card,
                 ]}
             >
+                {/* Back to the landing page — only from the entry scenes; the
+                    "forgot" scene has its own back-to-login link. */}
+                {onBack && (scene === "login" || scene === "register") ? (
+                    <TouchableOpacity
+                        onPress={onBack}
+                        accessibilityRole="button"
+                        accessibilityLabel="Back to landing page"
+                        style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: space.xs,
+                            alignSelf: "flex-start",
+                            minHeight: MIN_TOUCH,
+                            paddingRight: space.md,
+                            marginBottom: space.xs,
+                        }}
+                    >
+                        <Ionicons name="arrow-back" size={18} color={colors.textSecondary} />
+                        <Text style={{ fontSize: 14, fontWeight: "700", color: colors.textSecondary }}>
+                            Back
+                        </Text>
+                    </TouchableOpacity>
+                ) : null}
+
                 {/* Brand header */}
                 <View style={{ alignItems: "center", marginBottom: space.xl }}>
                     <View
@@ -273,6 +297,9 @@ export default function Auth({ onLoginSuccess, onProfessional }) {
                                     {"\n\n"}Your data is securely stored and encrypted with the intention of
                                     complying with the Data Privacy Act of 2012 (Republic Act No. 10173). You
                                     retain the right to access, correct, and erase your personal information at any time.
+                                    {"\n\n"}When you share a QR consultation code, the healthcare professional's
+                                    name, device, network (IP) address, and the exact time they viewed the
+                                    records are recorded in your access log, viewable from Share Records.
                                 </Text>
                             </ScrollView>
                         </View>
