@@ -27,7 +27,6 @@ import { MemoriesSkeleton, AppointmentsSkeleton } from "./ui/Skeleton";
 import MemoryDetail from "./MemoryDetail";
 import { DateField, TimeField } from "./ui/DateField";
 import ImageViewer from "./ui/ImageViewer";
-import NutritionTracker from "./NutritionTracker";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
 const ageChecklists = [
@@ -112,12 +111,13 @@ export default function Growth({
     const [selectedAgeGroup, setSelectedAgeGroup] = useState("0-3m");
     // Apply a deep-link tab request from the Dashboard quick actions.
     useEffect(() => {
-        const valid = ["milestones", "growth", "nutrition", "checkups"];
+        const valid = ["milestones", "metrics", "appointments"];
         if (initialTab && valid.includes(initialTab)) setGrowthTab(initialTab);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [navKey]);
 
-    // Milestones, appointments and nutrition load from / persist to the backend.
+    // Milestones and appointments load from / persist to the backend. Nutrition
+    // moved to its own top-level screen (App.js) — see NutritionTracker.js.
     const [mstones, setMstones] = useState([]);
     const [appts, setAppts] = useState([]);
     const [growthLoading, setGrowthLoading] = useState(true);
@@ -369,43 +369,6 @@ export default function Growth({
                 <TouchableOpacity
                     style={[
                         styles.tabButton,
-                        growthTab === "metrics" && styles.tabButtonActive,
-                    ]}
-                    onPress={() => setGrowthTab("metrics")}
-                >
-                    <Text
-                        numberOfLines={1}
-                        style={[
-                            styles.tabButtonText,
-                            { textAlign: "center" },
-                            growthTab === "metrics" &&
-                                styles.tabButtonTextActive,
-                        ]}
-                    >
-                        Growth
-                    </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={[
-                        styles.tabButton,
-                        growthTab === "nutrition" && styles.tabButtonActive,
-                    ]}
-                    onPress={() => setGrowthTab("nutrition")}
-                >
-                    <Text
-                        numberOfLines={1}
-                        style={[
-                            styles.tabButtonText,
-                            { textAlign: "center" },
-                            growthTab === "nutrition" && styles.tabButtonTextActive,
-                        ]}
-                    >
-                        Nutrition
-                    </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={[
-                        styles.tabButton,
                         growthTab === "appointments" && styles.tabButtonActive,
                     ]}
                     onPress={() => setGrowthTab("appointments")}
@@ -420,6 +383,25 @@ export default function Growth({
                         ]}
                     >
                         Checkups
+                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[
+                        styles.tabButton,
+                        growthTab === "metrics" && styles.tabButtonActive,
+                    ]}
+                    onPress={() => setGrowthTab("metrics")}
+                >
+                    <Text
+                        numberOfLines={1}
+                        style={[
+                            styles.tabButtonText,
+                            { textAlign: "center" },
+                            growthTab === "metrics" &&
+                                styles.tabButtonTextActive,
+                        ]}
+                    >
+                        Growth
                     </Text>
                 </TouchableOpacity>
             </View>
@@ -613,9 +595,6 @@ export default function Growth({
 
                 </View>
             )}
-
-            {/* GROWTH TAB: NUTRITION (unified milk + solids tracker with charts) */}
-            {growthTab === "nutrition" && <NutritionTracker childId={profile.id} />}
 
             {/* GROWTH TAB: CLINIC APPOINTMENTS */}
             {growthTab === "appointments" && (

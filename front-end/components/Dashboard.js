@@ -226,10 +226,10 @@ export default function Dashboard({
     const nav = (view, tab) => onChangeView && onChangeView(view, tab);
     // Quick Actions mirror the Stitch design and deep-link to the matching module.
     const quickActions = [
-        { key: "milk", label: "Log Milk", lib: "mci", icon: "baby-bottle-outline", color: colors.primary, onPress: () => nav("growth", "nutrition") },
-        { key: "food", label: "Log Food", lib: "ion", icon: "restaurant-outline", color: colors.success, onPress: () => nav("growth", "nutrition") },
-        { key: "medical", label: "Medical", lib: "ion", icon: "medkit-outline", color: colors.danger, onPress: () => nav("health", "immunizations") },
-        { key: "milestone", label: "Milestone", lib: "ion", icon: "trophy-outline", color: colors.info, onPress: () => nav("growth", "milestones") },
+        { key: "milk", label: "Log Milk", lib: "mci", icon: "baby-bottle-outline", color: colors.primary, onPress: () => nav("nutrition", "milk") },
+        { key: "food", label: "Log Food", lib: "ion", icon: "restaurant-outline", color: colors.success, onPress: () => nav("nutrition", "solid") },
+        { key: "checkup", label: "Add Checkup", lib: "ion", icon: "calendar-outline", color: colors.danger, onPress: () => nav("growth", "appointments") },
+        { key: "medication", label: "Add Medication", lib: "ion", icon: "medical-outline", color: colors.info, onPress: () => nav("health", "medications") },
     ];
 
     // Baby summary meta as a 2-column grid (order matches Stitch).
@@ -332,7 +332,7 @@ export default function Dashboard({
             {/* Milestone Memories — square photo gallery */}
             <View style={styles.gallerySection}>
                 <View style={styles.galleryHeader}>
-                    <Text style={styles.sectionHeadingFlush}>Milestone Memories</Text>
+                    <Text style={styles.sectionHeadingFlush}>Photo Memories</Text>
                     <TouchableOpacity
                         onPress={() => setShowMemoryModal(true)}
                         style={styles.addPill}

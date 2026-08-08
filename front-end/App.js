@@ -49,6 +49,7 @@ import Dashboard from "./components/Dashboard";
 import Health from "./components/Health";
 import Growth from "./components/Growth";
 import Services from "./components/Services";
+import NutritionTracker from "./components/NutritionTracker";
 import ShareRecords from "./components/ShareRecords";
 import ProfessionalView from "./components/ProfessionalView";
 import EmptyChild from "./components/EmptyChild";
@@ -654,6 +655,13 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                         navKey={navKey}
                     />
                 )}
+                {currentView === "nutrition" && (
+                    <NutritionTracker
+                        childId={activeProfile.id}
+                        initialAction={navTab}
+                        navKey={navKey}
+                    />
+                )}
                 {currentView === "services" && <Services />}
                 {currentView === "calendar" && <CalendarView profile={activeProfile} />}
                 {currentView === "share" && (
@@ -705,7 +713,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                     { key: "dashboard", icon: "home", label: t("navDashboard") },
                     { key: "health", icon: "shield-checkmark", label: t("navHealth") },
                     { key: "growth", icon: "trending-up", label: t("navGrowth") },
-                    { key: "services", icon: "grid", label: "Services" },
+                    { key: "nutrition", icon: "restaurant", label: "Nutrition" },
                     { key: "calendar", icon: "calendar", label: "Calendar" },
                 ].map((tab) => {
                     const active = currentView === tab.key;

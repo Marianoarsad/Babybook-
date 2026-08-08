@@ -96,7 +96,7 @@ function milkDurations(milk) {
     return { periods, current };
 }
 
-export default function NutritionTracker({ childId }) {
+export default function NutritionTracker({ childId, initialAction, navKey }) {
     const toast = useToast();
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -122,12 +122,20 @@ export default function NutritionTracker({ childId }) {
 
     const setF = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
-    const openAdd = () => {
+    const openAdd = (presetType) => {
         setEditingId(null);
-        setForm(emptyForm());
+        setForm(presetType ? { ...emptyForm(), entryType: presetType } : emptyForm());
         setUnitOpen(false);
         setShowModal(true);
     };
+
+    // Deep-link from Dashboard's "Log Milk" / "Log Food" quick actions: open
+    // straight into the Add modal, preset to the right entry type. Mirrors
+    // the initialTab/navKey pattern Health.js and Growth.js already use.
+    useEffect(() => {
+        if (initialAction === "milk" || initialAction === "solid") openAdd(initialAction);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [navKey]);
     const openEdit = (e) => {
         setEditingId(e.id);
         setForm({
@@ -200,7 +208,7 @@ export default function NutritionTracker({ childId }) {
     );
 
     return (
-        <View>
+        <ScrollView style={styles.container}>
             {/* Analytics */}
             <SectionContainerCard title="Milk Intake Analytics" subtitle="Consumption over time">
                 <View style={styles.rangeRow}>
@@ -467,11 +475,12 @@ export default function NutritionTracker({ childId }) {
                     </ScrollView>
                 </View>
             </Modal>
-        </View>
+        </ScrollView>
     );
 }
 
 const makeStyles = (colors) => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
     rangeRow: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginBottom: space.md },
     rangeChip: {
         paddingHorizontal: space.md,
