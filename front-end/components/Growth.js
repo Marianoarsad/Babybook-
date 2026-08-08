@@ -109,10 +109,20 @@ export default function Growth({
     };
     const [growthTab, setGrowthTab] = useState("milestones");
     const [selectedAgeGroup, setSelectedAgeGroup] = useState("0-3m");
-    // Apply a deep-link tab request from the Dashboard quick actions.
+    // Apply a deep-link tab request from the floating log button, and — for
+    // "Log Growth"/"Schedule Checkup" — open the matching form directly
+    // instead of just switching tabs, the same way NutritionTracker.js
+    // already does for "Log Milk"/"Log Food".
     useEffect(() => {
         const valid = ["milestones", "metrics", "appointments"];
-        if (initialTab && valid.includes(initialTab)) setGrowthTab(initialTab);
+        if (initialTab && valid.includes(initialTab)) {
+            setGrowthTab(initialTab);
+            if (initialTab === "metrics") setShowMetricsModal(true);
+            if (initialTab === "appointments") {
+                resetAttach();
+                setShowApptModal(true);
+            }
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [navKey]);
 

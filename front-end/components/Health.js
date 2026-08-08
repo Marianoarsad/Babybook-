@@ -52,10 +52,18 @@ export default function Health({
         },
     };
     const [activeTab, setActiveTab] = useState("immunizations");
-    // Apply a deep-link tab request from the Dashboard quick actions.
+    // Apply a deep-link tab request from the floating log button, and — for
+    // "Add Medication" — open the Add Rx form directly instead of just
+    // switching tabs, matching the pattern used for Growth's own shortcuts.
     useEffect(() => {
         const valid = ["immunizations", "medications", "illnesses"];
-        if (initialTab && valid.includes(initialTab)) setActiveTab(initialTab);
+        if (initialTab && valid.includes(initialTab)) {
+            setActiveTab(initialTab);
+            if (initialTab === "medications") {
+                resetAttach();
+                setShowMedModal(true);
+            }
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [navKey]);
 
