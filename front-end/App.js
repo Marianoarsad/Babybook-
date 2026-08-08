@@ -56,6 +56,8 @@ import EmptyChild from "./components/EmptyChild";
 import ToastProvider, { useToast } from "./components/ui/Toast";
 import SideMenu from "./components/SideMenu";
 import CalendarView from "./components/CalendarView";
+import AllActivity from "./components/AllActivity";
+import AllMemories from "./components/AllMemories";
 import AppLoadingScreen from "./components/AppLoadingScreen";
 import { DateField, TimeField } from "./components/ui/DateField";
 import ViewProfile from "./components/settings/ViewProfile";
@@ -124,6 +126,22 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
             setNavKey((k) => k + 1);
         }
     };
+
+    // Floating "log something" button (bottom-right, above the tab bar) and
+    // its action sheet. Reuses changeView the same way the tab bar does — no
+    // new navigation method.
+    const [actionSheetVisible, setActionSheetVisible] = useState(false);
+    const runAction = (view, tab) => {
+        setActionSheetVisible(false);
+        changeView(view, tab);
+    };
+    const ACTION_SHEET_ITEMS = [
+        { key: "milk", label: "Log Milk", icon: "water-outline", view: "nutrition", tab: "milk" },
+        { key: "food", label: "Log Food", icon: "restaurant-outline", view: "nutrition", tab: "solid" },
+        { key: "growth", label: "Log Growth", icon: "resize-outline", view: "growth", tab: "metrics" },
+        { key: "checkup", label: "Schedule Checkup", icon: "calendar-outline", view: "growth", tab: "appointments" },
+        { key: "medication", label: "Add Medication", icon: "medical-outline", view: "health", tab: "medications" },
+    ];
 
     // Core records lists — children now load from the backend.
     const [profiles, setProfiles] = useState([]);
@@ -565,7 +583,6 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                         style={styles.avatarMini}
                     />
                     <View>
-                        <Text style={styles.welcomeText}>BabyBook+</Text>
                         <Text style={styles.babyName}>
                             {activeProfile.name}'s File
                         </Text>
@@ -590,13 +607,11 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                     </TouchableOpacity>
                     <TouchableOpacity
                         onPress={() => setMenuOpen(true)}
+                        style={styles.menuBtn}
                         accessibilityRole="button"
                         accessibilityLabel="Open menu"
                     >
-                        <Image
-                            source={{ uri: parentAvatar }}
-                            style={styles.parentAvatarMini}
-                        />
+                        <Ionicons name="menu-outline" size={22} color={colors.primary} />
                     </TouchableOpacity>
                 </View>
             </View>
@@ -664,6 +679,12 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                 )}
                 {currentView === "services" && <Services />}
                 {currentView === "calendar" && <CalendarView profile={activeProfile} />}
+                {currentView === "allActivity" && (
+                    <AllActivity profile={activeProfile} onClose={() => setCurrentView("dashboard")} />
+                )}
+                {currentView === "allMemories" && (
+                    <AllMemories profile={activeProfile} onClose={() => setCurrentView("dashboard")} />
+                )}
                 {currentView === "share" && (
                     <ShareRecords
                         profile={activeProfile}
@@ -713,8 +734,8 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                     { key: "dashboard", icon: "home", label: t("navDashboard") },
                     { key: "health", icon: "shield-checkmark", label: t("navHealth") },
                     { key: "growth", icon: "trending-up", label: t("navGrowth") },
-                    { key: "nutrition", icon: "restaurant", label: "Nutrition" },
-                    { key: "calendar", icon: "calendar", label: "Calendar" },
+                    { key: "nutrition", icon: "restaurant", label: t("navNutrition") },
+                    { key: "calendar", icon: "calendar", label: t("navCalendar") },
                 ].map((tab) => {
                     const active = currentView === tab.key;
                     return (
@@ -743,6 +764,58 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                     );
                 })}
             </View>
+
+            {/* Floating "log something" button, sits above the tab bar and stays
+                reachable from every screen — Calendar keeps its own tab, this is
+                purely additive. */}
+            <TouchableOpacity
+                onPress={() => setActionSheetVisible(true)}
+                style={styles.fab}
+                accessibilityRole="button"
+                accessibilityLabel="Log something"
+            >
+                <Ionicons name="add" size={28} color={colors.onAccent} />
+            </TouchableOpacity>
+
+            <Modal
+                visible={actionSheetVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setActionSheetVisible(false)}
+            >
+                <View style={styles.actionSheetRoot}>
+                    <TouchableOpacity
+                        style={StyleSheet.absoluteFill}
+                        activeOpacity={1}
+                        onPress={() => setActionSheetVisible(false)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Close"
+                    />
+                    <View style={styles.actionSheetCard}>
+                        <Text style={styles.actionSheetTitle}>Log something</Text>
+                        {ACTION_SHEET_ITEMS.map((opt) => (
+                            <TouchableOpacity
+                                key={opt.key}
+                                style={styles.actionSheetItem}
+                                onPress={() => runAction(opt.view, opt.tab)}
+                                accessibilityRole="button"
+                                accessibilityLabel={opt.label}
+                            >
+                                <Ionicons name={opt.icon} size={20} color={colors.primary} />
+                                <Text style={styles.actionSheetItemText}>{opt.label}</Text>
+                            </TouchableOpacity>
+                        ))}
+                        <TouchableOpacity
+                            style={styles.actionSheetCancel}
+                            onPress={() => setActionSheetVisible(false)}
+                            accessibilityRole="button"
+                            accessibilityLabel="Cancel"
+                        >
+                            <Text style={styles.actionSheetCancelText}>Cancel</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
 
             {/* Modal: ADD BABY PROFILE */}
             <Modal
@@ -1273,24 +1346,20 @@ const makeStyles = (colors) => StyleSheet.create({
         borderWidth: 2,
         borderColor: colors.accent,
     },
-    welcomeText: {
-        fontSize: 12,
-        fontWeight: "700",
-        color: colors.accentStrong,
-        letterSpacing: 0.2,
-    },
     babyName: {
         fontSize: 16,
         fontWeight: "800",
         color: colors.primary,
         letterSpacing: -0.2,
     },
-    parentAvatarMini: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        borderWidth: 2,
-        borderColor: colors.primary,
+    menuBtn: {
+        width: 42,
+        height: 42,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
+        backgroundColor: colors.softGreen,
+        alignItems: "center",
+        justifyContent: "center",
     },
     content: {
         flex: 1,
@@ -1330,6 +1399,60 @@ const makeStyles = (colors) => StyleSheet.create({
         color: colors.accentStrong,
         fontWeight: "800",
     },
+    fab: {
+        position: "absolute",
+        right: space.lg,
+        bottom: 92,
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: colors.accentStrong,
+        alignItems: "center",
+        justifyContent: "center",
+        ...shadow.accent,
+    },
+    actionSheetRoot: {
+        flex: 1,
+        justifyContent: "flex-end",
+        backgroundColor: "rgba(28,25,23,0.45)",
+    },
+    actionSheetCard: {
+        backgroundColor: colors.background,
+        borderTopLeftRadius: radius.xl,
+        borderTopRightRadius: radius.xl,
+        borderCurve: "continuous",
+        padding: space.lg,
+        paddingBottom: space.xl,
+        ...shadow.raised,
+    },
+    actionSheetTitle: {
+        fontSize: 16,
+        fontWeight: "800",
+        color: colors.text,
+        marginBottom: space.md,
+        textAlign: "center",
+    },
+    actionSheetItem: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.md,
+        minHeight: 48,
+        paddingHorizontal: space.md,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.hairline,
+        marginBottom: space.sm,
+    },
+    actionSheetItemText: { fontSize: 14, fontWeight: "700", color: colors.text },
+    actionSheetCancel: {
+        marginTop: space.xs,
+        minHeight: 48,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    actionSheetCancelText: { fontSize: 14, fontWeight: "700", color: colors.textSecondary },
     modalBg: {
         flex: 1,
         backgroundColor: "rgba(28,25,23,0.55)",
