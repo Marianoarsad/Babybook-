@@ -12,7 +12,7 @@ import {
 import { useLanguage } from "../context/LanguageContext";
 import { EmptyStateCard } from "./common/Cards";
 import MemoryDetail from "./MemoryDetail";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { radius, space, shadow } from "../theme";
 import { useTheme } from "../context/ThemeContext";
 import { api } from "../utils/api";
@@ -35,16 +35,6 @@ function ageText(dob) {
     return rem ? `${years}y ${rem}m` : `${years} year${years === 1 ? "" : "s"}`;
 }
 
-function monthsOld(dob) {
-    if (!dob) return 0;
-    const b = new Date(`${String(dob).slice(0, 10)}T00:00:00`);
-    if (isNaN(b.getTime())) return 0;
-    const now = new Date();
-    let m = (now.getFullYear() - b.getFullYear()) * 12 + (now.getMonth() - b.getMonth());
-    if (now.getDate() < b.getDate()) m -= 1;
-    return Math.max(0, m);
-}
-
 // Compact "time ago" for the Recent Activity feed.
 function relativeTime(dateStr) {
     if (!dateStr) return "";
@@ -63,16 +53,55 @@ function relativeTime(dateStr) {
     return `${Math.floor(days / 365)}y ago`;
 }
 
-// Age-appropriate parenting tips (picked by the child's age).
-const TIPS = [
-    { max: 6, text: "Give plenty of tummy time while awake — it strengthens neck and shoulder muscles for rolling and sitting." },
-    { max: 12, text: "Offer soft finger foods to encourage self-feeding. It builds fine motor skills and independence." },
-    { max: 24, text: 'At this age, toddlers love to "help." Let them put toys in a bin or hand you items to build confidence and coordination.' },
-    { max: 1000, text: "Read together every day. Naming pictures and repeating simple words grows vocabulary and focus." },
-];
-function tipFor(dob) {
-    const m = monthsOld(dob);
-    return (TIPS.find((t) => m < t.max) || TIPS[TIPS.length - 1]).text;
+function dayDiff(a, b) {
+    return Math.round((new Date(b) - new Date(a)) / 86400000);
+}
+
+// Compares the child's growth-measurement history to answer "is the baby
+// growing faster or slower than before" (Documents/plans/BabyBook+_Dashboard_
+// Redesign_Evaluation.md, Section 5). Weight gets a faster/slower verdict,
+// which needs at least 3 measurements to compare two periods of change;
+// height only gets a plain amount-changed, to keep this first version simple.
+// Deliberate simplification: rate differences smaller than ~1 gram/day are
+// treated as "steady" so rounding noise doesn't flip the verdict back and
+// forth — a bigger measurement history could replace this with a real curve.
+function growthTrend(rows) {
+    const sorted = (rows || [])
+        .filter((r) => r.date_recorded)
+        .slice()
+        .sort((a, b) => String(a.date_recorded).localeCompare(String(b.date_recorded)));
+    if (sorted.length === 0) return null;
+
+    const latest = sorted[sorted.length - 1];
+    const result = {
+        weight: latest.weight != null ? Number(latest.weight) : null,
+        height: latest.height != null ? Number(latest.height) : null,
+        weightDelta: null,
+        heightDelta: null,
+        pace: null, // "faster" | "slower" | "steady" | null
+    };
+
+    if (sorted.length >= 2) {
+        const prev = sorted[sorted.length - 2];
+        if (latest.weight != null && prev.weight != null) {
+            result.weightDelta = Number(latest.weight) - Number(prev.weight);
+        }
+        if (latest.height != null && prev.height != null) {
+            result.heightDelta = Number(latest.height) - Number(prev.height);
+        }
+        if (sorted.length >= 3 && latest.weight != null && prev.weight != null) {
+            const prev2 = sorted[sorted.length - 3];
+            const days1 = dayDiff(prev.date_recorded, latest.date_recorded);
+            const days2 = dayDiff(prev2.date_recorded, prev.date_recorded);
+            if (days1 > 0 && days2 > 0 && prev2.weight != null) {
+                const rate1 = (Number(latest.weight) - Number(prev.weight)) / days1;
+                const rate2 = (Number(prev.weight) - Number(prev2.weight)) / days2;
+                const diff = rate1 - rate2;
+                result.pace = Math.abs(diff) < 0.001 ? "steady" : diff > 0 ? "faster" : "slower";
+            }
+        }
+    }
+    return result;
 }
 
 export default function Dashboard({
@@ -89,8 +118,11 @@ export default function Dashboard({
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const toast = useToast();
 
-    // Recent Activity — a combined, most-recent-first feed of records.
+    // Recent Activity, the upcoming-appointment box, and vaccination progress
+    // all come from the same vaccination/checkup/nutrition/milestone fetch.
     const [activity, setActivity] = useState([]);
+    const [upcoming, setUpcoming] = useState(null);
+    const [vaxProgress, setVaxProgress] = useState(null);
     useEffect(() => {
         let active = true;
         (async () => {
@@ -157,9 +189,57 @@ export default function Dashboard({
                     );
                 const past = items.filter((i) => i.date && i.date <= todayStr);
                 past.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-                setActivity(past.slice(0, 5));
+                setActivity(past.slice(0, 4));
+
+                // Upcoming appointment: the soonest not-yet-done vaccination or checkup.
+                const upcomingItems = [];
+                (vax || [])
+                    .filter((v) => v.status !== "completed" && v.due_date && v.due_date >= todayStr)
+                    .forEach((v) =>
+                        upcomingItems.push({
+                            key: `vax-${v.id}`,
+                            title: v.vaccine_name || "Vaccination",
+                            subtitle: v.visit_name || "",
+                            date: v.due_date,
+                        }),
+                    );
+                (checkups || [])
+                    .filter((c) => c.status !== "completed" && c.checkup_date && c.checkup_date >= todayStr)
+                    .forEach((c) =>
+                        upcomingItems.push({
+                            key: `chk-${c.id}`,
+                            title: c.title || "Checkup",
+                            subtitle: c.doctor_name || "",
+                            date: c.checkup_date,
+                        }),
+                    );
+                upcomingItems.sort((a, b) => a.date.localeCompare(b.date));
+                setUpcoming(upcomingItems[0] || null);
+
+                setVaxProgress({
+                    completed: (vax || []).filter((v) => v.status === "completed").length,
+                    total: (vax || []).length,
+                });
             } catch (e) {
                 console.log("load activity:", e.message);
+            }
+        })();
+        return () => {
+            active = false;
+        };
+    }, [profile.id]);
+
+    // Growth trend — separate fetch, since nothing else on this screen needs
+    // the measurement history.
+    const [trend, setTrend] = useState(null);
+    useEffect(() => {
+        let active = true;
+        (async () => {
+            try {
+                const rows = await api.listRecords(profile.id, "growth");
+                if (active) setTrend(growthTrend(rows));
+            } catch (e) {
+                console.log("load growth trend:", e.message);
             }
         })();
         return () => {
@@ -218,67 +298,65 @@ export default function Dashboard({
         }
     };
 
-    const weight = profile.currentWeight || profile.birthWeight;
-    const height = profile.currentHeight || profile.birthHeight;
-    const sexLabel = profile.gender === "boy" ? "Male" : "Female";
-    const age = ageText(profile.dateOfBirth);
+    const weight = (trend && trend.weight != null ? trend.weight : null) ?? profile.currentWeight ?? profile.birthWeight;
+    const height = (trend && trend.height != null ? trend.height : null) ?? profile.currentHeight ?? profile.birthHeight;
 
     const nav = (view, tab) => onChangeView && onChangeView(view, tab);
-    // Quick Actions mirror the Stitch design and deep-link to the matching module.
-    const quickActions = [
-        { key: "milk", label: "Log Milk", lib: "mci", icon: "baby-bottle-outline", color: colors.primary, onPress: () => nav("nutrition", "milk") },
-        { key: "food", label: "Log Food", lib: "ion", icon: "restaurant-outline", color: colors.success, onPress: () => nav("nutrition", "solid") },
-        { key: "checkup", label: "Add Checkup", lib: "ion", icon: "calendar-outline", color: colors.danger, onPress: () => nav("growth", "appointments") },
-        { key: "medication", label: "Add Medication", lib: "ion", icon: "medical-outline", color: colors.info, onPress: () => nav("health", "medications") },
-    ];
 
-    // Baby summary meta as a 2-column grid (order matches Stitch).
+    // Gender is icon-only now — the word next to it used to repeat exactly
+    // what the icon already showed (evaluation doc, Section 2). The
+    // accessibility label keeps the information available to screen readers.
+    const sexLabel = profile.gender === "boy" ? "Male" : "Female";
+    const fmt = (n, delta) =>
+        delta != null ? `${n} (${delta >= 0 ? "+" : ""}${delta.toFixed(1)})` : `${n}`;
     const babyMeta = [
-        { icon: profile.gender === "boy" ? "male" : "female", text: sexLabel },
-        { icon: "time-outline", text: age || "—" },
-        { icon: "scale-outline", text: `${weight} kg` },
-        { icon: "resize-outline", text: `${height} cm` },
+        { icon: profile.gender === "boy" ? "male" : "female", text: null, a11y: sexLabel },
+        { icon: "time-outline", text: ageText(profile.dateOfBirth) || "—", a11y: null },
+        { icon: "scale-outline", text: `${fmt(weight, trend ? trend.weightDelta : null)} kg`, a11y: null },
+        { icon: "resize-outline", text: `${fmt(height, trend ? trend.heightDelta : null)} cm`, a11y: null },
     ];
 
     const toneColor = { primary: colors.primary, danger: colors.danger, success: colors.success, info: colors.info };
+    const vaxPct = vaxProgress && vaxProgress.total > 0 ? Math.round((vaxProgress.completed / vaxProgress.total) * 100) : 0;
 
     return (
         <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: space.xxl }}>
-            {/* Greeting hero */}
-            <View style={styles.hero}>
-                <Text style={styles.heroTitle} numberOfLines={1}>
-                    Hello, {parentName || profile.name}
-                </Text>
-                {age ? (
-                    <Text style={styles.heroSubtitle}>Your little one is {age} old today 🎉</Text>
-                ) : null}
-            </View>
-
-            {/* Baby switcher */}
-            <View style={styles.profileBar}>
-                <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.profilesScroll}
-                >
-                    {profiles.map((p) => (
-                        <TouchableOpacity
-                            key={p.id}
-                            onPress={() => onSelectProfile(p.id)}
-                            style={[styles.profileTab, profile.id === p.id && styles.profileTabActive]}
-                        >
-                            <Image source={{ uri: p.avatarUrl }} style={styles.avatarMini} />
-                            <Text style={[styles.profileName, profile.id === p.id && styles.profileNameActive]}>
-                                {p.name}
-                            </Text>
+            {/* Baby switcher — only shown with more than one child. With a
+                single child there's nothing to switch between, so just the
+                Add button shows on its own (evaluation doc, Section 2). */}
+            {profiles.length > 1 ? (
+                <View style={styles.profileBar}>
+                    <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.profilesScroll}
+                    >
+                        {profiles.map((p) => (
+                            <TouchableOpacity
+                                key={p.id}
+                                onPress={() => onSelectProfile(p.id)}
+                                style={[styles.profileTab, profile.id === p.id && styles.profileTabActive]}
+                            >
+                                <Image source={{ uri: p.avatarUrl }} style={styles.avatarMini} />
+                                <Text style={[styles.profileName, profile.id === p.id && styles.profileNameActive]}>
+                                    {p.name}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                        <TouchableOpacity onPress={onOpenAddModal} style={styles.addProfileButton}>
+                            <Ionicons name="add" size={18} color={colors.primary} />
+                            <Text style={styles.addProfileText}>Add</Text>
                         </TouchableOpacity>
-                    ))}
+                    </ScrollView>
+                </View>
+            ) : (
+                <View style={styles.profileBarSingle}>
                     <TouchableOpacity onPress={onOpenAddModal} style={styles.addProfileButton}>
                         <Ionicons name="add" size={18} color={colors.primary} />
-                        <Text style={styles.addProfileText}>Add</Text>
+                        <Text style={styles.addProfileText}>Add another child</Text>
                     </TouchableOpacity>
-                </ScrollView>
-            </View>
+                </View>
+            )}
 
             {/* Baby Summary Card — 2-column meta grid */}
             <View style={styles.summaryCard}>
@@ -299,53 +377,154 @@ export default function Dashboard({
                     </View>
                     <View style={styles.metaGrid}>
                         {babyMeta.map((m, idx) => (
-                            <View key={idx} style={styles.metaItem}>
+                            <View
+                                key={idx}
+                                style={styles.metaItem}
+                                accessible={!!m.a11y}
+                                accessibilityLabel={m.a11y || undefined}
+                            >
                                 <Ionicons name={m.icon} size={14} color={colors.primary} />
-                                <Text style={styles.metaText}>{m.text}</Text>
+                                {m.text ? <Text style={styles.metaText}>{m.text}</Text> : null}
                             </View>
                         ))}
                     </View>
+                    {trend && trend.pace ? (
+                        <View style={styles.trendRow}>
+                            <Ionicons
+                                name={
+                                    trend.pace === "faster"
+                                        ? "trending-up"
+                                        : trend.pace === "slower"
+                                          ? "trending-down"
+                                          : "remove-outline"
+                                }
+                                size={14}
+                                color={
+                                    trend.pace === "faster"
+                                        ? colors.success
+                                        : trend.pace === "slower"
+                                          ? colors.warning
+                                          : colors.textMuted
+                                }
+                            />
+                            <Text style={styles.trendText}>
+                                {trend.pace === "faster"
+                                    ? "Growing faster than before"
+                                    : trend.pace === "slower"
+                                      ? "Growing slower than before"
+                                      : "Growing at a steady pace"}
+                            </Text>
+                        </View>
+                    ) : null}
                 </View>
             </View>
 
-            {/* Quick Actions */}
-            <Text style={styles.sectionHeading}>Quick Actions</Text>
-            <View style={styles.quickGrid}>
-                {quickActions.map((qa) => (
-                    <TouchableOpacity
-                        key={qa.key}
-                        style={styles.quickTile}
-                        onPress={qa.onPress}
-                        accessibilityRole="button"
-                        accessibilityLabel={qa.label}
-                    >
-                        {qa.lib === "mci" ? (
-                            <MaterialCommunityIcons name={qa.icon} size={28} color={qa.color} />
-                        ) : (
-                            <Ionicons name={qa.icon} size={26} color={qa.color} />
-                        )}
-                        <Text style={styles.quickTileLabel}>{qa.label}</Text>
-                    </TouchableOpacity>
-                ))}
-            </View>
+            {/* Vaccination progress */}
+            {vaxProgress && vaxProgress.total > 0 ? (
+                <View style={styles.progressCard}>
+                    <View style={styles.progressHeader}>
+                        <Ionicons name="shield-checkmark-outline" size={16} color={colors.primary} />
+                        <Text style={styles.progressTitle}>Vaccination Progress</Text>
+                        <Text style={styles.progressCount}>
+                            {vaxProgress.completed} of {vaxProgress.total} doses
+                        </Text>
+                    </View>
+                    <View style={styles.progressTrack}>
+                        <View style={[styles.progressFill, { width: `${vaxPct}%` }]} />
+                    </View>
+                </View>
+            ) : null}
 
-            {/* Milestone Memories — square photo gallery */}
+            {/* Upcoming appointment — the only way to Calendar from this screen. */}
+            {upcoming ? (
+                <TouchableOpacity
+                    style={styles.upcomingCard}
+                    onPress={() => nav("calendar")}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Next: ${upcoming.title}, ${upcoming.date}`}
+                >
+                    <View style={styles.upcomingIcon}>
+                        <Ionicons name="calendar" size={20} color={colors.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.upcomingLabel}>Next: {upcoming.title}</Text>
+                        <Text style={styles.upcomingSub}>
+                            {upcoming.date}
+                            {upcoming.subtitle ? ` · ${upcoming.subtitle}` : ""}
+                        </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                </TouchableOpacity>
+            ) : null}
+
+            {/* Recent Activity */}
+            <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionHeadingFlush}>Recent Activity</Text>
+                <TouchableOpacity
+                    onPress={() => nav("allActivity")}
+                    accessibilityRole="button"
+                    accessibilityLabel="See all activity"
+                >
+                    <Text style={styles.seeAllText}>See all →</Text>
+                </TouchableOpacity>
+            </View>
+            {activity.length ? (
+                <View style={styles.activityCard}>
+                    {activity.map((a, idx) => {
+                        const tone = toneColor[a.tone] || colors.primary;
+                        return (
+                            <View
+                                key={a.key}
+                                style={[styles.activityRow, idx < activity.length - 1 && styles.activityRowBorder]}
+                            >
+                                <View style={styles.activityLeft}>
+                                    <View style={[styles.activityIcon, { backgroundColor: tone + "1A" }]}>
+                                        <Ionicons name={a.icon} size={18} color={tone} />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.activityTitle}>{a.title}</Text>
+                                        <Text style={styles.activitySubtitle} numberOfLines={1}>
+                                            {a.subtitle}
+                                        </Text>
+                                    </View>
+                                </View>
+                                <Text style={styles.activityTime}>{relativeTime(a.date)}</Text>
+                            </View>
+                        );
+                    })}
+                </View>
+            ) : (
+                <View style={{ marginBottom: space.lg }}>
+                    <EmptyStateCard message="No recent activity yet." icon="time-outline" />
+                </View>
+            )}
+
+            {/* Photo Memories — square photo gallery */}
             <View style={styles.gallerySection}>
                 <View style={styles.galleryHeader}>
                     <Text style={styles.sectionHeadingFlush}>Photo Memories</Text>
-                    <TouchableOpacity
-                        onPress={() => setShowMemoryModal(true)}
-                        style={styles.addPill}
-                        accessibilityRole="button"
-                        accessibilityLabel="Add photo memory"
-                    >
-                        <Ionicons name="add" size={16} color={colors.onAccent} />
-                        <Text style={styles.addPillText}>Add</Text>
-                    </TouchableOpacity>
+                    <View style={styles.galleryHeaderActions}>
+                        <TouchableOpacity
+                            onPress={() => nav("allMemories")}
+                            accessibilityRole="button"
+                            accessibilityLabel="See all photo memories"
+                        >
+                            <Text style={styles.seeAllText}>See all →</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            onPress={() => setShowMemoryModal(true)}
+                            style={styles.addPill}
+                            accessibilityRole="button"
+                            accessibilityLabel="Add photo memory"
+                        >
+                            <Ionicons name="add" size={16} color={colors.onAccent} />
+                            <Text style={styles.addPillText}>Add</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
                 {memories.length ? (
                     <View style={styles.galleryGrid}>
-                        {memories.slice(0, 6).map((m, idx) => (
+                        {memories.slice(0, 4).map((m, idx) => (
                             <TouchableOpacity
                                 key={m.id || idx}
                                 style={styles.galleryCard}
@@ -381,46 +560,6 @@ export default function Dashboard({
                 typeLabel="Photo Memory"
                 onClose={() => setDetailMemory(null)}
             />
-
-            {/* Recent Activity */}
-            <Text style={styles.sectionHeading}>Recent Activity</Text>
-            {activity.length ? (
-                <View style={styles.activityCard}>
-                    {activity.map((a, idx) => {
-                        const tone = toneColor[a.tone] || colors.primary;
-                        return (
-                            <View
-                                key={a.key}
-                                style={[styles.activityRow, idx < activity.length - 1 && styles.activityRowBorder]}
-                            >
-                                <View style={styles.activityLeft}>
-                                    <View style={[styles.activityIcon, { backgroundColor: tone + "1A" }]}>
-                                        <Ionicons name={a.icon} size={18} color={tone} />
-                                    </View>
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={styles.activityTitle}>{a.title}</Text>
-                                        <Text style={styles.activitySubtitle} numberOfLines={1}>
-                                            {a.subtitle}
-                                        </Text>
-                                    </View>
-                                </View>
-                                <Text style={styles.activityTime}>{relativeTime(a.date)}</Text>
-                            </View>
-                        );
-                    })}
-                </View>
-            ) : (
-                <View style={{ marginBottom: space.lg }}>
-                    <EmptyStateCard message="No recent activity yet." icon="time-outline" />
-                </View>
-            )}
-
-            {/* Parenting Tip */}
-            <View style={styles.tipCard}>
-                <Ionicons name="bulb" size={96} color={colors.primary} style={styles.tipCornerIcon} />
-                <Text style={styles.tipTitle}>Parenting Tip</Text>
-                <Text style={styles.tipText}>{tipFor(profile.dateOfBirth)}</Text>
-            </View>
 
             {/* Add Memory Modal */}
             <Modal visible={showMemoryModal} transparent animationType="slide">
@@ -481,13 +620,9 @@ const makeStyles = (colors) => StyleSheet.create({
         padding: space.lg,
     },
 
-    // Greeting hero
-    hero: { marginBottom: space.lg },
-    heroTitle: { fontSize: 26, fontWeight: "800", color: colors.text, letterSpacing: -0.4 },
-    heroSubtitle: { fontSize: 14, fontWeight: "500", color: colors.textSecondary, marginTop: 2 },
-
     // Baby switcher
     profileBar: { marginBottom: space.md },
+    profileBarSingle: { marginBottom: space.md, alignItems: "flex-start" },
     profilesScroll: { alignItems: "center", paddingRight: space.xs },
     profileTab: {
         flexDirection: "row",
@@ -516,6 +651,7 @@ const makeStyles = (colors) => StyleSheet.create({
         borderCurve: "continuous",
         paddingHorizontal: space.md,
         paddingVertical: 7,
+        minHeight: 44,
     },
     addProfileText: { fontSize: 13, fontWeight: "700", color: colors.primary, marginLeft: 3 },
 
@@ -558,33 +694,64 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     metaItem: { width: "48%", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
     metaText: { fontSize: 12.5, fontWeight: "600", color: colors.textSecondary },
+    trendRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
+    trendText: { fontSize: 11.5, fontWeight: "600", color: colors.textSecondary },
 
     // Section heading
-    sectionHeading: { fontSize: 16, fontWeight: "800", color: colors.text, marginBottom: space.md },
     sectionHeadingFlush: { fontSize: 16, fontWeight: "800", color: colors.text },
-
-    // Quick Actions grid (2x2 vertical icon tiles)
-    quickGrid: {
+    sectionHeaderRow: {
         flexDirection: "row",
-        flexWrap: "wrap",
-        justifyContent: "space-between",
-        marginBottom: space.lg,
-    },
-    quickTile: {
-        width: "48%",
         alignItems: "center",
-        justifyContent: "center",
-        gap: 8,
+        justifyContent: "space-between",
+        marginBottom: space.md,
+    },
+    seeAllText: { fontSize: 12.5, fontWeight: "700", color: colors.accentStrong },
+
+    // Vaccination progress
+    progressCard: {
         backgroundColor: colors.surface,
         borderRadius: radius.lg,
         borderCurve: "continuous",
         borderWidth: 1,
-        borderColor: colors.border,
-        paddingVertical: space.lg,
+        borderColor: colors.hairline,
+        padding: space.md,
         marginBottom: space.md,
         ...shadow.card,
     },
-    quickTileLabel: { fontSize: 13, fontWeight: "700", color: colors.textSecondary },
+    progressHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: space.sm },
+    progressTitle: { fontSize: 13, fontWeight: "800", color: colors.text, flex: 1 },
+    progressCount: { fontSize: 12, fontWeight: "700", color: colors.textMuted },
+    progressTrack: {
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: colors.surfaceAlt,
+        overflow: "hidden",
+    },
+    progressFill: { height: "100%", borderRadius: 4, backgroundColor: colors.primary },
+
+    // Upcoming appointment
+    upcomingCard: {
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: colors.softGreen,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
+        borderWidth: 1,
+        borderColor: colors.borderStrong,
+        padding: space.md,
+        marginBottom: space.lg,
+        gap: space.md,
+    },
+    upcomingIcon: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: colors.surface,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    upcomingLabel: { fontSize: 14, fontWeight: "800", color: colors.text },
+    upcomingSub: { fontSize: 12, fontWeight: "600", color: colors.textSecondary, marginTop: 1 },
 
     // Milestone Memories gallery
     gallerySection: { marginBottom: space.lg },
@@ -594,6 +761,7 @@ const makeStyles = (colors) => StyleSheet.create({
         justifyContent: "space-between",
         marginBottom: space.md,
     },
+    galleryHeaderActions: { flexDirection: "row", alignItems: "center", gap: space.md },
     galleryGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
     galleryCard: {
         width: "48%",
@@ -654,21 +822,6 @@ const makeStyles = (colors) => StyleSheet.create({
     activityTitle: { fontSize: 14, fontWeight: "700", color: colors.text },
     activitySubtitle: { fontSize: 12, fontWeight: "500", color: colors.textMuted, marginTop: 1 },
     activityTime: { fontSize: 11, fontWeight: "600", color: colors.textMuted, marginLeft: space.sm },
-
-    // Parenting Tip
-    tipCard: {
-        backgroundColor: colors.softGreen,
-        borderRadius: radius.xl,
-        borderCurve: "continuous",
-        borderWidth: 1,
-        borderColor: colors.borderStrong,
-        padding: space.lg,
-        marginBottom: space.lg,
-        overflow: "hidden",
-    },
-    tipCornerIcon: { position: "absolute", right: -10, bottom: -18, opacity: 0.1 },
-    tipTitle: { fontSize: 15, fontWeight: "800", color: colors.text, marginBottom: 4 },
-    tipText: { fontSize: 13, fontWeight: "500", color: colors.textSecondary, lineHeight: 19 },
 
     // Add Memory modal
     choosePhotoBtn: {
