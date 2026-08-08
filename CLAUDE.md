@@ -26,11 +26,12 @@ BabyBook+/
 │   │   ├── ThemeContext.js     # ThemeProvider / useTheme() — dynamic gender palette
 │   │   └── LanguageContext.js  # useLanguage() / t() — i18n (see translations.js)
 │   ├── components/
-│   │   ├── Dashboard.js Health.js Growth.js Services.js CalendarView.js  # primary tab screens (bottom nav)
-│   │   ├── NutritionTracker.js                            # unified milk+solids tracker w/ dependency-free charts
+│   │   ├── Dashboard.js Health.js Growth.js NutritionTracker.js CalendarView.js  # primary tab screens (bottom nav)
+│   │   ├── Services.js                                    # reached from the side menu ("Local Services"), not the bottom nav
+│   │   ├── AllActivity.js AllMemories.js                  # Dashboard "See all" destinations (full activity / photo history)
 │   │   ├── ShareRecords.js QrCodeView.js QrScanner.js     # parent QR share + scan
 │   │   ├── ProfessionalView.js                            # healthcare-pro view-only portal
-│   │   ├── SideMenu.js                                    # slide-in drawer (avatar tap) — replaces the old Profile tab
+│   │   ├── SideMenu.js                                    # slide-in drawer (hamburger icon) — replaces the old Profile tab
 │   │   ├── settings/                                      # side-menu destination screens: ViewProfile, EditProfile, GeneralSettings, ThemePreferences, LanguagePreferences, HelpSupport, AboutApp, ChangePassword, PrivacySettings
 │   │   ├── Auth.js Landing.js EmptyChild.js AppLoadingScreen.js MemoryDetail.js
 │   │   ├── common/Cards.js                                # shared card components (SectionContainerCard, ListEntryCard, MemoryVisualCard, EmptyStateCard)
@@ -66,7 +67,7 @@ BabyBook+/
 
 ## 3. Architecture & conventions (follow these)
 
-- **Navigation is custom, not expo-router.** `App.js` holds `currentView` state and swaps screens with conditional rendering (`front-end/App.js:520-612`). Bottom-nav values: `"dashboard" | "health" | "growth" | "services" | "calendar"`. Side-menu/modal values: `"share" | "viewProfile" | "editProfile" | "generalSettings" | "themePreferences" | "languagePreferences" | "helpSupport" | "aboutApp" | "changePassword" | "privacySettings"`. The bottom tab bar and header/menu buttons call `setCurrentView(...)`. There is **no React Navigation / expo-router**; do not introduce it without discussion.
+- **Navigation is custom, not expo-router.** `App.js` holds `currentView` state and swaps screens with conditional rendering. Bottom-nav values: `"dashboard" | "health" | "growth" | "nutrition" | "calendar"`. A floating button above the tab bar (reachable from every screen, not just Dashboard) opens a menu that deep-links into `"nutrition" | "growth" | "health"` with a sub-tab, auto-opening the matching add-record form (Log Milk, Log Food, Log Growth, Schedule Checkup, Add Medication). Side-menu/modal/other values: `"share" | "services" | "allActivity" | "allMemories" | "viewProfile" | "editProfile" | "generalSettings" | "themePreferences" | "languagePreferences" | "helpSupport" | "aboutApp" | "changePassword" | "privacySettings"`. The bottom tab bar, the floating button, and header/menu buttons all call `setCurrentView(...)` (deep-links go through the shared `changeView(view, tab)` helper in `App.js`). There is **no React Navigation / expo-router**; do not introduce it without discussion.
 - **Icons**: `@expo/vector-icons` (`Ionicons`, `MaterialCommunityIcons`). Verify icon names exist (past bug: invalid Ionicons names).
 - **Styling pattern (IMPORTANT — every screen now uses this):**
   ```js
@@ -122,7 +123,9 @@ Children belong to a parent (`users`). Per-child records are reached through `ap
 
 **Done:** full research-doc alignment (attachments, unified nutrition, removed sleep/temp/feed, child fields); QR share + professional portal; backend with field encryption + consent + DPA doc; **dynamic girl/boy theme across every screen** + Settings override; deployment (Render API + Supabase + EAS web demo, all in sync — migrated off Railway in August 2026 after its trial expired, see `DEPLOYMENT.md`).
 
-**Also done — Navigation Overhaul + Calendar module (§9 below), increments A–F:** side menu (slide-in drawer) replacing the old Profile tab; bottom nav is now **Dashboard, Health, Growth, Services, Calendar**; all 9 menu destinations built (`front-end/components/settings/`: ViewProfile, EditProfile, GeneralSettings, ThemePreferences, LanguagePreferences, HelpSupport, AboutApp, ChangePassword, PrivacySettings) + `POST /api/auth/change-password`; full Month/Week/Day calendar (`front-end/components/CalendarView.js`, `react-native-calendars`) aggregating vaccinations/checkups/medical-history with tap-to-detail; `calendar_events` table + generic CRUD (reuses `utils/resource.js`, resource path `calendar-events`) for user-created events with reminder lead-time + local notifications; Dashboard "Upcoming Appointments" widget. All verified live against the `back-end-api`/`front-end-web` preview servers (`.claude/launch.json`) using the demo account below.
+**Also done — Navigation Overhaul + Calendar module (§9 below), increments A–F:** side menu (slide-in drawer) replacing the old Profile tab; bottom nav is now **Dashboard, Health, Growth, Nutrition, Calendar** (Services was later moved into the side menu, as "Local Services"); all 9 menu destinations built (`front-end/components/settings/`: ViewProfile, EditProfile, GeneralSettings, ThemePreferences, LanguagePreferences, HelpSupport, AboutApp, ChangePassword, PrivacySettings) + `POST /api/auth/change-password`; full Month/Week/Day calendar (`front-end/components/CalendarView.js`, `react-native-calendars`) aggregating vaccinations/checkups/medical-history with tap-to-detail; `calendar_events` table + generic CRUD (reuses `utils/resource.js`, resource path `calendar-events`) for user-created events with reminder lead-time + local notifications. All verified live against the `back-end-api`/`front-end-web` preview servers (`.claude/launch.json`) using the demo account below.
+
+**Also done — Dashboard redesign:** Dashboard now shows an upcoming-appointment box (next vaccination or checkup, tap to open Calendar — this is the "Upcoming Appointments" feature; an earlier version of this note wrongly claimed it already existed before it was actually built), a vaccination-progress bar, and a growth trend next to the weight/height numbers (amount changed since the last measurement, plus a faster/slower verdict once there are at least three measurements). A floating "log" button above the tab bar, reachable from every screen, opens a menu with Log Milk, Log Food, Log Growth, Schedule Checkup, and Add Medication, each opening the matching form directly. The old Quick Actions section, the "Hello, {name}" greeting, and the generic Parenting Tip box were removed as low-information repeats; see `Documents/plans/BabyBook+_Dashboard_Redesign_Evaluation.md` for the full reasoning.
 
 **⚠️ Pending user action:** three additive migrations under `back-end/src/db/migrations/` (`000_calendar_events.sql`, `001_access_log_context.sql`, `002_vaccination_source.sql`) exist in the repo but as of this writing are **not confirmed applied to the live Supabase DB** — only to the local dev database. Run `npm run db:migrate:up` (back-end/, `DATABASE_URL` pointed at Supabase's Session pooler, `DB_SSL=true`) — **not** `db:migrate`, which drops and recreates every table and is intentionally left for you to run, not something Claude should do unattended. Until this runs against Supabase: custom calendar events 404/500 gracefully (calendar still works for vaccinations/checkups/medical-history) but won't persist; auto-generated EPI vaccination doses silently fail to generate (child creation itself still succeeds, `scheduleGenerated: false` in the response). **The QR consultation `POST /api/consult/resolve` flow will hard-fail with a 500** — it unconditionally writes to the new `ip_address`/`user_agent` columns on `access_logs`, so this is not a "degrades gracefully" case for the app's headline feature. Do not consider the deployed backend demo-ready until this migration has run against Supabase.
 
@@ -162,6 +165,14 @@ This was fully scoped with the user; decisions are **locked**. Build it in incre
 **Suggested increment order**: (A) nav refactor — side menu + swap tab to Calendar shell; (B) menu destination screens + `POST /auth/change-password`; (C) Calendar UI with the three views over aggregated records; (D) `calendar_events` table + routes + migration + custom-event CRUD + notification lead-time; (E) Dashboard "Upcoming Appointments" widget; (F) compile-verify + theme pass.
 
 After this feature: return to **Phase 4 (UI/UX polish)** — accessibility/contrast (esp. pink theme small text), 44px touch targets, ≥16px inputs (prevents mobile focus auto-zoom), consistent empty/loading/error states, motion. (User will handle the defense deck/demo script themselves.)
+
+**Correction, added later:** two details in the locked decisions above no longer match the app. The
+bottom-nav order "Dashboard, Health, Growth, Services, Calendar" was later changed to **Dashboard,
+Health, Growth, Nutrition, Calendar** — Nutrition was promoted from a Growth sub-tab to its own tab,
+and Services moved into the side menu ("Local Services") instead. The "Upcoming Appointments" widget
+described under Dashboard integration was *not* built at the time this file first claimed it was —
+it was actually built later, alongside a vaccination-progress bar, a growth trend, and a floating log
+button; see §8 above.
 
 ## 10. Working agreements
 - Ask before adding new dependencies or changing the navigation paradigm.
