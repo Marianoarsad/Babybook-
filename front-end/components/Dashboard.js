@@ -524,6 +524,34 @@ export default function Dashboard({
                 </View>
             ) : null}
 
+            {/* Active share-code notice — easy to generate a code in Share
+                Records and forget it's still open, so this surfaces it here
+                too. Its own card (not merged into Needs Attention above) so
+                it still shows on an ordinary day with nothing overdue. Only
+                renders when at least one code is active. */}
+            {soonestShare ? (
+                <TouchableOpacity
+                    style={styles.shareCard}
+                    onPress={() => nav("share")}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${activeShares.length} share code${activeShares.length === 1 ? "" : "s"} active`}
+                >
+                    <View style={styles.shareIcon}>
+                        <Ionicons name="qr-code-outline" size={18} color={colors.info} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.shareLabel}>
+                            {activeShares.length} share code{activeShares.length === 1 ? "" : "s"} active
+                        </Text>
+                        <Text style={styles.shareSub}>
+                            {activeShares.length === 1 ? "Expires" : "Next expires"}{" "}
+                            {shareExpiryText(soonestShare.expiration_date)}
+                        </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={colors.info} />
+                </TouchableOpacity>
+            ) : null}
+
             {/* Baby Summary Card — 2-column meta grid. The photo and name
                 already show in the header and (with more than one child)
                 the switcher above, so this card doesn't repeat them. */}
@@ -672,32 +700,6 @@ export default function Dashboard({
                 )}
                 <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </TouchableOpacity>
-
-            {/* Active share-code notice — easy to generate a code in Share
-                Records and forget it's still open, so this surfaces it here
-                too. Only renders when at least one code is active. */}
-            {soonestShare ? (
-                <TouchableOpacity
-                    style={styles.shareCard}
-                    onPress={() => nav("share")}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${activeShares.length} share code${activeShares.length === 1 ? "" : "s"} active`}
-                >
-                    <View style={styles.shareIcon}>
-                        <Ionicons name="qr-code-outline" size={18} color={colors.primary} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                        <Text style={styles.shareLabel}>
-                            {activeShares.length} share code{activeShares.length === 1 ? "" : "s"} active
-                        </Text>
-                        <Text style={styles.shareSub}>
-                            {activeShares.length === 1 ? "Expires" : "Next expires"}{" "}
-                            {shareExpiryText(soonestShare.expiration_date)}
-                        </Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-                </TouchableOpacity>
-            ) : null}
 
             {/* Photo Memories — square photo gallery. Adding a memory now
                 lives in the floating log button's menu, alongside Log Milk,
@@ -990,15 +992,17 @@ const makeStyles = (colors) => StyleSheet.create({
     feedingLabel: { fontSize: 14, fontWeight: "800", color: colors.text },
     feedingSub: { fontSize: 12, fontWeight: "600", color: colors.textSecondary, marginTop: 1 },
 
-    // Active share-code notice
+    // Active share-code notice — teal/info tint so it's clearly noticeable
+    // next to the plain white cards around it, without reading as a medical
+    // alert the way the red Needs Attention card above it does.
     shareCard: {
         flexDirection: "row",
         alignItems: "center",
-        backgroundColor: colors.surface,
+        backgroundColor: colors.info + "14",
         borderRadius: radius.lg,
         borderCurve: "continuous",
         borderWidth: 1,
-        borderColor: colors.hairline,
+        borderColor: colors.info,
         padding: space.md,
         marginBottom: space.lg,
         gap: space.md,
@@ -1008,12 +1012,12 @@ const makeStyles = (colors) => StyleSheet.create({
         width: 40,
         height: 40,
         borderRadius: 20,
-        backgroundColor: colors.softGreen,
+        backgroundColor: colors.info + "22",
         alignItems: "center",
         justifyContent: "center",
     },
-    shareLabel: { fontSize: 14, fontWeight: "800", color: colors.text },
-    shareSub: { fontSize: 12, fontWeight: "600", color: colors.textSecondary, marginTop: 1 },
+    shareLabel: { fontSize: 14, fontWeight: "800", color: colors.info },
+    shareSub: { fontSize: 12, fontWeight: "600", color: colors.info },
 
     // Section heading
     sectionHeadingFlush: { fontSize: 16, fontWeight: "800", color: colors.text },
