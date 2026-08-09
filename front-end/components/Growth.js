@@ -253,6 +253,25 @@ export default function Growth({
                         Growth
                     </Text>
                 </TouchableOpacity>
+                <TouchableOpacity
+                    style={[
+                        styles.tabButton,
+                        growthTab === "gallery" && styles.tabButtonActive,
+                    ]}
+                    onPress={() => setGrowthTab("gallery")}
+                >
+                    <Text
+                        numberOfLines={1}
+                        style={[
+                            styles.tabButtonText,
+                            { textAlign: "center" },
+                            growthTab === "gallery" &&
+                                styles.tabButtonTextActive,
+                        ]}
+                    >
+                        Gallery
+                    </Text>
+                </TouchableOpacity>
             </View>
 
             {/* GROWTH TAB: MILESTONES */}
@@ -342,8 +361,12 @@ export default function Growth({
                                 );
                             })}
                     </SectionContainerCard>
+                </View>
+            )}
 
-                    {/* Memories list */}
+            {/* GROWTH TAB: GALLERY */}
+            {growthTab === "gallery" && (
+                <View>
                     <SectionContainerCard
                         title={t("dashMemoriesTitle")}
                         subtitle={t("dashMemoriesSub")}
