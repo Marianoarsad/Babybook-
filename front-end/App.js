@@ -139,8 +139,11 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
         { key: "milk", label: "Log Milk", icon: "water-outline", view: "nutrition", tab: "milk" },
         { key: "food", label: "Log Food", icon: "restaurant-outline", view: "nutrition", tab: "solid" },
         { key: "growth", label: "Log Growth", icon: "resize-outline", view: "growth", tab: "metrics" },
-        { key: "checkup", label: "Schedule Checkup", icon: "calendar-outline", view: "health", tab: "appointments" },
+        { key: "checkup", label: "Schedule Appointment", icon: "calendar-outline", view: "health", tab: "appointments" },
         { key: "medication", label: "Add Medication", icon: "medical-outline", view: "health", tab: "medications" },
+        { key: "illness", label: "Add Illness", icon: "pulse-outline", view: "health", tab: "illness" },
+        { key: "vaccine", label: "Add Vaccine", icon: "medkit-outline", view: "health", tab: "vaccine" },
+        { key: "hospitalization", label: "Add Hospitalization", icon: "bandage-outline", view: "health", tab: "hospitalization" },
         { key: "memory", label: "Add Memory", icon: "image-outline", view: "dashboard", tab: "memory" },
     ];
 
@@ -786,18 +789,20 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                     />
                     <View style={styles.actionSheetCard}>
                         <Text style={styles.actionSheetTitle}>Log something</Text>
-                        {ACTION_SHEET_ITEMS.map((opt) => (
-                            <TouchableOpacity
-                                key={opt.key}
-                                style={styles.actionSheetItem}
-                                onPress={() => runAction(opt.view, opt.tab)}
-                                accessibilityRole="button"
-                                accessibilityLabel={opt.label}
-                            >
-                                <Ionicons name={opt.icon} size={20} color={colors.primary} />
-                                <Text style={styles.actionSheetItemText}>{opt.label}</Text>
-                            </TouchableOpacity>
-                        ))}
+                        <ScrollView style={styles.actionSheetScroll} showsVerticalScrollIndicator={false}>
+                            {ACTION_SHEET_ITEMS.map((opt) => (
+                                <TouchableOpacity
+                                    key={opt.key}
+                                    style={styles.actionSheetItem}
+                                    onPress={() => runAction(opt.view, opt.tab)}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={opt.label}
+                                >
+                                    <Ionicons name={opt.icon} size={20} color={colors.primary} />
+                                    <Text style={styles.actionSheetItemText}>{opt.label}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </ScrollView>
                         <TouchableOpacity
                             style={styles.actionSheetCancel}
                             onPress={() => setActionSheetVisible(false)}
@@ -1416,6 +1421,9 @@ const makeStyles = (colors) => StyleSheet.create({
         color: colors.text,
         marginBottom: space.md,
         textAlign: "center",
+    },
+    actionSheetScroll: {
+        maxHeight: 420,
     },
     actionSheetItem: {
         flexDirection: "row",

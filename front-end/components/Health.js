@@ -57,10 +57,24 @@ export default function Health({
     // Apply a deep-link tab request from the floating log button, and — for
     // "Add Medication" — open the Add Rx form directly instead of just
     // switching tabs, matching the pattern used for Growth's own shortcuts.
+    // "vaccine"/"illness"/"hospitalization" are distinct from the plain tab
+    // names ("immunizations"/"illnesses") on purpose: the Dashboard's Needs
+    // Attention card already deep-links here with the plain tab names just to
+    // switch tabs (e.g. tapping an overdue vaccine), so those two must keep
+    // meaning "switch tabs only" — the new FAB shortcuts need their own keys
+    // to additionally pop open an add-record form.
     useEffect(() => {
-        const valid = ["immunizations", "medications", "illnesses", "appointments"];
-        if (initialTab && valid.includes(initialTab)) {
-            setActiveTab(initialTab);
+        const tabFor = {
+            immunizations: "immunizations",
+            medications: "medications",
+            illnesses: "illnesses",
+            appointments: "appointments",
+            vaccine: "immunizations",
+            illness: "illnesses",
+            hospitalization: "appointments",
+        };
+        if (initialTab && tabFor[initialTab]) {
+            setActiveTab(tabFor[initialTab]);
             if (initialTab === "medications") {
                 resetAttach();
                 setShowMedModal(true);
@@ -68,6 +82,18 @@ export default function Health({
             if (initialTab === "appointments") {
                 resetAttach();
                 setShowApptModal(true);
+            }
+            if (initialTab === "vaccine") {
+                resetAttach();
+                setShowVaxModal(true);
+            }
+            if (initialTab === "illness") {
+                resetAttach();
+                setShowIllnessModal(true);
+            }
+            if (initialTab === "hospitalization") {
+                resetAttach();
+                setShowHospModal(true);
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
