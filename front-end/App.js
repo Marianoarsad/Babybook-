@@ -139,7 +139,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
         { key: "milk", label: "Log Milk", icon: "water-outline", view: "nutrition", tab: "milk" },
         { key: "food", label: "Log Food", icon: "restaurant-outline", view: "nutrition", tab: "solid" },
         { key: "growth", label: "Log Growth", icon: "resize-outline", view: "growth", tab: "metrics" },
-        { key: "checkup", label: "Schedule Checkup", icon: "calendar-outline", view: "growth", tab: "appointments" },
+        { key: "checkup", label: "Schedule Checkup", icon: "calendar-outline", view: "health", tab: "appointments" },
         { key: "medication", label: "Add Medication", icon: "medical-outline", view: "health", tab: "medications" },
         { key: "memory", label: "Add Memory", icon: "image-outline", view: "dashboard", tab: "memory" },
     ];
@@ -659,8 +659,6 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                         }
                         milestones={milestones}
                         setMilestones={setMilestones}
-                        appointments={appointments}
-                        setAppointments={setAppointments}
                         initialTab={navTab}
                         navKey={navKey}
                     />

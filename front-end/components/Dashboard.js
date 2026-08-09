@@ -706,7 +706,7 @@ export default function Dashboard({
                 Log Food, etc., instead of a second add button here. */}
             <View style={styles.gallerySection}>
                 <View style={styles.galleryHeader}>
-                    <Text style={styles.sectionHeadingFlush}>Photo Memories</Text>
+                    <Text style={styles.sectionHeadingFlush}>Milestone Memories</Text>
                     <TouchableOpacity
                         onPress={() => nav("allMemories")}
                         accessibilityRole="button"

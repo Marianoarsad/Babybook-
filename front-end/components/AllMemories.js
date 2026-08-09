@@ -47,7 +47,7 @@ export default function AllMemories({ profile, onClose }) {
                 >
                     <Ionicons name="arrow-back" size={22} color={colors.text} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Photo Memories</Text>
+                <Text style={styles.headerTitle}>Milestone Memories</Text>
                 <View style={styles.headerBtn} />
             </View>
             <ScrollView contentContainerStyle={styles.content}>

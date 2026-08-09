@@ -14,6 +14,7 @@ import {
     vaccinationToApp,
     medHistoryToIllness,
     medHistoryToMed,
+    checkupToApp,
 } from "../utils/adapters";
 import { scheduleReminder, morningOf } from "../utils/notifications";
 import { exportChildRecordsPdf, pdfExportAvailable } from "../utils/exportPdf";
@@ -27,8 +28,8 @@ import {
     EmptyStateCard,
 } from "./common/Cards";
 import PhotoAttach from "./ui/PhotoAttach";
-import { ImmunizationsSkeleton } from "./ui/Skeleton";
-import { DateField } from "./ui/DateField";
+import { ImmunizationsSkeleton, AppointmentsSkeleton } from "./ui/Skeleton";
+import { DateField, TimeField } from "./ui/DateField";
 import ImageViewer from "./ui/ImageViewer";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
@@ -56,12 +57,16 @@ export default function Health({
     // "Add Medication" — open the Add Rx form directly instead of just
     // switching tabs, matching the pattern used for Growth's own shortcuts.
     useEffect(() => {
-        const valid = ["immunizations", "medications", "illnesses"];
+        const valid = ["immunizations", "medications", "illnesses", "appointments"];
         if (initialTab && valid.includes(initialTab)) {
             setActiveTab(initialTab);
             if (initialTab === "medications") {
                 resetAttach();
                 setShowMedModal(true);
+            }
+            if (initialTab === "appointments") {
+                resetAttach();
+                setShowApptModal(true);
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -81,6 +86,27 @@ export default function Health({
                 console.log("load vaccines:", e.message);
             } finally {
                 if (active) setVaxLoading(false);
+            }
+        })();
+        return () => {
+            active = false;
+        };
+    }, [profile.id]);
+
+    // Checkups now load from and persist to the backend.
+    const [appts, setAppts] = useState([]);
+    const [apptsLoading, setApptsLoading] = useState(true);
+    useEffect(() => {
+        let active = true;
+        setApptsLoading(true);
+        (async () => {
+            try {
+                const rows = await api.listRecords(profile.id, "checkups");
+                if (active) setAppts(rows.map(checkupToApp));
+            } catch (e) {
+                console.log("load checkups:", e.message);
+            } finally {
+                if (active) setApptsLoading(false);
             }
         })();
         return () => {
@@ -139,6 +165,14 @@ export default function Health({
     const [showHospModal, setShowHospModal] = useState(false);
     const [hospTitle, setHospTitle] = useState("");
     const [hospDesc, setHospDesc] = useState("");
+
+    // Appointment (checkup) adding state
+    const [showApptModal, setShowApptModal] = useState(false);
+    const [apptTitle, setApptTitle] = useState("Developmental Assessment");
+    const [apptDoctor, setApptDoctor] = useState("Dr. Sarah Chen");
+    const [apptDate, setApptDate] = useState("2026-06-30");
+    const [apptTime, setApptTime] = useState("10:00");
+    const [apptNotes, setApptNotes] = useState("");
 
     // Medical history (illnesses + medications) loads from the backend.
     useEffect(() => {
@@ -459,6 +493,48 @@ export default function Health({
         }
     };
 
+    const handleAddAppointment = async () => {
+        if (!apptTitle || !apptDoctor || !apptDate) {
+            Alert.alert("Error", "Please fill out required fields");
+            return;
+        }
+        if (!requireAttach()) return;
+        setShowApptModal(false);
+        // Persist as a checkup (also feeds the QR consultation snapshot).
+        try {
+            const saved = await api.createRecord(profile.id, "checkups", {
+                title: apptTitle,
+                doctor_name: apptDoctor,
+                checkup_date: apptDate,
+                time_of_visit: apptTime || null,
+                notes: apptNotes || null,
+                status: "scheduled",
+            });
+            setAppts((prev) => [checkupToApp(saved), ...prev]);
+            await uploadAttachFor("checkup", saved.id);
+            // Set a reminder: local notification + backend reminder record.
+            const when = morningOf(apptDate);
+            if (when) {
+                scheduleReminder("Checkup reminder", `${apptTitle} with ${apptDoctor}`, when);
+                api
+                    .createRecord(profile.id, "reminders", {
+                        reminder_type: "Checkup",
+                        title: apptTitle,
+                        reminder_date: apptDate,
+                        status: "Pending",
+                        checkup_id: saved.id,
+                    })
+                    .catch(() => {});
+            }
+            Alert.alert(
+                "Appointment Slotted",
+                `Pediatric session scheduled successfully.`,
+            );
+        } catch (e) {
+            Alert.alert("Error", e.message || "Could not save appointment");
+        }
+    };
+
     // Secondary export entry point — most parents look for this on the
     // Health screen, not under Privacy Settings. Exports every category.
     const [exportingAll, setExportingAll] = useState(false);
@@ -516,6 +592,7 @@ export default function Health({
                     onPress={() => setActiveTab("immunizations")}
                 >
                     <Text
+                        numberOfLines={1}
                         style={[
                             styles.tabButtonText,
                             activeTab === "immunizations" &&
@@ -533,13 +610,14 @@ export default function Health({
                     onPress={() => setActiveTab("medications")}
                 >
                     <Text
+                        numberOfLines={1}
                         style={[
                             styles.tabButtonText,
                             activeTab === "medications" &&
                                 styles.tabButtonTextActive,
                         ]}
                     >
-                        Rx Meds
+                        Medicine
                     </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -550,6 +628,7 @@ export default function Health({
                     onPress={() => setActiveTab("illnesses")}
                 >
                     <Text
+                        numberOfLines={1}
                         style={[
                             styles.tabButtonText,
                             activeTab === "illnesses" &&
@@ -557,6 +636,24 @@ export default function Health({
                         ]}
                     >
                         Conditions
+                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[
+                        styles.tabButton,
+                        activeTab === "appointments" && styles.tabButtonActive,
+                    ]}
+                    onPress={() => setActiveTab("appointments")}
+                >
+                    <Text
+                        numberOfLines={1}
+                        style={[
+                            styles.tabButtonText,
+                            activeTab === "appointments" &&
+                                styles.tabButtonTextActive,
+                        ]}
+                    >
+                        Checkups
                     </Text>
                 </TouchableOpacity>
             </View>
@@ -584,9 +681,10 @@ export default function Health({
                                 <TouchableOpacity
                                     onPress={() => { resetAttach(); setShowVaxModal(true); }}
                                     style={styles.actionBtn}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Add vaccination"
                                 >
                                     <Ionicons name="add" size={16} color="#FFFFFF" />
-                                    <Text style={styles.actionBtnText}>Add</Text>
                                 </TouchableOpacity>
                             </View>
                         }
@@ -717,14 +815,10 @@ export default function Health({
                             <TouchableOpacity
                                 onPress={() => { resetAttach(); setShowMedModal(true); }}
                                 style={styles.actionBtn}
+                                accessibilityRole="button"
+                                accessibilityLabel="Add medication"
                             >
-                                <Ionicons
-                                    name="add"
-                                    size={14}
-                                    color="#FFFFFF"
-                                    style={{ marginRight: 4 }}
-                                />
-                                <Text style={styles.actionBtnText}>Add Rx</Text>
+                                <Ionicons name="add" size={16} color="#FFFFFF" />
                             </TouchableOpacity>
                         }
                     >
@@ -818,16 +912,10 @@ export default function Health({
                             <TouchableOpacity
                                 onPress={() => { resetAttach(); setShowIllnessModal(true); }}
                                 style={styles.actionBtn}
+                                accessibilityRole="button"
+                                accessibilityLabel="Add condition"
                             >
-                                <Ionicons
-                                    name="add"
-                                    size={14}
-                                    color="#FFFFFF"
-                                    style={{ marginRight: 4 }}
-                                />
-                                <Text style={styles.actionBtnText}>
-                                    Add Log
-                                </Text>
+                                <Ionicons name="add" size={16} color="#FFFFFF" />
                             </TouchableOpacity>
                         }
                     >
@@ -858,9 +946,10 @@ export default function Health({
                             <TouchableOpacity
                                 onPress={() => { resetAttach(); setShowHospModal(true); }}
                                 style={styles.actionBtn}
+                                accessibilityRole="button"
+                                accessibilityLabel="Add hospitalization"
                             >
                                 <Ionicons name="add" size={16} color="#FFFFFF" />
-                                <Text style={styles.actionBtnText}>Add</Text>
                             </TouchableOpacity>
                         }
                     >
@@ -877,6 +966,60 @@ export default function Health({
                                 notes={h.desc}
                                 icon={
                                     <Ionicons name="bandage-outline" size={18} color={colors.primary} />
+                                }
+                                iconBg={colors.tintGreen}
+                            />
+                        ))}
+                    </SectionContainerCard>
+                </View>
+            )}
+
+            {/* TAB: CHECKUPS */}
+            {activeTab === "appointments" && (
+                <View>
+                    <SectionContainerCard
+                        title="Clinical Consults & Appointments"
+                        subtitle="Manage scheduled wellness checks and specialist visits"
+                        action={
+                            <TouchableOpacity
+                                onPress={() => { resetAttach(); setShowApptModal(true); }}
+                                style={styles.actionBtn}
+                                accessibilityRole="button"
+                                accessibilityLabel="Add appointment"
+                            >
+                                <Ionicons name="add" size={16} color="#FFFFFF" />
+                            </TouchableOpacity>
+                        }
+                    >
+                        {apptsLoading && <AppointmentsSkeleton count={3} />}
+                        {!apptsLoading && appts.length === 0 && (
+                            <EmptyStateCard message="No appointments scheduled yet." />
+                        )}
+                        {!apptsLoading && appts.map((appt, idx) => (
+                            <ListEntryCard
+                                key={appt.id || idx}
+                                thumbnailUrl={attachUrlFor("checkup", appt.id)}
+                                onThumbnailPress={() => openViewer("checkup", appt.id)}
+                                title={appt.title}
+                                subtitle={`${appt.date} @ ${appt.time}`}
+                                label={
+                                    <Text
+                                        style={{
+                                            fontSize: 12,
+                                            color: colors.primary,
+                                            fontWeight: "600",
+                                        }}
+                                    >
+                                        Doctor: {appt.provider}
+                                    </Text>
+                                }
+                                notes={appt.notes}
+                                icon={
+                                    <Ionicons
+                                        name="calendar-outline"
+                                        size={18}
+                                        color={colors.primary}
+                                    />
                                 }
                                 iconBg={colors.tintGreen}
                             />
@@ -1084,6 +1227,76 @@ export default function Health({
                             >
                                 <Text style={styles.modalSaveText}>
                                     {t("save")}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* New Appointment Modal */}
+            <Modal visible={showApptModal} transparent animationType="slide">
+                <View style={styles.modalBg}>
+                    <View style={styles.modalCard}>
+                        <Text style={styles.modalTitle}>New Appointment</Text>
+
+                        <Text style={styles.modalLabel}>Appointment Title</Text>
+                        <TextInput
+                            style={styles.modalInput}
+                            value={apptTitle}
+                            onChangeText={setApptTitle}
+                        />
+
+                        <Text style={styles.modalLabel}>
+                            Pediatrician / Provider
+                        </Text>
+                        <TextInput
+                            style={styles.modalInput}
+                            value={apptDoctor}
+                            onChangeText={setApptDoctor}
+                        />
+
+                        <View style={{ flexDirection: "row", gap: 8 }}>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.modalLabel}>Date</Text>
+                                <DateField value={apptDate} onChange={setApptDate} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.modalLabel}>Time</Text>
+                                <TimeField value={apptTime} onChange={setApptTime} />
+                            </View>
+                        </View>
+
+                        <Text style={styles.modalLabel}>
+                            Clinic Guidelines / Notes
+                        </Text>
+                        <TextInput
+                            style={styles.modalInput}
+                            value={apptNotes}
+                            onChangeText={setApptNotes}
+                        />
+
+                        <PhotoAttach
+                            required
+                            uri={attachUri}
+                            onChangeUri={setAttachUri}
+                        />
+
+                        <View style={styles.modalButtons}>
+                            <TouchableOpacity
+                                onPress={() => setShowApptModal(false)}
+                                style={styles.modalCancelBtn}
+                            >
+                                <Text style={styles.modalCancelText}>
+                                    {t("cancel")}
+                                </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={handleAddAppointment}
+                                style={styles.modalSaveBtn}
+                            >
+                                <Text style={styles.modalSaveText}>
+                                    Schedule
                                 </Text>
                             </TouchableOpacity>
                         </View>
