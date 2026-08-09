@@ -708,7 +708,7 @@ export default function Dashboard({
                 <View style={styles.galleryHeader}>
                     <Text style={styles.sectionHeadingFlush}>Milestone Memories</Text>
                     <TouchableOpacity
-                        onPress={() => nav("allMemories")}
+                        onPress={() => nav("growth", "gallery")}
                         accessibilityRole="button"
                         accessibilityLabel="See all photo memories"
                     >

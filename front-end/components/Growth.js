@@ -108,7 +108,7 @@ export default function Growth({
     // instead of just switching tabs, the same way NutritionTracker.js
     // already does for "Log Milk"/"Log Food".
     useEffect(() => {
-        const valid = ["milestones", "metrics"];
+        const valid = ["milestones", "metrics", "gallery"];
         if (initialTab && valid.includes(initialTab)) {
             setGrowthTab(initialTab);
             if (initialTab === "metrics") setShowMetricsModal(true);
