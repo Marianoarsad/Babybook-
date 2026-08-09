@@ -397,9 +397,10 @@ export default function Dashboard({
     const toneColor = { primary: colors.primary, danger: colors.danger, success: colors.success, info: colors.info };
     const vaxPct = vaxProgress && vaxProgress.total > 0 ? Math.round((vaxProgress.completed / vaxProgress.total) * 100) : 0;
     const hasAllergies = Array.isArray(profile.allergies) && profile.allergies.length > 0;
-    // Capped at 3, same pattern as Recent Activity and Photo Memories below —
-    // a demo/seeded account can rack up a dozen overdue doses, and a wall of
-    // rows here would recreate the crowding this redesign was meant to fix.
+    // Capped at 1 — only the most urgent item shows, to keep this strip as
+    // small as possible; a demo/seeded account can rack up a dozen overdue
+    // doses, and a wall of rows here would recreate the crowding this
+    // redesign was meant to fix.
     const attentionItems = [
         ...overdueVax.map((v) => ({
             key: `ovax-${v.id}`,
@@ -467,7 +468,7 @@ export default function Dashboard({
                         <Ionicons name="warning" size={16} color={colors.danger} />
                         <Text style={styles.attentionTitle}>Needs Attention</Text>
                     </View>
-                    {attentionItems.slice(0, 3).map((item) => (
+                    {attentionItems.slice(0, 1).map((item) => (
                         <TouchableOpacity
                             key={item.key}
                             style={styles.attentionRow}
@@ -479,16 +480,14 @@ export default function Dashboard({
                             <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
                         </TouchableOpacity>
                     ))}
-                    {attentionItems.length > 3 ? (
+                    {attentionItems.length > 1 ? (
                         <TouchableOpacity
                             style={styles.attentionRow}
                             onPress={() => nav("health")}
                             accessibilityRole="button"
-                            accessibilityLabel={`${attentionItems.length - 3} more items need attention`}
+                            accessibilityLabel={`${attentionItems.length - 1} more items need attention`}
                         >
-                            <Text style={styles.attentionMoreText}>
-                                +{attentionItems.length - 3} more · View Health
-                            </Text>
+                            <Text style={styles.attentionMoreText}>+{attentionItems.length - 1} more</Text>
                             <Ionicons name="chevron-forward" size={16} color={colors.danger} />
                         </TouchableOpacity>
                     ) : null}
