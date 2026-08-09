@@ -58,6 +58,17 @@ function dayDiff(a, b) {
     return Math.round((new Date(b) - new Date(a)) / 86400000);
 }
 
+// "in N min" / "in N h" for a share code's expiration_date — mirrors
+// ShareRecords.js's own expiryText helper (share codes are short-lived: 15
+// min, 1 hour, or 24 hours, never longer, so minutes/hours cover every case).
+function shareExpiryText(iso) {
+    const ms = new Date(iso).getTime() - Date.now();
+    if (ms <= 0) return "expired";
+    const mins = Math.round(ms / 60000);
+    if (mins < 60) return `in ${mins} min`;
+    return `in ${Math.round(mins / 60)} h`;
+}
+
 // Compares the child's growth-measurement history to answer "is the baby
 // growing faster or slower than before" (Documents/plans/BabyBook+_Dashboard_
 // Redesign_Evaluation.md, Section 5). Weight gets a faster/slower verdict,
@@ -129,13 +140,14 @@ export default function Dashboard({
     const [upcoming, setUpcoming] = useState(null);
     const [vaxProgress, setVaxProgress] = useState(null);
     const [overdueVax, setOverdueVax] = useState([]);
-    const [ongoingIllness, setOngoingIllness] = useState([]);
+    const [ongoingConcern, setOngoingConcern] = useState([]);
     const [todayFeeding, setTodayFeeding] = useState(null);
+    const [activeShares, setActiveShares] = useState([]);
     useEffect(() => {
         let active = true;
         (async () => {
             try {
-                const [vax, checkups, nutrition, milestones, medHistory, events] = await Promise.all([
+                const [vax, checkups, nutrition, milestones, medHistory, events, shares] = await Promise.all([
                     api.listRecords(profile.id, "vaccinations").catch(() => []),
                     api.listRecords(profile.id, "checkups").catch(() => []),
                     api.listRecords(profile.id, "nutrition").catch(() => []),
@@ -145,6 +157,7 @@ export default function Dashboard({
                     // migration has run (CLAUDE.md, "Pending user action"). This
                     // catch keeps the rest of the dashboard working either way.
                     api.listRecords(profile.id, "calendar-events").catch(() => []),
+                    api.listShares(profile.id).catch(() => []),
                 ]);
                 if (!active) return;
                 const todayStr = new Date().toISOString().slice(0, 10);
@@ -249,14 +262,25 @@ export default function Dashboard({
                 });
 
                 // Needs Attention: vaccinations past their due date and still
-                // not given, plus illnesses not yet marked resolved.
+                // not given, plus illnesses and hospitalizations not yet
+                // marked resolved (a current hospital stay is at least as
+                // urgent as an illness, so it belongs in the same strip).
                 setOverdueVax(
                     (vax || [])
                         .filter((v) => v.status !== "completed" && v.due_date && v.due_date < todayStr)
                         .sort((a, b) => a.due_date.localeCompare(b.due_date)),
                 );
-                setOngoingIllness(
-                    (medHistory || []).filter((m) => m.category === "Illness" && !m.resolved),
+                setOngoingConcern(
+                    (medHistory || []).filter(
+                        (m) => (m.category === "Illness" || m.category === "Hospitalization") && !m.resolved,
+                    ),
+                );
+
+                // Active share codes — reuses the same shares list Share
+                // Records shows, just narrowed to ones still open right now.
+                const nowIso = new Date().toISOString();
+                setActiveShares(
+                    (shares || []).filter((s) => s.status === "active" && s.expiration_date > nowIso),
                 );
 
                 // Today's feeding summary — reuses the nutrition rows already
@@ -407,13 +431,19 @@ export default function Dashboard({
             text: `${v.vaccine_name || "Vaccination"} was due ${v.due_date}`,
             tab: "immunizations",
         })),
-        ...ongoingIllness.map((m) => ({
-            key: `ill-${m.id}`,
-            text: `Ongoing: ${m.title || "Illness"}`,
+        ...ongoingConcern.map((m) => ({
+            key: `concern-${m.id}`,
+            text:
+                m.category === "Hospitalization"
+                    ? `Hospitalized: ${m.title || "Hospitalization"}`
+                    : `Ongoing: ${m.title || "Illness"}`,
             tab: "illnesses",
         })),
     ];
     const hasNeedsAttention = attentionItems.length > 0;
+    const soonestShare = activeShares.length
+        ? activeShares.slice().sort((a, b) => a.expiration_date.localeCompare(b.expiration_date))[0]
+        : null;
 
     return (
         <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: space.xxl }}>
@@ -642,6 +672,32 @@ export default function Dashboard({
                 )}
                 <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </TouchableOpacity>
+
+            {/* Active share-code notice — easy to generate a code in Share
+                Records and forget it's still open, so this surfaces it here
+                too. Only renders when at least one code is active. */}
+            {soonestShare ? (
+                <TouchableOpacity
+                    style={styles.shareCard}
+                    onPress={() => nav("share")}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${activeShares.length} share code${activeShares.length === 1 ? "" : "s"} active`}
+                >
+                    <View style={styles.shareIcon}>
+                        <Ionicons name="qr-code-outline" size={18} color={colors.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.shareLabel}>
+                            {activeShares.length} share code{activeShares.length === 1 ? "" : "s"} active
+                        </Text>
+                        <Text style={styles.shareSub}>
+                            {activeShares.length === 1 ? "Expires" : "Next expires"}{" "}
+                            {shareExpiryText(soonestShare.expiration_date)}
+                        </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                </TouchableOpacity>
+            ) : null}
 
             {/* Photo Memories — square photo gallery. Adding a memory now
                 lives in the floating log button's menu, alongside Log Milk,
@@ -933,6 +989,31 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     feedingLabel: { fontSize: 14, fontWeight: "800", color: colors.text },
     feedingSub: { fontSize: 12, fontWeight: "600", color: colors.textSecondary, marginTop: 1 },
+
+    // Active share-code notice
+    shareCard: {
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: colors.surface,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
+        borderWidth: 1,
+        borderColor: colors.hairline,
+        padding: space.md,
+        marginBottom: space.lg,
+        gap: space.md,
+        ...shadow.card,
+    },
+    shareIcon: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: colors.softGreen,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    shareLabel: { fontSize: 14, fontWeight: "800", color: colors.text },
+    shareSub: { fontSize: 12, fontWeight: "600", color: colors.textSecondary, marginTop: 1 },
 
     // Section heading
     sectionHeadingFlush: { fontSize: 16, fontWeight: "800", color: colors.text },
