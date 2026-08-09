@@ -28,6 +28,7 @@ import {
     EmptyStateCard,
 } from "./common/Cards";
 import PhotoAttach from "./ui/PhotoAttach";
+import ShowMore from "./ui/ShowMore";
 import { ImmunizationsSkeleton, AppointmentsSkeleton } from "./ui/Skeleton";
 import { DateField, TimeField } from "./ui/DateField";
 import ImageViewer from "./ui/ImageViewer";
@@ -96,6 +97,7 @@ export default function Health({
     // Checkups now load from and persist to the backend.
     const [appts, setAppts] = useState([]);
     const [apptsLoading, setApptsLoading] = useState(true);
+    const [apptsVisible, setApptsVisible] = useState(10);
     useEffect(() => {
         let active = true;
         setApptsLoading(true);
@@ -114,19 +116,46 @@ export default function Health({
         };
     }, [profile.id]);
 
+    // Vaccine status/search filter — the full EPI schedule runs to 25 doses,
+    // so "what does my child still need?" otherwise means scrolling all of it.
+    const [vaxStatusFilter, setVaxStatusFilter] = useState("all");
+    const [vaxSearch, setVaxSearch] = useState("");
+    const [vaxVisibleCount, setVaxVisibleCount] = useState(10);
+    useEffect(() => {
+        setVaxVisibleCount(10);
+    }, [vaxStatusFilter, vaxSearch]);
+
+    const vaxStatusOf = (v) => {
+        if (v.isCompleted) return "done";
+        const today = new Date().toISOString().split("T")[0];
+        if (v.dueDate && v.dueDate < today) return "overdue";
+        return "due";
+    };
+
+    const filteredVaccines = useMemo(() => {
+        const sorted = [...vaccines].sort((a, b) => (a.dueDate || "9999").localeCompare(b.dueDate || "9999"));
+        const q = vaxSearch.trim().toLowerCase();
+        return sorted.filter((v) => {
+            if (vaxStatusFilter !== "all" && vaxStatusOf(v) !== vaxStatusFilter) return false;
+            if (q && !`${v.vaccineName} ${v.visitName}`.toLowerCase().includes(q)) return false;
+            return true;
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [vaccines, vaxStatusFilter, vaxSearch]);
+
     // Grouped by visit age ("At Birth", "6 Weeks", …) so a full EPI schedule
     // reads like the physical immunization card the parent already knows,
-    // instead of a flat wall of ~13 entries.
+    // instead of a flat wall of ~13 entries. Grouping happens after the
+    // filter and the 10-item cap so headers only ever describe what's shown.
     const groupedVaccines = useMemo(() => {
-        const sorted = [...vaccines].sort((a, b) => (a.dueDate || "9999").localeCompare(b.dueDate || "9999"));
         const groups = new Map();
-        for (const v of sorted) {
+        for (const v of filteredVaccines.slice(0, vaxVisibleCount)) {
             const key = v.visitName || "Other";
             if (!groups.has(key)) groups.set(key, []);
             groups.get(key).push(v);
         }
         return Array.from(groups.entries());
-    }, [vaccines]);
+    }, [filteredVaccines, vaxVisibleCount]);
 
     // Care Team state
     const [pediatrician, setPediatrician] = useState(
@@ -155,16 +184,19 @@ export default function Health({
     const [showIllnessModal, setShowIllnessModal] = useState(false);
     const [illnessTitle, setIllnessTitle] = useState("");
     const [illnessDesc, setIllnessDesc] = useState("");
+    const [illnessVisible, setIllnessVisible] = useState(10);
 
     const [medications, setMedications] = useState([]);
     const [showMedModal, setShowMedModal] = useState(false);
     const [medTitle, setMedTitle] = useState("");
     const [medDosage, setMedDosage] = useState("");
+    const [medsVisible, setMedsVisible] = useState(10);
 
     const [hospitalizations, setHospitalizations] = useState([]);
     const [showHospModal, setShowHospModal] = useState(false);
     const [hospTitle, setHospTitle] = useState("");
     const [hospDesc, setHospDesc] = useState("");
+    const [hospVisible, setHospVisible] = useState(10);
 
     // Appointment (checkup) adding state
     const [showApptModal, setShowApptModal] = useState(false);
@@ -689,9 +721,43 @@ export default function Health({
                             </View>
                         }
                     >
+                        {!vaxLoading && vaccines.length > 0 && (
+                            <>
+                                <View style={styles.filterRow}>
+                                    {[
+                                        { key: "all", label: "All" },
+                                        { key: "due", label: "Due" },
+                                        { key: "done", label: "Done" },
+                                        { key: "overdue", label: "Overdue" },
+                                    ].map((f) => (
+                                        <TouchableOpacity
+                                            key={f.key}
+                                            onPress={() => setVaxStatusFilter(f.key)}
+                                            style={[styles.filterChip, vaxStatusFilter === f.key && styles.filterChipActive]}
+                                            accessibilityRole="button"
+                                            accessibilityLabel={`Filter: ${f.label}`}
+                                        >
+                                            <Text style={[styles.filterChipText, vaxStatusFilter === f.key && styles.filterChipTextActive]}>
+                                                {f.label}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                                <TextInput
+                                    style={[styles.inlineInput, { width: "100%", marginBottom: 12 }]}
+                                    placeholder="Search vaccine or visit..."
+                                    placeholderTextColor={colors.placeholder}
+                                    value={vaxSearch}
+                                    onChangeText={setVaxSearch}
+                                />
+                            </>
+                        )}
                         {vaxLoading && <ImmunizationsSkeleton count={4} />}
                         {!vaxLoading && vaccines.length === 0 && (
                             <EmptyStateCard message="No vaccination records yet." />
+                        )}
+                        {!vaxLoading && vaccines.length > 0 && filteredVaccines.length === 0 && (
+                            <EmptyStateCard message="No vaccines match this filter." />
                         )}
                         {!vaxLoading && groupedVaccines.map(([visitName, group]) => (
                             <View key={visitName}>
@@ -758,6 +824,14 @@ export default function Health({
                                 ))}
                             </View>
                         ))}
+                        {!vaxLoading && (
+                            <ShowMore
+                                total={filteredVaccines.length}
+                                visible={vaxVisibleCount}
+                                onPress={() => setVaxVisibleCount((c) => c + 10)}
+                                noun="vaccines"
+                            />
+                        )}
                     </SectionContainerCard>
 
                     {/* Barangay / NCR vaccine stock alert */}
@@ -822,7 +896,10 @@ export default function Health({
                             </TouchableOpacity>
                         }
                     >
-                        {medications.map((med, idx) => (
+                        {medications.length === 0 && (
+                            <EmptyStateCard message="No medications logged yet." />
+                        )}
+                        {medications.slice(0, medsVisible).map((med, idx) => (
                             <ListEntryCard
                                 key={med.id || idx}
                                 thumbnailUrl={attachUrlFor("medication", med.id)}
@@ -849,6 +926,12 @@ export default function Health({
                                 iconBg={colors.tintGreen}
                             />
                         ))}
+                        <ShowMore
+                            total={medications.length}
+                            visible={medsVisible}
+                            onPress={() => setMedsVisible((c) => c + 10)}
+                            noun="medications"
+                        />
                     </SectionContainerCard>
                 </View>
             )}
@@ -919,7 +1002,7 @@ export default function Health({
                             </TouchableOpacity>
                         }
                     >
-                        {illnesses.map((ill, idx) => (
+                        {illnesses.slice(0, illnessVisible).map((ill, idx) => (
                             <ListEntryCard
                                 key={ill.id || idx}
                                 thumbnailUrl={attachUrlFor("illness", ill.id)}
@@ -937,39 +1020,12 @@ export default function Health({
                                 iconBg={colors.tintGreen}
                             />
                         ))}
-                    </SectionContainerCard>
-
-                    <SectionContainerCard
-                        title="Hospitalizations"
-                        subtitle="Hospital stays and admissions"
-                        action={
-                            <TouchableOpacity
-                                onPress={() => { resetAttach(); setShowHospModal(true); }}
-                                style={styles.actionBtn}
-                                accessibilityRole="button"
-                                accessibilityLabel="Add hospitalization"
-                            >
-                                <Ionicons name="add" size={16} color="#FFFFFF" />
-                            </TouchableOpacity>
-                        }
-                    >
-                        {hospitalizations.length === 0 && (
-                            <EmptyStateCard message="No hospitalizations recorded." />
-                        )}
-                        {hospitalizations.map((h, idx) => (
-                            <ListEntryCard
-                                key={h.id || idx}
-                                thumbnailUrl={attachUrlFor("hospitalization", h.id)}
-                                onThumbnailPress={() => openViewer("hospitalization", h.id)}
-                                title={h.title}
-                                subtitle={h.date}
-                                notes={h.desc}
-                                icon={
-                                    <Ionicons name="bandage-outline" size={18} color={colors.primary} />
-                                }
-                                iconBg={colors.tintGreen}
-                            />
-                        ))}
+                        <ShowMore
+                            total={illnesses.length}
+                            visible={illnessVisible}
+                            onPress={() => setIllnessVisible((c) => c + 10)}
+                            noun="conditions"
+                        />
                     </SectionContainerCard>
                 </View>
             )}
@@ -995,7 +1051,7 @@ export default function Health({
                         {!apptsLoading && appts.length === 0 && (
                             <EmptyStateCard message="No appointments scheduled yet." />
                         )}
-                        {!apptsLoading && appts.map((appt, idx) => (
+                        {!apptsLoading && appts.slice(0, apptsVisible).map((appt, idx) => (
                             <ListEntryCard
                                 key={appt.id || idx}
                                 thumbnailUrl={attachUrlFor("checkup", appt.id)}
@@ -1024,6 +1080,53 @@ export default function Health({
                                 iconBg={colors.tintGreen}
                             />
                         ))}
+                        {!apptsLoading && (
+                            <ShowMore
+                                total={appts.length}
+                                visible={apptsVisible}
+                                onPress={() => setApptsVisible((c) => c + 10)}
+                                noun="appointments"
+                            />
+                        )}
+                    </SectionContainerCard>
+
+                    <SectionContainerCard
+                        title="Hospitalizations"
+                        subtitle="Hospital stays and admissions"
+                        action={
+                            <TouchableOpacity
+                                onPress={() => { resetAttach(); setShowHospModal(true); }}
+                                style={styles.actionBtn}
+                                accessibilityRole="button"
+                                accessibilityLabel="Add hospitalization"
+                            >
+                                <Ionicons name="add" size={16} color="#FFFFFF" />
+                            </TouchableOpacity>
+                        }
+                    >
+                        {hospitalizations.length === 0 && (
+                            <EmptyStateCard message="No hospitalizations recorded." />
+                        )}
+                        {hospitalizations.slice(0, hospVisible).map((h, idx) => (
+                            <ListEntryCard
+                                key={h.id || idx}
+                                thumbnailUrl={attachUrlFor("hospitalization", h.id)}
+                                onThumbnailPress={() => openViewer("hospitalization", h.id)}
+                                title={h.title}
+                                subtitle={h.date}
+                                notes={h.desc}
+                                icon={
+                                    <Ionicons name="bandage-outline" size={18} color={colors.primary} />
+                                }
+                                iconBg={colors.tintGreen}
+                            />
+                        ))}
+                        <ShowMore
+                            total={hospitalizations.length}
+                            visible={hospVisible}
+                            onPress={() => setHospVisible((c) => c + 10)}
+                            noun="hospitalizations"
+                        />
                     </SectionContainerCard>
                 </View>
             )}
@@ -1518,6 +1621,32 @@ const makeStyles = (colors) => StyleSheet.create({
         fontSize: 11,
         fontWeight: "700",
         marginLeft: 4,
+    },
+    filterRow: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 8,
+        marginBottom: 10,
+    },
+    filterChip: {
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+    },
+    filterChipActive: {
+        backgroundColor: colors.softGreen,
+        borderColor: colors.primary,
+    },
+    filterChipText: {
+        fontSize: 12,
+        fontWeight: "700",
+        color: colors.textMuted,
+    },
+    filterChipTextActive: {
+        color: colors.primary,
     },
     visitGroupHeader: {
         fontSize: 10.5,

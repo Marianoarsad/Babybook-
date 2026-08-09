@@ -6,6 +6,7 @@ import { space } from "../theme";
 import { api } from "../utils/api";
 import { memoryToApp } from "../utils/adapters";
 import { MemoryVisualCard, EmptyStateCard } from "./common/Cards";
+import ShowMore from "./ui/ShowMore";
 import MemoryDetail from "./MemoryDetail";
 
 // "See all" destination for Dashboard's Photo Memories section (which shows
@@ -17,6 +18,7 @@ export default function AllMemories({ profile, onClose }) {
     const [memories, setMemories] = useState([]);
     const [loading, setLoading] = useState(true);
     const [detailMemory, setDetailMemory] = useState(null);
+    const [visibleCount, setVisibleCount] = useState(10);
 
     useEffect(() => {
         let active = true;
@@ -56,7 +58,7 @@ export default function AllMemories({ profile, onClose }) {
                 ) : memories.length === 0 ? (
                     <EmptyStateCard message="No memories yet." icon="image-outline" />
                 ) : (
-                    memories.map((m, idx) => (
+                    memories.slice(0, visibleCount).map((m, idx) => (
                         <MemoryVisualCard
                             key={m.id || idx}
                             title={m.title}
@@ -66,6 +68,14 @@ export default function AllMemories({ profile, onClose }) {
                             onClick={() => setDetailMemory(m)}
                         />
                     ))
+                )}
+                {!loading && (
+                    <ShowMore
+                        total={memories.length}
+                        visible={visibleCount}
+                        onPress={() => setVisibleCount((c) => c + 10)}
+                        noun="memories"
+                    />
                 )}
             </ScrollView>
             <MemoryDetail

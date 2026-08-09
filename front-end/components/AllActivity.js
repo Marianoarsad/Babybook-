@@ -5,6 +5,7 @@ import { useTheme } from "../context/ThemeContext";
 import { space, radius, shadow } from "../theme";
 import { api } from "../utils/api";
 import { EmptyStateCard } from "./common/Cards";
+import ShowMore from "./ui/ShowMore";
 
 // "See all" destination for Dashboard's Recent Activity section. Dashboard
 // only ever loads its 5 most recent items to begin with, so this screen does
@@ -16,6 +17,7 @@ export default function AllActivity({ profile, onClose }) {
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const [activity, setActivity] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [visibleCount, setVisibleCount] = useState(10);
 
     useEffect(() => {
         let active = true;
@@ -119,12 +121,12 @@ export default function AllActivity({ profile, onClose }) {
                     <EmptyStateCard message="No activity yet." icon="time-outline" />
                 ) : (
                     <View style={styles.activityCard}>
-                        {activity.map((a, idx) => {
+                        {activity.slice(0, visibleCount).map((a, idx, shown) => {
                             const tone = toneColor[a.tone] || colors.primary;
                             return (
                                 <View
                                     key={a.key}
-                                    style={[styles.activityRow, idx < activity.length - 1 && styles.activityRowBorder]}
+                                    style={[styles.activityRow, idx < shown.length - 1 && styles.activityRowBorder]}
                                 >
                                     <View style={styles.activityLeft}>
                                         <View style={[styles.activityIcon, { backgroundColor: tone + "1A" }]}>
@@ -142,6 +144,14 @@ export default function AllActivity({ profile, onClose }) {
                             );
                         })}
                     </View>
+                )}
+                {!loading && (
+                    <ShowMore
+                        total={activity.length}
+                        visible={visibleCount}
+                        onPress={() => setVisibleCount((c) => c + 10)}
+                        noun="activity items"
+                    />
                 )}
             </ScrollView>
         </View>

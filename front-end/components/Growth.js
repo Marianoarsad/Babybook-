@@ -21,6 +21,7 @@ import {
     EmptyStateCard,
 } from "./common/Cards";
 import { MemoriesSkeleton } from "./ui/Skeleton";
+import ShowMore from "./ui/ShowMore";
 import MemoryDetail from "./MemoryDetail";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
@@ -119,6 +120,7 @@ export default function Growth({
     // own top-level screen (App.js) — see NutritionTracker.js. Checkups moved
     // to the Health screen — see Health.js.
     const [mstones, setMstones] = useState([]);
+    const [memoriesVisible, setMemoriesVisible] = useState(10);
     const [growthLoading, setGrowthLoading] = useState(true);
     const [detailMemory, setDetailMemory] = useState(null);
     useEffect(() => {
@@ -139,6 +141,8 @@ export default function Growth({
             active = false;
         };
     }, [profile.id]);
+
+    const completedMilestones = useMemo(() => mstones.filter((m) => m.isCompleted), [mstones]);
 
     const todayStr = () => new Date().toISOString().split("T")[0];
     const handleToggleMilestone = async (title) => {
@@ -346,8 +350,8 @@ export default function Growth({
                     >
                         {growthLoading && <MemoriesSkeleton count={2} />}
                         {!growthLoading &&
-                            mstones
-                                .filter((m) => m.isCompleted)
+                            completedMilestones
+                                .slice(0, memoriesVisible)
                                 .map((m, idx) => (
                                     <MemoryVisualCard
                                         key={m.id || idx}
@@ -358,10 +362,17 @@ export default function Growth({
                                         onClick={() => setDetailMemory(m)}
                                     />
                                 ))}
-                        {!growthLoading &&
-                            mstones.filter((m) => m.isCompleted).length === 0 && (
-                                <EmptyStateCard message="No milestones reached yet." />
-                            )}
+                        {!growthLoading && completedMilestones.length === 0 && (
+                            <EmptyStateCard message="No milestones reached yet." />
+                        )}
+                        {!growthLoading && (
+                            <ShowMore
+                                total={completedMilestones.length}
+                                visible={memoriesVisible}
+                                onPress={() => setMemoriesVisible((c) => c + 10)}
+                                noun="memories"
+                            />
+                        )}
                     </SectionContainerCard>
                 </View>
             )}
