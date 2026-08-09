@@ -12,11 +12,12 @@ import {
 import { useLanguage } from "../context/LanguageContext";
 import { EmptyStateCard } from "./common/Cards";
 import MemoryDetail from "./MemoryDetail";
+import GrowthChart from "./GrowthChart";
 import { Ionicons } from "@expo/vector-icons";
 import { radius, space, shadow } from "../theme";
 import { useTheme } from "../context/ThemeContext";
 import { api } from "../utils/api";
-import { memoryToApp } from "../utils/adapters";
+import { memoryToApp, toMilliliters } from "../utils/adapters";
 import { pickImage, pickerAvailable } from "../utils/imagePicker";
 import { useToast } from "./ui/Toast";
 
@@ -118,20 +119,30 @@ export default function Dashboard({
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const toast = useToast();
 
-    // Recent Activity, the upcoming-appointment box, and vaccination progress
-    // all come from the same vaccination/checkup/nutrition/milestone fetch.
+    // Recent Activity, the upcoming-appointment box, vaccination progress,
+    // the Needs Attention strip, and today's feeding summary all come from
+    // the same vaccination/checkup/nutrition/milestone/illness/event fetch —
+    // one request per record type, no duplicated network calls.
     const [activity, setActivity] = useState([]);
     const [upcoming, setUpcoming] = useState(null);
     const [vaxProgress, setVaxProgress] = useState(null);
+    const [overdueVax, setOverdueVax] = useState([]);
+    const [ongoingIllness, setOngoingIllness] = useState([]);
+    const [todayFeeding, setTodayFeeding] = useState(null);
     useEffect(() => {
         let active = true;
         (async () => {
             try {
-                const [vax, checkups, nutrition, milestones] = await Promise.all([
+                const [vax, checkups, nutrition, milestones, medHistory, events] = await Promise.all([
                     api.listRecords(profile.id, "vaccinations").catch(() => []),
                     api.listRecords(profile.id, "checkups").catch(() => []),
                     api.listRecords(profile.id, "nutrition").catch(() => []),
                     api.listRecords(profile.id, "milestones").catch(() => []),
+                    api.listRecords(profile.id, "medical-history").catch(() => []),
+                    // Custom calendar events — only exist once the calendar_events
+                    // migration has run (CLAUDE.md, "Pending user action"). This
+                    // catch keeps the rest of the dashboard working either way.
+                    api.listRecords(profile.id, "calendar-events").catch(() => []),
                 ]);
                 if (!active) return;
                 const todayStr = new Date().toISOString().slice(0, 10);
@@ -191,7 +202,11 @@ export default function Dashboard({
                 past.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
                 setActivity(past.slice(0, 4));
 
-                // Upcoming appointment: the soonest not-yet-done vaccination or checkup.
+                // Upcoming appointment: the soonest not-yet-done vaccination,
+                // checkup, or custom calendar event. Reminders are left out on
+                // purpose — they're created automatically alongside the
+                // vaccination/checkup they belong to, so counting them too
+                // would list the same appointment twice.
                 const upcomingItems = [];
                 (vax || [])
                     .filter((v) => v.status !== "completed" && v.due_date && v.due_date >= todayStr)
@@ -213,6 +228,16 @@ export default function Dashboard({
                             date: c.checkup_date,
                         }),
                     );
+                (events || [])
+                    .filter((e) => e.event_date && e.event_date >= todayStr)
+                    .forEach((e) =>
+                        upcomingItems.push({
+                            key: `evt-${e.id}`,
+                            title: e.title || "Event",
+                            subtitle: e.description || "",
+                            date: e.event_date,
+                        }),
+                    );
                 upcomingItems.sort((a, b) => a.date.localeCompare(b.date));
                 setUpcoming(upcomingItems[0] || null);
 
@@ -220,6 +245,36 @@ export default function Dashboard({
                     completed: (vax || []).filter((v) => v.status === "completed").length,
                     total: (vax || []).length,
                 });
+
+                // Needs Attention: vaccinations past their due date and still
+                // not given, plus illnesses not yet marked resolved.
+                setOverdueVax(
+                    (vax || [])
+                        .filter((v) => v.status !== "completed" && v.due_date && v.due_date < todayStr)
+                        .sort((a, b) => a.due_date.localeCompare(b.due_date)),
+                );
+                setOngoingIllness(
+                    (medHistory || []).filter((m) => m.category === "Illness" && !m.resolved),
+                );
+
+                // Today's feeding summary — reuses the nutrition rows already
+                // loaded for Recent Activity, no extra request.
+                const todayEntries = (nutrition || []).filter(
+                    (n) => String(n.entry_date).slice(0, 10) === todayStr,
+                );
+                if (todayEntries.length) {
+                    const totalMl = todayEntries
+                        .filter((n) => (n.entry_type || "milk") === "milk")
+                        .reduce((sum, n) => sum + toMilliliters(Number(n.quantity) || 0, n.unit), 0);
+                    const lastTime = todayEntries
+                        .map((n) => n.entry_time)
+                        .filter(Boolean)
+                        .sort()
+                        .pop();
+                    setTodayFeeding({ count: todayEntries.length, totalMl: Math.round(totalMl), lastTime });
+                } else {
+                    setTodayFeeding(null);
+                }
             } catch (e) {
                 console.log("load activity:", e.message);
             }
@@ -229,15 +284,19 @@ export default function Dashboard({
         };
     }, [profile.id]);
 
-    // Growth trend — separate fetch, since nothing else on this screen needs
-    // the measurement history.
+    // Growth history — separate fetch, since nothing else on this screen
+    // needs the measurement history. Kept raw (growthRows) for the chart, on
+    // top of the computed faster/slower verdict (trend) the summary card uses.
     const [trend, setTrend] = useState(null);
+    const [growthRows, setGrowthRows] = useState([]);
     useEffect(() => {
         let active = true;
         (async () => {
             try {
                 const rows = await api.listRecords(profile.id, "growth");
-                if (active) setTrend(growthTrend(rows));
+                if (!active) return;
+                setTrend(growthTrend(rows));
+                setGrowthRows(rows || []);
             } catch (e) {
                 console.log("load growth trend:", e.message);
             }
@@ -300,6 +359,13 @@ export default function Dashboard({
 
     const weight = (trend && trend.weight != null ? trend.weight : null) ?? profile.currentWeight ?? profile.birthWeight;
     const height = (trend && trend.height != null ? trend.height : null) ?? profile.currentHeight ?? profile.birthHeight;
+    const headCirc = growthRows.length
+        ? growthRows
+              .filter((r) => r.head_circumference != null && r.date_recorded)
+              .slice()
+              .sort((a, b) => String(a.date_recorded).localeCompare(String(b.date_recorded)))
+              .pop()?.head_circumference ?? null
+        : null;
 
     const nav = (view, tab) => onChangeView && onChangeView(view, tab);
 
@@ -315,9 +381,29 @@ export default function Dashboard({
         { icon: "scale-outline", text: `${fmt(weight, trend ? trend.weightDelta : null)} kg`, a11y: null },
         { icon: "resize-outline", text: `${fmt(height, trend ? trend.heightDelta : null)} cm`, a11y: null },
     ];
+    if (headCirc != null) {
+        babyMeta.push({ icon: "ellipse-outline", text: `${Number(headCirc)} cm head`, a11y: null });
+    }
 
     const toneColor = { primary: colors.primary, danger: colors.danger, success: colors.success, info: colors.info };
     const vaxPct = vaxProgress && vaxProgress.total > 0 ? Math.round((vaxProgress.completed / vaxProgress.total) * 100) : 0;
+    const hasAllergies = Array.isArray(profile.allergies) && profile.allergies.length > 0;
+    // Capped at 3, same pattern as Recent Activity and Photo Memories below —
+    // a demo/seeded account can rack up a dozen overdue doses, and a wall of
+    // rows here would recreate the crowding this redesign was meant to fix.
+    const attentionItems = [
+        ...overdueVax.map((v) => ({
+            key: `ovax-${v.id}`,
+            text: `${v.vaccine_name || "Vaccination"} was due ${v.due_date}`,
+            tab: "immunizations",
+        })),
+        ...ongoingIllness.map((m) => ({
+            key: `ill-${m.id}`,
+            text: `Ongoing: ${m.title || "Illness"}`,
+            tab: "illnesses",
+        })),
+    ];
+    const hasNeedsAttention = attentionItems.length > 0;
 
     return (
         <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: space.xxl }}>
@@ -357,6 +443,45 @@ export default function Dashboard({
                     </TouchableOpacity>
                 </View>
             )}
+
+            {/* Needs Attention — only renders when something actually needs it,
+                so a normal day still looks calm. Medications are deliberately
+                left out: the medication record has no start/end date or
+                resolved flag, so "currently taking this" can't be worked out
+                reliably from the data as it stands. */}
+            {hasNeedsAttention ? (
+                <View style={styles.attentionCard}>
+                    <View style={styles.attentionHeader}>
+                        <Ionicons name="warning" size={16} color={colors.danger} />
+                        <Text style={styles.attentionTitle}>Needs Attention</Text>
+                    </View>
+                    {attentionItems.slice(0, 3).map((item) => (
+                        <TouchableOpacity
+                            key={item.key}
+                            style={styles.attentionRow}
+                            onPress={() => nav("health", item.tab)}
+                            accessibilityRole="button"
+                            accessibilityLabel={item.text}
+                        >
+                            <Text style={styles.attentionText}>{item.text}</Text>
+                            <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                        </TouchableOpacity>
+                    ))}
+                    {attentionItems.length > 3 ? (
+                        <TouchableOpacity
+                            style={styles.attentionRow}
+                            onPress={() => nav("health")}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${attentionItems.length - 3} more items need attention`}
+                        >
+                            <Text style={styles.attentionMoreText}>
+                                +{attentionItems.length - 3} more · View Health
+                            </Text>
+                            <Ionicons name="chevron-forward" size={16} color={colors.danger} />
+                        </TouchableOpacity>
+                    ) : null}
+                </View>
+            ) : null}
 
             {/* Baby Summary Card — 2-column meta grid */}
             <View style={styles.summaryCard}>
@@ -416,24 +541,30 @@ export default function Dashboard({
                             </Text>
                         </View>
                     ) : null}
+                    {hasAllergies || profile.bloodType ? (
+                        <View style={styles.healthRow}>
+                            {hasAllergies ? (
+                                <View style={[styles.healthChip, styles.healthChipWarning]}>
+                                    <Ionicons name="alert-circle-outline" size={12} color={colors.danger} />
+                                    <Text style={styles.healthChipTextWarning} numberOfLines={1}>
+                                        {profile.allergies.join(", ")}
+                                    </Text>
+                                </View>
+                            ) : null}
+                            {profile.bloodType ? (
+                                <View style={styles.healthChip}>
+                                    <Ionicons name="water-outline" size={12} color={colors.textSecondary} />
+                                    <Text style={styles.healthChipText}>{profile.bloodType}</Text>
+                                </View>
+                            ) : null}
+                        </View>
+                    ) : null}
                 </View>
             </View>
 
-            {/* Vaccination progress */}
-            {vaxProgress && vaxProgress.total > 0 ? (
-                <View style={styles.progressCard}>
-                    <View style={styles.progressHeader}>
-                        <Ionicons name="shield-checkmark-outline" size={16} color={colors.primary} />
-                        <Text style={styles.progressTitle}>Vaccination Progress</Text>
-                        <Text style={styles.progressCount}>
-                            {vaxProgress.completed} of {vaxProgress.total} doses
-                        </Text>
-                    </View>
-                    <View style={styles.progressTrack}>
-                        <View style={[styles.progressFill, { width: `${vaxPct}%` }]} />
-                    </View>
-                </View>
-            ) : null}
+            {/* Growth chart — reuses the same growth history already fetched
+                for the faster/slower verdict above. */}
+            <GrowthChart rows={growthRows} />
 
             {/* Upcoming appointment — the only way to Calendar from this screen. */}
             {upcoming ? (
@@ -457,47 +588,53 @@ export default function Dashboard({
                 </TouchableOpacity>
             ) : null}
 
-            {/* Recent Activity */}
-            <View style={styles.sectionHeaderRow}>
-                <Text style={styles.sectionHeadingFlush}>Recent Activity</Text>
-                <TouchableOpacity
-                    onPress={() => nav("allActivity")}
-                    accessibilityRole="button"
-                    accessibilityLabel="See all activity"
-                >
-                    <Text style={styles.seeAllText}>See all →</Text>
-                </TouchableOpacity>
-            </View>
-            {activity.length ? (
-                <View style={styles.activityCard}>
-                    {activity.map((a, idx) => {
-                        const tone = toneColor[a.tone] || colors.primary;
-                        return (
-                            <View
-                                key={a.key}
-                                style={[styles.activityRow, idx < activity.length - 1 && styles.activityRowBorder]}
-                            >
-                                <View style={styles.activityLeft}>
-                                    <View style={[styles.activityIcon, { backgroundColor: tone + "1A" }]}>
-                                        <Ionicons name={a.icon} size={18} color={tone} />
-                                    </View>
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={styles.activityTitle}>{a.title}</Text>
-                                        <Text style={styles.activitySubtitle} numberOfLines={1}>
-                                            {a.subtitle}
-                                        </Text>
-                                    </View>
-                                </View>
-                                <Text style={styles.activityTime}>{relativeTime(a.date)}</Text>
-                            </View>
-                        );
-                    })}
+            {/* Vaccination progress */}
+            {vaxProgress && vaxProgress.total > 0 ? (
+                <View style={styles.progressCard}>
+                    <View style={styles.progressHeader}>
+                        <Ionicons name="shield-checkmark-outline" size={16} color={colors.primary} />
+                        <Text style={styles.progressTitle}>Vaccination Progress</Text>
+                        <Text style={styles.progressCount}>
+                            {vaxProgress.completed} of {vaxProgress.total} doses
+                        </Text>
+                    </View>
+                    <View style={styles.progressTrack}>
+                        <View style={[styles.progressFill, { width: `${vaxPct}%` }]} />
+                    </View>
                 </View>
-            ) : (
-                <View style={{ marginBottom: space.lg }}>
-                    <EmptyStateCard message="No recent activity yet." icon="time-outline" />
+            ) : null}
+
+            {/* Today's feeding summary — reuses nutrition rows already loaded
+                for Recent Activity. */}
+            <TouchableOpacity
+                style={styles.feedingCard}
+                onPress={() => nav("nutrition")}
+                accessibilityRole="button"
+                accessibilityLabel={
+                    todayFeeding ? `Fed ${todayFeeding.count} times today` : "Log today's first feeding"
+                }
+            >
+                <View style={styles.feedingIcon}>
+                    <Ionicons name="restaurant-outline" size={18} color={colors.primary} />
                 </View>
-            )}
+                {todayFeeding ? (
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.feedingLabel}>
+                            Fed {todayFeeding.count} time{todayFeeding.count === 1 ? "" : "s"} today
+                        </Text>
+                        <Text style={styles.feedingSub}>
+                            {todayFeeding.totalMl > 0 ? `${todayFeeding.totalMl} mL total` : "Solid food logged"}
+                            {todayFeeding.lastTime ? ` · last at ${todayFeeding.lastTime.slice(0, 5)}` : ""}
+                        </Text>
+                    </View>
+                ) : (
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.feedingLabel}>No feedings logged today</Text>
+                        <Text style={styles.feedingSub}>Tap to log the first one</Text>
+                    </View>
+                )}
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
 
             {/* Photo Memories — square photo gallery */}
             <View style={styles.gallerySection}>
@@ -552,6 +689,49 @@ export default function Dashboard({
                     <EmptyStateCard message="No memories yet. Tap Add to save your baby's precious moments." icon="image-outline" />
                 )}
             </View>
+
+            {/* Recent Activity — moved to the bottom of the screen; the sections
+                above answer "does anything need attention or action" first. */}
+            <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionHeadingFlush}>Recent Activity</Text>
+                <TouchableOpacity
+                    onPress={() => nav("allActivity")}
+                    accessibilityRole="button"
+                    accessibilityLabel="See all activity"
+                >
+                    <Text style={styles.seeAllText}>See all →</Text>
+                </TouchableOpacity>
+            </View>
+            {activity.length ? (
+                <View style={styles.activityCard}>
+                    {activity.map((a, idx) => {
+                        const tone = toneColor[a.tone] || colors.primary;
+                        return (
+                            <View
+                                key={a.key}
+                                style={[styles.activityRow, idx < activity.length - 1 && styles.activityRowBorder]}
+                            >
+                                <View style={styles.activityLeft}>
+                                    <View style={[styles.activityIcon, { backgroundColor: tone + "1A" }]}>
+                                        <Ionicons name={a.icon} size={18} color={tone} />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.activityTitle}>{a.title}</Text>
+                                        <Text style={styles.activitySubtitle} numberOfLines={1}>
+                                            {a.subtitle}
+                                        </Text>
+                                    </View>
+                                </View>
+                                <Text style={styles.activityTime}>{relativeTime(a.date)}</Text>
+                            </View>
+                        );
+                    })}
+                </View>
+            ) : (
+                <View style={{ marginBottom: space.lg }}>
+                    <EmptyStateCard message="No recent activity yet." icon="time-outline" />
+                </View>
+            )}
 
             <MemoryDetail
                 visible={!!detailMemory}
@@ -696,6 +876,67 @@ const makeStyles = (colors) => StyleSheet.create({
     metaText: { fontSize: 12.5, fontWeight: "600", color: colors.textSecondary },
     trendRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
     trendText: { fontSize: 11.5, fontWeight: "600", color: colors.textSecondary },
+    healthRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
+    healthChip: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        backgroundColor: colors.surfaceAlt,
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
+        paddingHorizontal: space.sm,
+        paddingVertical: 4,
+        maxWidth: "100%",
+    },
+    healthChipWarning: { backgroundColor: colors.dangerBg },
+    healthChipText: { fontSize: 11, fontWeight: "700", color: colors.textSecondary },
+    healthChipTextWarning: { fontSize: 11, fontWeight: "700", color: colors.danger, flexShrink: 1 },
+
+    // Needs Attention
+    attentionCard: {
+        backgroundColor: colors.dangerBg,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
+        borderWidth: 1,
+        borderColor: colors.danger,
+        padding: space.md,
+        marginBottom: space.lg,
+    },
+    attentionHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: space.xs },
+    attentionTitle: { fontSize: 13, fontWeight: "800", color: colors.danger },
+    attentionRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        paddingVertical: 6,
+    },
+    attentionText: { fontSize: 12.5, fontWeight: "600", color: colors.text, flex: 1 },
+    attentionMoreText: { fontSize: 12.5, fontWeight: "700", color: colors.danger, flex: 1 },
+
+    // Today's feeding summary
+    feedingCard: {
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: colors.surface,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
+        borderWidth: 1,
+        borderColor: colors.hairline,
+        padding: space.md,
+        marginBottom: space.lg,
+        gap: space.md,
+        ...shadow.card,
+    },
+    feedingIcon: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: colors.softGreen,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    feedingLabel: { fontSize: 14, fontWeight: "800", color: colors.text },
+    feedingSub: { fontSize: 12, fontWeight: "600", color: colors.textSecondary, marginTop: 1 },
 
     // Section heading
     sectionHeadingFlush: { fontSize: 16, fontWeight: "800", color: colors.text },
