@@ -143,6 +143,7 @@ export default function Dashboard({
     const [ongoingConcern, setOngoingConcern] = useState([]);
     const [todayFeeding, setTodayFeeding] = useState(null);
     const [activeShares, setActiveShares] = useState([]);
+    const [summaryExpanded, setSummaryExpanded] = useState(false);
     useEffect(() => {
         let active = true;
         (async () => {
@@ -554,9 +555,24 @@ export default function Dashboard({
 
             {/* Baby Summary Card — 2-column meta grid. The photo and name
                 already show in the header and (with more than one child)
-                the switcher above, so this card doesn't repeat them. */}
-            <View style={styles.summaryCard} accessible accessibilityLabel={`${profile.name}'s summary`}>
+                the switcher above, so this card doesn't repeat them.
+                Collapsed by default to just gender/age/weight/height; tap
+                anywhere on the card to reveal head circumference, the
+                growth-pace line, and the allergy/blood-type chips. */}
+            <TouchableOpacity
+                style={styles.summaryCard}
+                onPress={() => setSummaryExpanded((v) => !v)}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel={`${profile.name}'s summary`}
+                accessibilityState={{ expanded: summaryExpanded }}
+            >
                 <View style={styles.summaryTopRow}>
+                    <Ionicons
+                        name={summaryExpanded ? "chevron-up" : "chevron-down"}
+                        size={16}
+                        color={colors.textMuted}
+                    />
                     <TouchableOpacity
                         onPress={onOpenEditModal}
                         style={styles.summaryEdit}
@@ -567,7 +583,7 @@ export default function Dashboard({
                     </TouchableOpacity>
                 </View>
                 <View style={styles.metaGrid}>
-                    {babyMeta.map((m, idx) => (
+                    {(summaryExpanded ? babyMeta : babyMeta.slice(0, 4)).map((m, idx) => (
                         <View
                             key={idx}
                             style={styles.metaItem}
@@ -579,7 +595,7 @@ export default function Dashboard({
                         </View>
                     ))}
                 </View>
-                {trend && trend.pace ? (
+                {summaryExpanded && trend && trend.pace ? (
                     <View style={styles.trendRow}>
                         <Ionicons
                             name={
@@ -607,7 +623,7 @@ export default function Dashboard({
                         </Text>
                     </View>
                 ) : null}
-                {hasAllergies || profile.bloodType ? (
+                {summaryExpanded && (hasAllergies || profile.bloodType) ? (
                     <View style={styles.healthRow}>
                         {hasAllergies ? (
                             <View style={[styles.healthChip, styles.healthChipWarning]}>
@@ -625,7 +641,7 @@ export default function Dashboard({
                         ) : null}
                     </View>
                 ) : null}
-            </View>
+            </TouchableOpacity>
 
             {/* Growth chart — reuses the same growth history already fetched
                 for the faster/slower verdict above. */}
@@ -911,7 +927,7 @@ const makeStyles = (colors) => StyleSheet.create({
         marginBottom: space.lg,
         ...shadow.card,
     },
-    summaryTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end" },
+    summaryTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
     summaryEdit: {
         width: 30,
         height: 30,
