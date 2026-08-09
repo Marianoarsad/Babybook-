@@ -113,6 +113,8 @@ export default function Dashboard({
     onOpenAddModal,
     onOpenEditModal,
     onChangeView,
+    initialAction,
+    navKey,
 }) {
     const { t } = useLanguage();
     const { colors } = useTheme();
@@ -328,6 +330,13 @@ export default function Dashboard({
         };
     }, [profile.id]);
 
+    // Arriving here from the floating log button's "Add Memory" choice opens
+    // the form automatically, the same pattern NutritionTracker.js uses for
+    // its own "Log Milk"/"Log Food" shortcuts.
+    useEffect(() => {
+        if (initialAction === "memory") setShowMemoryModal(true);
+    }, [navKey]);
+
     const handleAddMemory = async () => {
         if (!memCaption.trim()) {
             toast.error("Please enter a caption");
@@ -428,9 +437,13 @@ export default function Dashboard({
                                 <Image source={{ uri: p.avatarUrl }} style={styles.avatarMini} />
                             </TouchableOpacity>
                         ))}
-                        <TouchableOpacity onPress={onOpenAddModal} style={styles.addProfileButton}>
-                            <Ionicons name="add" size={18} color={colors.primary} />
-                            <Text style={styles.addProfileText}>Add</Text>
+                        <TouchableOpacity
+                            onPress={onOpenAddModal}
+                            style={styles.addProfileIconButton}
+                            accessibilityRole="button"
+                            accessibilityLabel="Add another child"
+                        >
+                            <Ionicons name="add" size={20} color={colors.primary} />
                         </TouchableOpacity>
                     </ScrollView>
                 </View>
@@ -631,28 +644,19 @@ export default function Dashboard({
                 <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </TouchableOpacity>
 
-            {/* Photo Memories — square photo gallery */}
+            {/* Photo Memories — square photo gallery. Adding a memory now
+                lives in the floating log button's menu, alongside Log Milk,
+                Log Food, etc., instead of a second add button here. */}
             <View style={styles.gallerySection}>
                 <View style={styles.galleryHeader}>
                     <Text style={styles.sectionHeadingFlush}>Photo Memories</Text>
-                    <View style={styles.galleryHeaderActions}>
-                        <TouchableOpacity
-                            onPress={() => nav("allMemories")}
-                            accessibilityRole="button"
-                            accessibilityLabel="See all photo memories"
-                        >
-                            <Text style={styles.seeAllText}>See all →</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            onPress={() => setShowMemoryModal(true)}
-                            style={styles.addPill}
-                            accessibilityRole="button"
-                            accessibilityLabel="Add photo memory"
-                        >
-                            <Ionicons name="add" size={16} color={colors.onAccent} />
-                            <Text style={styles.addPillText}>Add</Text>
-                        </TouchableOpacity>
-                    </View>
+                    <TouchableOpacity
+                        onPress={() => nav("allMemories")}
+                        accessibilityRole="button"
+                        accessibilityLabel="See all photo memories"
+                    >
+                        <Text style={styles.seeAllText}>See all</Text>
+                    </TouchableOpacity>
                 </View>
                 {memories.length ? (
                     <View style={styles.galleryGrid}>
@@ -694,7 +698,7 @@ export default function Dashboard({
                     accessibilityRole="button"
                     accessibilityLabel="See all activity"
                 >
-                    <Text style={styles.seeAllText}>See all →</Text>
+                    <Text style={styles.seeAllText}>See all</Text>
                 </TouchableOpacity>
             </View>
             {activity.length ? (
@@ -824,6 +828,18 @@ const makeStyles = (colors) => StyleSheet.create({
         paddingHorizontal: space.md,
         paddingVertical: 7,
         minHeight: 44,
+    },
+    // Icon-only version, used in the multi-child switcher row where photos
+    // already fill that role and a text label would just repeat "add".
+    addProfileIconButton: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: colors.softGreen,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     addProfileText: { fontSize: 13, fontWeight: "700", color: colors.primary, marginLeft: 3 },
 
@@ -983,7 +999,6 @@ const makeStyles = (colors) => StyleSheet.create({
         justifyContent: "space-between",
         marginBottom: space.md,
     },
-    galleryHeaderActions: { flexDirection: "row", alignItems: "center", gap: space.md },
     galleryGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
     galleryCard: {
         width: "48%",
@@ -1001,18 +1016,6 @@ const makeStyles = (colors) => StyleSheet.create({
     galleryOverlay: { ...StyleSheet.absoluteFillObject, padding: space.md, justifyContent: "flex-end" },
     galleryTitle: { color: "#FFFFFF", fontSize: 13, fontWeight: "800" },
     galleryDate: { color: "rgba(255,255,255,0.85)", fontSize: 10, fontWeight: "600", marginTop: 1 },
-    addPill: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 4,
-        backgroundColor: colors.accentStrong,
-        paddingHorizontal: space.md,
-        paddingVertical: 7,
-        borderRadius: radius.pill,
-        borderCurve: "continuous",
-        ...shadow.accent,
-    },
-    addPillText: { color: colors.onAccent, fontWeight: "800", fontSize: 12 },
 
     // Recent Activity
     activityCard: {
