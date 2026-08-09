@@ -422,11 +422,10 @@ export default function Dashboard({
                                 key={p.id}
                                 onPress={() => onSelectProfile(p.id)}
                                 style={[styles.profileTab, profile.id === p.id && styles.profileTabActive]}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Switch to ${p.name}`}
                             >
                                 <Image source={{ uri: p.avatarUrl }} style={styles.avatarMini} />
-                                <Text style={[styles.profileName, profile.id === p.id && styles.profileNameActive]}>
-                                    {p.name}
-                                </Text>
                             </TouchableOpacity>
                         ))}
                         <TouchableOpacity onPress={onOpenAddModal} style={styles.addProfileButton}>
@@ -483,83 +482,79 @@ export default function Dashboard({
                 </View>
             ) : null}
 
-            {/* Baby Summary Card — 2-column meta grid */}
-            <View style={styles.summaryCard}>
-                <Image source={{ uri: profile.avatarUrl }} style={styles.summaryAvatar} />
-                <View style={{ flex: 1 }}>
-                    <View style={styles.summaryTopRow}>
-                        <Text style={styles.summaryName} numberOfLines={1}>
-                            {profile.name}
-                        </Text>
-                        <TouchableOpacity
-                            onPress={onOpenEditModal}
-                            style={styles.summaryEdit}
-                            accessibilityRole="button"
-                            accessibilityLabel="Edit child profile"
-                        >
-                            <Ionicons name="pencil" size={15} color={colors.primary} />
-                        </TouchableOpacity>
-                    </View>
-                    <View style={styles.metaGrid}>
-                        {babyMeta.map((m, idx) => (
-                            <View
-                                key={idx}
-                                style={styles.metaItem}
-                                accessible={!!m.a11y}
-                                accessibilityLabel={m.a11y || undefined}
-                            >
-                                <Ionicons name={m.icon} size={14} color={colors.primary} />
-                                {m.text ? <Text style={styles.metaText}>{m.text}</Text> : null}
-                            </View>
-                        ))}
-                    </View>
-                    {trend && trend.pace ? (
-                        <View style={styles.trendRow}>
-                            <Ionicons
-                                name={
-                                    trend.pace === "faster"
-                                        ? "trending-up"
-                                        : trend.pace === "slower"
-                                          ? "trending-down"
-                                          : "remove-outline"
-                                }
-                                size={14}
-                                color={
-                                    trend.pace === "faster"
-                                        ? colors.success
-                                        : trend.pace === "slower"
-                                          ? colors.warning
-                                          : colors.textMuted
-                                }
-                            />
-                            <Text style={styles.trendText}>
-                                {trend.pace === "faster"
-                                    ? "Growing faster than before"
-                                    : trend.pace === "slower"
-                                      ? "Growing slower than before"
-                                      : "Growing at a steady pace"}
-                            </Text>
-                        </View>
-                    ) : null}
-                    {hasAllergies || profile.bloodType ? (
-                        <View style={styles.healthRow}>
-                            {hasAllergies ? (
-                                <View style={[styles.healthChip, styles.healthChipWarning]}>
-                                    <Ionicons name="alert-circle-outline" size={12} color={colors.danger} />
-                                    <Text style={styles.healthChipTextWarning} numberOfLines={1}>
-                                        {profile.allergies.join(", ")}
-                                    </Text>
-                                </View>
-                            ) : null}
-                            {profile.bloodType ? (
-                                <View style={styles.healthChip}>
-                                    <Ionicons name="water-outline" size={12} color={colors.textSecondary} />
-                                    <Text style={styles.healthChipText}>{profile.bloodType}</Text>
-                                </View>
-                            ) : null}
-                        </View>
-                    ) : null}
+            {/* Baby Summary Card — 2-column meta grid. The photo and name
+                already show in the header and (with more than one child)
+                the switcher above, so this card doesn't repeat them. */}
+            <View style={styles.summaryCard} accessible accessibilityLabel={`${profile.name}'s summary`}>
+                <View style={styles.summaryTopRow}>
+                    <TouchableOpacity
+                        onPress={onOpenEditModal}
+                        style={styles.summaryEdit}
+                        accessibilityRole="button"
+                        accessibilityLabel="Edit child profile"
+                    >
+                        <Ionicons name="pencil" size={15} color={colors.primary} />
+                    </TouchableOpacity>
                 </View>
+                <View style={styles.metaGrid}>
+                    {babyMeta.map((m, idx) => (
+                        <View
+                            key={idx}
+                            style={styles.metaItem}
+                            accessible={!!m.a11y}
+                            accessibilityLabel={m.a11y || undefined}
+                        >
+                            <Ionicons name={m.icon} size={14} color={colors.primary} />
+                            {m.text ? <Text style={styles.metaText}>{m.text}</Text> : null}
+                        </View>
+                    ))}
+                </View>
+                {trend && trend.pace ? (
+                    <View style={styles.trendRow}>
+                        <Ionicons
+                            name={
+                                trend.pace === "faster"
+                                    ? "trending-up"
+                                    : trend.pace === "slower"
+                                      ? "trending-down"
+                                      : "remove-outline"
+                            }
+                            size={14}
+                            color={
+                                trend.pace === "faster"
+                                    ? colors.success
+                                    : trend.pace === "slower"
+                                      ? colors.warning
+                                      : colors.textMuted
+                            }
+                        />
+                        <Text style={styles.trendText}>
+                            {trend.pace === "faster"
+                                ? "Growing faster than before"
+                                : trend.pace === "slower"
+                                  ? "Growing slower than before"
+                                  : "Growing at a steady pace"}
+                        </Text>
+                    </View>
+                ) : null}
+                {hasAllergies || profile.bloodType ? (
+                    <View style={styles.healthRow}>
+                        {hasAllergies ? (
+                            <View style={[styles.healthChip, styles.healthChipWarning]}>
+                                <Ionicons name="alert-circle-outline" size={12} color={colors.danger} />
+                                <Text style={styles.healthChipTextWarning} numberOfLines={1}>
+                                    {profile.allergies.join(", ")}
+                                </Text>
+                            </View>
+                        ) : null}
+                        {profile.bloodType ? (
+                            <View style={styles.healthChip}>
+                                <Ionicons name="water-outline" size={12} color={colors.textSecondary} />
+                                <Text style={styles.healthChipText}>{profile.bloodType}</Text>
+                            </View>
+                        ) : null}
+                    </View>
+                ) : null}
             </View>
 
             {/* Growth chart — reuses the same growth history already fetched
@@ -805,22 +800,19 @@ const makeStyles = (colors) => StyleSheet.create({
     profileBarSingle: { marginBottom: space.md, alignItems: "flex-start" },
     profilesScroll: { alignItems: "center", paddingRight: space.xs },
     profileTab: {
-        flexDirection: "row",
         alignItems: "center",
+        justifyContent: "center",
         backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.border,
         borderRadius: radius.pill,
         borderCurve: "continuous",
-        paddingHorizontal: space.md,
-        paddingVertical: 7,
+        padding: 3,
         marginRight: space.sm,
         ...shadow.card,
     },
     profileTabActive: { borderColor: colors.accent, backgroundColor: colors.softCoral },
-    avatarMini: { width: 26, height: 26, borderRadius: 13, marginRight: 7 },
-    profileName: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
-    profileNameActive: { color: colors.accentStrong, fontWeight: "800" },
+    avatarMini: { width: 32, height: 32, borderRadius: 16 },
     addProfileButton: {
         flexDirection: "row",
         alignItems: "center",
@@ -837,8 +829,6 @@ const makeStyles = (colors) => StyleSheet.create({
 
     // Baby Summary Card
     summaryCard: {
-        flexDirection: "row",
-        alignItems: "center",
         backgroundColor: colors.surface,
         borderRadius: radius.xl,
         borderCurve: "continuous",
@@ -848,16 +838,7 @@ const makeStyles = (colors) => StyleSheet.create({
         marginBottom: space.lg,
         ...shadow.card,
     },
-    summaryAvatar: {
-        width: 64,
-        height: 64,
-        borderRadius: 32,
-        marginRight: space.md,
-        borderWidth: 2,
-        borderColor: colors.softCoral,
-    },
-    summaryTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-    summaryName: { flex: 1, fontSize: 17, fontWeight: "800", color: colors.text, letterSpacing: -0.2 },
+    summaryTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end" },
     summaryEdit: {
         width: 30,
         height: 30,

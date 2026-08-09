@@ -578,15 +578,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
             {/* Dynamic Header */}
             <View style={styles.header}>
                 <View style={styles.headerLeft}>
-                    <Image
-                        source={{ uri: activeProfile.avatarUrl }}
-                        style={styles.avatarMini}
-                    />
-                    <View>
-                        <Text style={styles.babyName}>
-                            {activeProfile.name}'s File
-                        </Text>
-                    </View>
+                    <Text style={styles.babyName}>{activeProfile.name}</Text>
                 </View>
                 <View style={styles.headerRight}>
                     <TouchableOpacity
@@ -1338,14 +1330,6 @@ const makeStyles = (colors) => StyleSheet.create({
         borderColor: colors.surface,
     },
     headerBadgeText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
-    avatarMini: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        marginRight: space.md,
-        borderWidth: 2,
-        borderColor: colors.accent,
-    },
     babyName: {
         fontSize: 16,
         fontWeight: "800",
