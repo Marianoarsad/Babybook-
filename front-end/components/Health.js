@@ -14,6 +14,7 @@ import {
     vaccinationToApp,
     medHistoryToIllness,
     medHistoryToMed,
+    checkupToApp,
 } from "../utils/adapters";
 import { scheduleReminder, morningOf } from "../utils/notifications";
 import { exportChildRecordsPdf, pdfExportAvailable } from "../utils/exportPdf";
@@ -27,8 +28,9 @@ import {
     EmptyStateCard,
 } from "./common/Cards";
 import PhotoAttach from "./ui/PhotoAttach";
-import { ImmunizationsSkeleton } from "./ui/Skeleton";
-import { DateField } from "./ui/DateField";
+import ShowMore from "./ui/ShowMore";
+import { ImmunizationsSkeleton, AppointmentsSkeleton } from "./ui/Skeleton";
+import { DateField, TimeField } from "./ui/DateField";
 import ImageViewer from "./ui/ImageViewer";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
@@ -52,10 +54,48 @@ export default function Health({
         },
     };
     const [activeTab, setActiveTab] = useState("immunizations");
-    // Apply a deep-link tab request from the Dashboard quick actions.
+    // Apply a deep-link tab request from the floating log button, and — for
+    // "Add Medication" — open the Add Rx form directly instead of just
+    // switching tabs, matching the pattern used for Growth's own shortcuts.
+    // "vaccine"/"illness"/"hospitalization" are distinct from the plain tab
+    // names ("immunizations"/"illnesses") on purpose: the Dashboard's Needs
+    // Attention card already deep-links here with the plain tab names just to
+    // switch tabs (e.g. tapping an overdue vaccine), so those two must keep
+    // meaning "switch tabs only" — the new FAB shortcuts need their own keys
+    // to additionally pop open an add-record form.
     useEffect(() => {
-        const valid = ["immunizations", "medications", "illnesses"];
-        if (initialTab && valid.includes(initialTab)) setActiveTab(initialTab);
+        const tabFor = {
+            immunizations: "immunizations",
+            medications: "medications",
+            illnesses: "illnesses",
+            appointments: "appointments",
+            vaccine: "immunizations",
+            illness: "illnesses",
+            hospitalization: "appointments",
+        };
+        if (initialTab && tabFor[initialTab]) {
+            setActiveTab(tabFor[initialTab]);
+            if (initialTab === "medications") {
+                resetAttach();
+                setShowMedModal(true);
+            }
+            if (initialTab === "appointments") {
+                resetAttach();
+                setShowApptModal(true);
+            }
+            if (initialTab === "vaccine") {
+                resetAttach();
+                setShowVaxModal(true);
+            }
+            if (initialTab === "illness") {
+                resetAttach();
+                setShowIllnessModal(true);
+            }
+            if (initialTab === "hospitalization") {
+                resetAttach();
+                setShowHospModal(true);
+            }
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [navKey]);
 
@@ -80,19 +120,68 @@ export default function Health({
         };
     }, [profile.id]);
 
+    // Checkups now load from and persist to the backend.
+    const [appts, setAppts] = useState([]);
+    const [apptsLoading, setApptsLoading] = useState(true);
+    const [apptsVisible, setApptsVisible] = useState(10);
+    useEffect(() => {
+        let active = true;
+        setApptsLoading(true);
+        (async () => {
+            try {
+                const rows = await api.listRecords(profile.id, "checkups");
+                if (active) setAppts(rows.map(checkupToApp));
+            } catch (e) {
+                console.log("load checkups:", e.message);
+            } finally {
+                if (active) setApptsLoading(false);
+            }
+        })();
+        return () => {
+            active = false;
+        };
+    }, [profile.id]);
+
+    // Vaccine status/search filter — the full EPI schedule runs to 25 doses,
+    // so "what does my child still need?" otherwise means scrolling all of it.
+    const [vaxStatusFilter, setVaxStatusFilter] = useState("all");
+    const [vaxSearch, setVaxSearch] = useState("");
+    const [vaxVisibleCount, setVaxVisibleCount] = useState(10);
+    useEffect(() => {
+        setVaxVisibleCount(10);
+    }, [vaxStatusFilter, vaxSearch]);
+
+    const vaxStatusOf = (v) => {
+        if (v.isCompleted) return "done";
+        const today = new Date().toISOString().split("T")[0];
+        if (v.dueDate && v.dueDate < today) return "overdue";
+        return "due";
+    };
+
+    const filteredVaccines = useMemo(() => {
+        const sorted = [...vaccines].sort((a, b) => (a.dueDate || "9999").localeCompare(b.dueDate || "9999"));
+        const q = vaxSearch.trim().toLowerCase();
+        return sorted.filter((v) => {
+            if (vaxStatusFilter !== "all" && vaxStatusOf(v) !== vaxStatusFilter) return false;
+            if (q && !`${v.vaccineName} ${v.visitName}`.toLowerCase().includes(q)) return false;
+            return true;
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [vaccines, vaxStatusFilter, vaxSearch]);
+
     // Grouped by visit age ("At Birth", "6 Weeks", …) so a full EPI schedule
     // reads like the physical immunization card the parent already knows,
-    // instead of a flat wall of ~13 entries.
+    // instead of a flat wall of ~13 entries. Grouping happens after the
+    // filter and the 10-item cap so headers only ever describe what's shown.
     const groupedVaccines = useMemo(() => {
-        const sorted = [...vaccines].sort((a, b) => (a.dueDate || "9999").localeCompare(b.dueDate || "9999"));
         const groups = new Map();
-        for (const v of sorted) {
+        for (const v of filteredVaccines.slice(0, vaxVisibleCount)) {
             const key = v.visitName || "Other";
             if (!groups.has(key)) groups.set(key, []);
             groups.get(key).push(v);
         }
         return Array.from(groups.entries());
-    }, [vaccines]);
+    }, [filteredVaccines, vaxVisibleCount]);
 
     // Care Team state
     const [pediatrician, setPediatrician] = useState(
@@ -121,16 +210,27 @@ export default function Health({
     const [showIllnessModal, setShowIllnessModal] = useState(false);
     const [illnessTitle, setIllnessTitle] = useState("");
     const [illnessDesc, setIllnessDesc] = useState("");
+    const [illnessVisible, setIllnessVisible] = useState(10);
 
     const [medications, setMedications] = useState([]);
     const [showMedModal, setShowMedModal] = useState(false);
     const [medTitle, setMedTitle] = useState("");
     const [medDosage, setMedDosage] = useState("");
+    const [medsVisible, setMedsVisible] = useState(10);
 
     const [hospitalizations, setHospitalizations] = useState([]);
     const [showHospModal, setShowHospModal] = useState(false);
     const [hospTitle, setHospTitle] = useState("");
     const [hospDesc, setHospDesc] = useState("");
+    const [hospVisible, setHospVisible] = useState(10);
+
+    // Appointment (checkup) adding state
+    const [showApptModal, setShowApptModal] = useState(false);
+    const [apptTitle, setApptTitle] = useState("Developmental Assessment");
+    const [apptDoctor, setApptDoctor] = useState("Dr. Sarah Chen");
+    const [apptDate, setApptDate] = useState("2026-06-30");
+    const [apptTime, setApptTime] = useState("10:00");
+    const [apptNotes, setApptNotes] = useState("");
 
     // Medical history (illnesses + medications) loads from the backend.
     useEffect(() => {
@@ -451,6 +551,48 @@ export default function Health({
         }
     };
 
+    const handleAddAppointment = async () => {
+        if (!apptTitle || !apptDoctor || !apptDate) {
+            Alert.alert("Error", "Please fill out required fields");
+            return;
+        }
+        if (!requireAttach()) return;
+        setShowApptModal(false);
+        // Persist as a checkup (also feeds the QR consultation snapshot).
+        try {
+            const saved = await api.createRecord(profile.id, "checkups", {
+                title: apptTitle,
+                doctor_name: apptDoctor,
+                checkup_date: apptDate,
+                time_of_visit: apptTime || null,
+                notes: apptNotes || null,
+                status: "scheduled",
+            });
+            setAppts((prev) => [checkupToApp(saved), ...prev]);
+            await uploadAttachFor("checkup", saved.id);
+            // Set a reminder: local notification + backend reminder record.
+            const when = morningOf(apptDate);
+            if (when) {
+                scheduleReminder("Checkup reminder", `${apptTitle} with ${apptDoctor}`, when);
+                api
+                    .createRecord(profile.id, "reminders", {
+                        reminder_type: "Checkup",
+                        title: apptTitle,
+                        reminder_date: apptDate,
+                        status: "Pending",
+                        checkup_id: saved.id,
+                    })
+                    .catch(() => {});
+            }
+            Alert.alert(
+                "Appointment Slotted",
+                `Pediatric session scheduled successfully.`,
+            );
+        } catch (e) {
+            Alert.alert("Error", e.message || "Could not save appointment");
+        }
+    };
+
     // Secondary export entry point — most parents look for this on the
     // Health screen, not under Privacy Settings. Exports every category.
     const [exportingAll, setExportingAll] = useState(false);
@@ -508,6 +650,7 @@ export default function Health({
                     onPress={() => setActiveTab("immunizations")}
                 >
                     <Text
+                        numberOfLines={1}
                         style={[
                             styles.tabButtonText,
                             activeTab === "immunizations" &&
@@ -525,13 +668,14 @@ export default function Health({
                     onPress={() => setActiveTab("medications")}
                 >
                     <Text
+                        numberOfLines={1}
                         style={[
                             styles.tabButtonText,
                             activeTab === "medications" &&
                                 styles.tabButtonTextActive,
                         ]}
                     >
-                        Rx Meds
+                        Medicine
                     </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -542,6 +686,7 @@ export default function Health({
                     onPress={() => setActiveTab("illnesses")}
                 >
                     <Text
+                        numberOfLines={1}
                         style={[
                             styles.tabButtonText,
                             activeTab === "illnesses" &&
@@ -549,6 +694,24 @@ export default function Health({
                         ]}
                     >
                         Conditions
+                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[
+                        styles.tabButton,
+                        activeTab === "appointments" && styles.tabButtonActive,
+                    ]}
+                    onPress={() => setActiveTab("appointments")}
+                >
+                    <Text
+                        numberOfLines={1}
+                        style={[
+                            styles.tabButtonText,
+                            activeTab === "appointments" &&
+                                styles.tabButtonTextActive,
+                        ]}
+                    >
+                        Checkups
                     </Text>
                 </TouchableOpacity>
             </View>
@@ -576,16 +739,51 @@ export default function Health({
                                 <TouchableOpacity
                                     onPress={() => { resetAttach(); setShowVaxModal(true); }}
                                     style={styles.actionBtn}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Add vaccination"
                                 >
                                     <Ionicons name="add" size={16} color="#FFFFFF" />
-                                    <Text style={styles.actionBtnText}>Add</Text>
                                 </TouchableOpacity>
                             </View>
                         }
                     >
+                        {!vaxLoading && vaccines.length > 0 && (
+                            <>
+                                <View style={styles.filterRow}>
+                                    {[
+                                        { key: "all", label: "All" },
+                                        { key: "due", label: "Due" },
+                                        { key: "done", label: "Done" },
+                                        { key: "overdue", label: "Overdue" },
+                                    ].map((f) => (
+                                        <TouchableOpacity
+                                            key={f.key}
+                                            onPress={() => setVaxStatusFilter(f.key)}
+                                            style={[styles.filterChip, vaxStatusFilter === f.key && styles.filterChipActive]}
+                                            accessibilityRole="button"
+                                            accessibilityLabel={`Filter: ${f.label}`}
+                                        >
+                                            <Text style={[styles.filterChipText, vaxStatusFilter === f.key && styles.filterChipTextActive]}>
+                                                {f.label}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                                <TextInput
+                                    style={[styles.inlineInput, { width: "100%", marginBottom: 12 }]}
+                                    placeholder="Search vaccine or visit..."
+                                    placeholderTextColor={colors.placeholder}
+                                    value={vaxSearch}
+                                    onChangeText={setVaxSearch}
+                                />
+                            </>
+                        )}
                         {vaxLoading && <ImmunizationsSkeleton count={4} />}
                         {!vaxLoading && vaccines.length === 0 && (
                             <EmptyStateCard message="No vaccination records yet." />
+                        )}
+                        {!vaxLoading && vaccines.length > 0 && filteredVaccines.length === 0 && (
+                            <EmptyStateCard message="No vaccines match this filter." />
                         )}
                         {!vaxLoading && groupedVaccines.map(([visitName, group]) => (
                             <View key={visitName}>
@@ -652,6 +850,14 @@ export default function Health({
                                 ))}
                             </View>
                         ))}
+                        {!vaxLoading && (
+                            <ShowMore
+                                total={filteredVaccines.length}
+                                visible={vaxVisibleCount}
+                                onPress={() => setVaxVisibleCount((c) => c + 10)}
+                                noun="vaccines"
+                            />
+                        )}
                     </SectionContainerCard>
 
                     {/* Barangay / NCR vaccine stock alert */}
@@ -709,18 +915,17 @@ export default function Health({
                             <TouchableOpacity
                                 onPress={() => { resetAttach(); setShowMedModal(true); }}
                                 style={styles.actionBtn}
+                                accessibilityRole="button"
+                                accessibilityLabel="Add medication"
                             >
-                                <Ionicons
-                                    name="add"
-                                    size={14}
-                                    color="#FFFFFF"
-                                    style={{ marginRight: 4 }}
-                                />
-                                <Text style={styles.actionBtnText}>Add Rx</Text>
+                                <Ionicons name="add" size={16} color="#FFFFFF" />
                             </TouchableOpacity>
                         }
                     >
-                        {medications.map((med, idx) => (
+                        {medications.length === 0 && (
+                            <EmptyStateCard message="No medications logged yet." />
+                        )}
+                        {medications.slice(0, medsVisible).map((med, idx) => (
                             <ListEntryCard
                                 key={med.id || idx}
                                 thumbnailUrl={attachUrlFor("medication", med.id)}
@@ -747,6 +952,12 @@ export default function Health({
                                 iconBg={colors.tintGreen}
                             />
                         ))}
+                        <ShowMore
+                            total={medications.length}
+                            visible={medsVisible}
+                            onPress={() => setMedsVisible((c) => c + 10)}
+                            noun="medications"
+                        />
                     </SectionContainerCard>
                 </View>
             )}
@@ -810,20 +1021,14 @@ export default function Health({
                             <TouchableOpacity
                                 onPress={() => { resetAttach(); setShowIllnessModal(true); }}
                                 style={styles.actionBtn}
+                                accessibilityRole="button"
+                                accessibilityLabel="Add condition"
                             >
-                                <Ionicons
-                                    name="add"
-                                    size={14}
-                                    color="#FFFFFF"
-                                    style={{ marginRight: 4 }}
-                                />
-                                <Text style={styles.actionBtnText}>
-                                    Add Log
-                                </Text>
+                                <Ionicons name="add" size={16} color="#FFFFFF" />
                             </TouchableOpacity>
                         }
                     >
-                        {illnesses.map((ill, idx) => (
+                        {illnesses.slice(0, illnessVisible).map((ill, idx) => (
                             <ListEntryCard
                                 key={ill.id || idx}
                                 thumbnailUrl={attachUrlFor("illness", ill.id)}
@@ -841,6 +1046,74 @@ export default function Health({
                                 iconBg={colors.tintGreen}
                             />
                         ))}
+                        <ShowMore
+                            total={illnesses.length}
+                            visible={illnessVisible}
+                            onPress={() => setIllnessVisible((c) => c + 10)}
+                            noun="conditions"
+                        />
+                    </SectionContainerCard>
+                </View>
+            )}
+
+            {/* TAB: CHECKUPS */}
+            {activeTab === "appointments" && (
+                <View>
+                    <SectionContainerCard
+                        title="Clinical Consults & Appointments"
+                        subtitle="Manage scheduled wellness checks and specialist visits"
+                        action={
+                            <TouchableOpacity
+                                onPress={() => { resetAttach(); setShowApptModal(true); }}
+                                style={styles.actionBtn}
+                                accessibilityRole="button"
+                                accessibilityLabel="Add appointment"
+                            >
+                                <Ionicons name="add" size={16} color="#FFFFFF" />
+                            </TouchableOpacity>
+                        }
+                    >
+                        {apptsLoading && <AppointmentsSkeleton count={3} />}
+                        {!apptsLoading && appts.length === 0 && (
+                            <EmptyStateCard message="No appointments scheduled yet." />
+                        )}
+                        {!apptsLoading && appts.slice(0, apptsVisible).map((appt, idx) => (
+                            <ListEntryCard
+                                key={appt.id || idx}
+                                thumbnailUrl={attachUrlFor("checkup", appt.id)}
+                                onThumbnailPress={() => openViewer("checkup", appt.id)}
+                                title={appt.title}
+                                subtitle={`${appt.date} @ ${appt.time}`}
+                                label={
+                                    <Text
+                                        style={{
+                                            fontSize: 12,
+                                            color: colors.primary,
+                                            fontWeight: "600",
+                                        }}
+                                    >
+                                        Doctor: {appt.provider}
+                                    </Text>
+                                }
+                                notes={appt.notes}
+                                icon={
+                                    <Ionicons
+                                        name="calendar-outline"
+                                        size={18}
+                                        color={colors.primary}
+                                    />
+                                }
+                                iconBg={colors.tintGreen}
+                            />
+                        ))}
+                        {!apptsLoading && (
+                            <ShowMore
+                                total={appts.length}
+                                visible={apptsVisible}
+                                onPress={() => setApptsVisible((c) => c + 10)}
+                                noun="appointments"
+                            />
+                        )}
                     </SectionContainerCard>
 
                     <SectionContainerCard
@@ -850,16 +1123,17 @@ export default function Health({
                             <TouchableOpacity
                                 onPress={() => { resetAttach(); setShowHospModal(true); }}
                                 style={styles.actionBtn}
+                                accessibilityRole="button"
+                                accessibilityLabel="Add hospitalization"
                             >
                                 <Ionicons name="add" size={16} color="#FFFFFF" />
-                                <Text style={styles.actionBtnText}>Add</Text>
                             </TouchableOpacity>
                         }
                     >
                         {hospitalizations.length === 0 && (
                             <EmptyStateCard message="No hospitalizations recorded." />
                         )}
-                        {hospitalizations.map((h, idx) => (
+                        {hospitalizations.slice(0, hospVisible).map((h, idx) => (
                             <ListEntryCard
                                 key={h.id || idx}
                                 thumbnailUrl={attachUrlFor("hospitalization", h.id)}
@@ -873,6 +1147,12 @@ export default function Health({
                                 iconBg={colors.tintGreen}
                             />
                         ))}
+                        <ShowMore
+                            total={hospitalizations.length}
+                            visible={hospVisible}
+                            onPress={() => setHospVisible((c) => c + 10)}
+                            noun="hospitalizations"
+                        />
                     </SectionContainerCard>
                 </View>
             )}
@@ -1076,6 +1356,76 @@ export default function Health({
                             >
                                 <Text style={styles.modalSaveText}>
                                     {t("save")}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* New Appointment Modal */}
+            <Modal visible={showApptModal} transparent animationType="slide">
+                <View style={styles.modalBg}>
+                    <View style={styles.modalCard}>
+                        <Text style={styles.modalTitle}>New Appointment</Text>
+
+                        <Text style={styles.modalLabel}>Appointment Title</Text>
+                        <TextInput
+                            style={styles.modalInput}
+                            value={apptTitle}
+                            onChangeText={setApptTitle}
+                        />
+
+                        <Text style={styles.modalLabel}>
+                            Pediatrician / Provider
+                        </Text>
+                        <TextInput
+                            style={styles.modalInput}
+                            value={apptDoctor}
+                            onChangeText={setApptDoctor}
+                        />
+
+                        <View style={{ flexDirection: "row", gap: 8 }}>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.modalLabel}>Date</Text>
+                                <DateField value={apptDate} onChange={setApptDate} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.modalLabel}>Time</Text>
+                                <TimeField value={apptTime} onChange={setApptTime} />
+                            </View>
+                        </View>
+
+                        <Text style={styles.modalLabel}>
+                            Clinic Guidelines / Notes
+                        </Text>
+                        <TextInput
+                            style={styles.modalInput}
+                            value={apptNotes}
+                            onChangeText={setApptNotes}
+                        />
+
+                        <PhotoAttach
+                            required
+                            uri={attachUri}
+                            onChangeUri={setAttachUri}
+                        />
+
+                        <View style={styles.modalButtons}>
+                            <TouchableOpacity
+                                onPress={() => setShowApptModal(false)}
+                                style={styles.modalCancelBtn}
+                            >
+                                <Text style={styles.modalCancelText}>
+                                    {t("cancel")}
+                                </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={handleAddAppointment}
+                                style={styles.modalSaveBtn}
+                            >
+                                <Text style={styles.modalSaveText}>
+                                    Schedule
                                 </Text>
                             </TouchableOpacity>
                         </View>
@@ -1297,6 +1647,32 @@ const makeStyles = (colors) => StyleSheet.create({
         fontSize: 11,
         fontWeight: "700",
         marginLeft: 4,
+    },
+    filterRow: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 8,
+        marginBottom: 10,
+    },
+    filterChip: {
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+    },
+    filterChipActive: {
+        backgroundColor: colors.softGreen,
+        borderColor: colors.primary,
+    },
+    filterChipText: {
+        fontSize: 12,
+        fontWeight: "700",
+        color: colors.textMuted,
+    },
+    filterChipTextActive: {
+        color: colors.primary,
     },
     visitGroupHeader: {
         fontSize: 10.5,

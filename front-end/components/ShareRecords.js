@@ -13,6 +13,7 @@ import { RECORD_LABELS, qrPayloadForCode } from "../utils/shareStore";
 import { api } from "../utils/api";
 import { useToast } from "./ui/Toast";
 import { useTheme } from "../context/ThemeContext";
+import ShowMore from "./ui/ShowMore";
 
 // Turns a raw user-agent string into a short readable summary, e.g. "Chrome on Android".
 function parseUserAgent(ua) {
@@ -49,6 +50,8 @@ export default function ShareRecords({ profile }) {
     const [activeShare, setActiveShare] = useState(null);
     const [history, setHistory] = useState([]);
     const [accessLog, setAccessLog] = useState([]);
+    const [historyVisible, setHistoryVisible] = useState(10);
+    const [logVisible, setLogVisible] = useState(10);
 
     const refresh = useCallback(async () => {
         try {
@@ -220,7 +223,7 @@ export default function ShareRecords({ profile }) {
             {history.length > 0 && (
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>Active & recent shares</Text>
-                    {history.map((s) => (
+                    {history.slice(0, historyVisible).map((s) => (
                         <View key={s.id} style={styles.histRow}>
                             <View style={{ flex: 1 }}>
                                 <Text style={styles.histCode}>{s.code}</Text>
@@ -241,13 +244,19 @@ export default function ShareRecords({ profile }) {
                             )}
                         </View>
                     ))}
+                    <ShowMore
+                        total={history.length}
+                        visible={historyVisible}
+                        onPress={() => setHistoryVisible((c) => c + 10)}
+                        noun="shares"
+                    />
                 </View>
             )}
 
             {accessLog.length > 0 && (
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>Access log · who viewed records</Text>
-                    {accessLog.map((l) => (
+                    {accessLog.slice(0, logVisible).map((l) => (
                         <View key={l.id} style={styles.logRow}>
                             <Ionicons name="eye-outline" size={15} color={colors.primary} />
                             <View style={{ flex: 1 }}>
@@ -262,6 +271,12 @@ export default function ShareRecords({ profile }) {
                             </View>
                         </View>
                     ))}
+                    <ShowMore
+                        total={accessLog.length}
+                        visible={logVisible}
+                        onPress={() => setLogVisible((c) => c + 10)}
+                        noun="log entries"
+                    />
                 </View>
             )}
 

@@ -36,6 +36,7 @@ const SECTIONS = [
     {
         label: "Support",
         items: [
+            { key: "services", icon: "grid-outline", label: "Local Services" },
             { key: "helpSupport", icon: "help-circle-outline", label: "Help & Support" },
             { key: "aboutApp", icon: "information-circle-outline", label: "About BabyBook+" },
         ],

@@ -29,6 +29,8 @@ export const translations = {
         navHealth: "Health",
         navGrowth: "Growth",
         navServices: "Services",
+        navNutrition: "Nutrition",
+        navCalendar: "Calendar",
         navLogout: "Log Out",
         backToTop: "Back to Top",
 
@@ -185,6 +187,8 @@ export const translations = {
         navHealth: "Kalusugan",
         navGrowth: "Paglaki",
         navServices: "Serbisyo",
+        navNutrition: "Nutrisyon",
+        navCalendar: "Kalendaryo",
         navLogout: "Mag-log Out",
         backToTop: "Bumalik sa Taas",
 
@@ -348,6 +352,8 @@ export const translations = {
         navHealth: "Health",
         navGrowth: "Growth",
         navServices: "Services",
+        navNutrition: "Nutrition",
+        navCalendar: "Calendar",
         navLogout: "Log Out",
         backToTop: "Back sa Taas",
 
