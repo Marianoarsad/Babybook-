@@ -8,6 +8,7 @@ import { nutritionToApp, nutritionFormToRecord, toMilliliters } from "../utils/a
 import { useToast } from "./ui/Toast";
 import { DateField, TimeField } from "./ui/DateField";
 import { SectionContainerCard, ListEntryCard, EmptyStateCard } from "./common/Cards";
+import ShowMore from "./ui/ShowMore";
 
 const MILK_TYPES = ["Formula", "Breastmilk", "Mixed"];
 const UNITS = ["oz", "mL", "L"];
@@ -96,7 +97,7 @@ function milkDurations(milk) {
     return { periods, current };
 }
 
-export default function NutritionTracker({ childId }) {
+export default function NutritionTracker({ childId, initialAction, navKey }) {
     const toast = useToast();
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -122,12 +123,20 @@ export default function NutritionTracker({ childId }) {
 
     const setF = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
-    const openAdd = () => {
+    const openAdd = (presetType) => {
         setEditingId(null);
-        setForm(emptyForm());
+        setForm(presetType ? { ...emptyForm(), entryType: presetType } : emptyForm());
         setUnitOpen(false);
         setShowModal(true);
     };
+
+    // Deep-link from Dashboard's "Log Milk" / "Log Food" quick actions: open
+    // straight into the Add modal, preset to the right entry type. Mirrors
+    // the initialTab/navKey pattern Health.js and Growth.js already use.
+    useEffect(() => {
+        if (initialAction === "milk" || initialAction === "solid") openAdd(initialAction);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [navKey]);
     const openEdit = (e) => {
         setEditingId(e.id);
         setForm({
@@ -200,7 +209,7 @@ export default function NutritionTracker({ childId }) {
     );
 
     return (
-        <View>
+        <ScrollView style={styles.container}>
             {/* Analytics */}
             <SectionContainerCard title="Milk Intake Analytics" subtitle="Consumption over time">
                 <View style={styles.rangeRow}>
@@ -296,19 +305,12 @@ export default function NutritionTracker({ childId }) {
                         }
                     />
                 ))}
-                {listed.length > visibleCount ? (
-                    <TouchableOpacity
-                        style={styles.loadMoreBtn}
-                        onPress={() => setVisibleCount((c) => c + 20)}
-                        accessibilityRole="button"
-                        accessibilityLabel="Load more entries"
-                    >
-                        <Ionicons name="chevron-down" size={16} color={colors.primary} />
-                        <Text style={styles.loadMoreText}>
-                            Load more entries ({listed.length - visibleCount} remaining)
-                        </Text>
-                    </TouchableOpacity>
-                ) : null}
+                <ShowMore
+                    total={listed.length}
+                    visible={visibleCount}
+                    onPress={() => setVisibleCount((c) => c + 10)}
+                    noun="entries"
+                />
             </SectionContainerCard>
 
             {/* Add / Edit Modal */}
@@ -467,11 +469,12 @@ export default function NutritionTracker({ childId }) {
                     </ScrollView>
                 </View>
             </Modal>
-        </View>
+        </ScrollView>
     );
 }
 
 const makeStyles = (colors) => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
     rangeRow: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginBottom: space.md },
     rangeChip: {
         paddingHorizontal: space.md,
@@ -581,20 +584,6 @@ const makeStyles = (colors) => StyleSheet.create({
     dropdownOptionDivider: { borderBottomWidth: 1, borderBottomColor: colors.hairline },
     dropdownOptionText: { fontSize: 15, color: colors.textSecondary },
     dropdownOptionActive: { color: colors.primary, fontWeight: "800" },
-    loadMoreBtn: {
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 6,
-        marginTop: space.sm,
-        paddingVertical: 12,
-        borderRadius: radius.md,
-        borderCurve: "continuous",
-        borderWidth: 1,
-        borderColor: colors.border,
-        backgroundColor: colors.softGreen,
-    },
-    loadMoreText: { fontSize: 13, fontWeight: "700", color: colors.primary },
     segment: {
         flexDirection: "row",
         backgroundColor: colors.surfaceAlt,

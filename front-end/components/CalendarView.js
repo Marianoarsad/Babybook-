@@ -331,6 +331,15 @@ export default function CalendarView({ profile }) {
             </View>
 
             <ScrollView contentContainerStyle={styles.scrollContent}>
+                <View style={styles.legendRow}>
+                    {Object.entries(CATEGORY_META).map(([key, meta]) => (
+                        <View key={key} style={styles.legendItem}>
+                            <View style={[styles.legendDot, { backgroundColor: categoryColor(colors, key) }]} />
+                            <Text style={styles.legendText}>{meta.label}</Text>
+                        </View>
+                    ))}
+                </View>
+
                 {viewMode === "month" && (
                     <Calendar
                         key={monthKey}
@@ -522,6 +531,27 @@ const makeStyles = (colors) =>
             backgroundColor: colors.accentStrong,
             alignItems: "center",
             justifyContent: "center",
+        },
+        legendRow: {
+            flexDirection: "row",
+            flexWrap: "wrap",
+            gap: space.md,
+            marginBottom: space.md,
+        },
+        legendItem: {
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+        },
+        legendDot: {
+            width: 8,
+            height: 8,
+            borderRadius: 4,
+        },
+        legendText: {
+            fontSize: 11,
+            fontWeight: "700",
+            color: colors.textSecondary,
         },
         calendarCard: {
             borderRadius: radius.lg,
