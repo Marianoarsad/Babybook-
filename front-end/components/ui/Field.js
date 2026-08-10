@@ -45,7 +45,7 @@ export default function Field({
                     borderCurve: "continuous",
                     paddingHorizontal: space.lg,
                     paddingVertical: multiline ? space.md : 0,
-                    fontSize: 15,
+                    fontSize: 16,
                     color: colors.text,
                     textAlignVertical: multiline ? "top" : "center",
                 }}

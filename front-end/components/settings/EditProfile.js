@@ -156,7 +156,7 @@ const makeStyles = (colors) =>
             borderCurve: "continuous",
             paddingHorizontal: space.md,
             height: 44,
-            fontSize: 13,
+            fontSize: 16,
             color: colors.text,
         },
         saveBtn: {

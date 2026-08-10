@@ -1529,7 +1529,7 @@ const makeStyles = (colors) => StyleSheet.create({
         borderCurve: "continuous",
         paddingHorizontal: space.lg,
         height: 52,
-        fontSize: 15,
+        fontSize: 16,
         color: colors.text,
         marginBottom: space.lg,
     },

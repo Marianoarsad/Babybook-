@@ -416,7 +416,7 @@ const makeStyles = (colors) => StyleSheet.create({
         flexDirection: "row", alignItems: "center", backgroundColor: colors.surfaceAlt,
         borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 12, height: 46,
     },
-    input: { flex: 1, fontSize: 14, color: colors.text },
+    input: { flex: 1, fontSize: 16, color: colors.text },
     errorBox: {
         flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.dangerBg,
         borderRadius: 10, padding: 10, marginBottom: 12,

@@ -723,7 +723,7 @@ const makeStyles = (colors) => StyleSheet.create({
         borderRadius: 12,
         paddingHorizontal: 12,
         height: 44,
-        fontSize: 14,
+        fontSize: 16,
         color: colors.text,
         marginBottom: 16,
     },

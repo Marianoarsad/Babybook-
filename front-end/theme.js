@@ -111,15 +111,22 @@ export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
 // Corner radii (rounded, child-friendly). Use with borderCurve: "continuous".
 export const radius = { sm: 10, md: 14, lg: 20, xl: 24, pill: 999 };
 
-// Type scale.
+// Type scale. Body sits at 16 so mobile browsers don't auto-zoom on input
+// focus, and so small text stays legible for older eyes — see DESIGN.md,
+// "The 16px Floor Rule".
+//
+// NOTE: components currently hard-code their own fontSize literals instead of
+// importing this scale, so editing these values alone changes nothing on
+// screen. This is the corrected target; migrating components onto it is
+// tracked as debt in DESIGN.md.
 export const type = {
-    display: { fontSize: 27, fontWeight: "800", letterSpacing: -0.4 },
-    title: { fontSize: 20, fontWeight: "800", letterSpacing: -0.2 },
-    heading: { fontSize: 17, fontWeight: "800", letterSpacing: -0.1 },
-    body: { fontSize: 15, fontWeight: "500", lineHeight: 21 },
-    bodyStrong: { fontSize: 15, fontWeight: "700", lineHeight: 21 },
-    label: { fontSize: 13, fontWeight: "700" },
-    caption: { fontSize: 12, fontWeight: "500", lineHeight: 16 },
+    display: { fontSize: 28, fontWeight: "800", letterSpacing: -0.4 },
+    title: { fontSize: 22, fontWeight: "800", letterSpacing: -0.2 },
+    heading: { fontSize: 18, fontWeight: "800", letterSpacing: -0.1 },
+    body: { fontSize: 16, fontWeight: "500", lineHeight: 22 },
+    bodyStrong: { fontSize: 16, fontWeight: "700", lineHeight: 22 },
+    label: { fontSize: 14, fontWeight: "700" },
+    caption: { fontSize: 13, fontWeight: "500", lineHeight: 18 },
 };
 
 // Neutral, theme-independent elevation (brand pop comes from gradients/color).
