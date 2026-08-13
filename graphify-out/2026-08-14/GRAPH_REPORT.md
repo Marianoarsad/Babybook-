@@ -5,12 +5,12 @@
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1047 nodes · 1681 edges · 108 communities (69 shown, 39 thin omitted)
+- 998 nodes · 1634 edges · 99 communities (60 shown, 39 thin omitted)
 - Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 33 edges (avg confidence: 0.51)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `ffddcdf0`
+- Built from commit: `5920dccb`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -69,17 +69,8 @@
 - [[_COMMUNITY_Product|Product]]
 - [[_COMMUNITY_Part 1 — Backend|Part 1 — Backend]]
 - [[_COMMUNITY_adapters.js|adapters.js]]
-- [[_COMMUNITY_3. Primary Direction — The Yellow Card|3. Primary Direction — "The Yellow Card"]]
-- [[_COMMUNITY_App.js|App.js]]
 - [[_COMMUNITY_PrivacySettings.js|PrivacySettings.js]]
 - [[_COMMUNITY_Part 1 — Backend|Part 1 — Backend]]
-- [[_COMMUNITY_ThemeContext.js|ThemeContext.js]]
-- [[_COMMUNITY_CalendarView.js|CalendarView.js]]
-- [[_COMMUNITY_space|space]]
-- [[_COMMUNITY_radius|radius]]
-- [[_COMMUNITY_BabyBook+ — Tier 1 Remediation Plan|BabyBook+ — Tier 1 Remediation Plan]]
-- [[_COMMUNITY_PhotoAttach.js|PhotoAttach.js]]
-- [[_COMMUNITY_HelpSupport.js|HelpSupport.js]]
 - [[_COMMUNITY_graphify reference GitHub clone and cross-repo merge|graphify reference: GitHub clone and cross-repo merge]]
 - [[_COMMUNITY_graphify reference transcribe video and audio|graphify reference: transcribe video and audio]]
 - [[_COMMUNITY_CLAUDE|CLAUDE.md]]
@@ -132,24 +123,24 @@
 7. `type` - 20 edges
 8. `SectionContainerCard()` - 15 edges
 9. `expo` - 13 edges
-10. `3. Detailed Breakdown by Phase` - 12 edges
+10. `Dashboard()` - 12 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `MainAppShell()` --calls--> `useToast()`  [EXTRACTED]
-  front-end/App.js → front-end/components/ui/Toast.js
-- `MainAppShell()` --calls--> `useTheme()`  [EXTRACTED]
-  front-end/App.js → front-end/context/ThemeContext.js
-- `AppLoadingScreen()` --calls--> `useTheme()`  [EXTRACTED]
-  front-end/components/AppLoadingScreen.js → front-end/context/ThemeContext.js
-- `CalendarView()` --calls--> `useToast()`  [EXTRACTED]
-  front-end/components/CalendarView.js → front-end/components/ui/Toast.js
-- `CalendarView()` --calls--> `useTheme()`  [EXTRACTED]
-  front-end/components/CalendarView.js → front-end/context/ThemeContext.js
+- `ShareRecords()` --calls--> `ageText()`  [EXTRACTED]
+  front-end/components/ShareRecords.js → front-end/components/Dashboard.js
+- `Dashboard()` --calls--> `useToast()`  [EXTRACTED]
+  front-end/components/Dashboard.js → front-end/components/ui/Toast.js
+- `Dashboard()` --calls--> `useTheme()`  [EXTRACTED]
+  front-end/components/Dashboard.js → front-end/context/ThemeContext.js
+- `NutritionTracker()` --calls--> `useToast()`  [EXTRACTED]
+  front-end/components/NutritionTracker.js → front-end/components/ui/Toast.js
+- `NutritionTracker()` --calls--> `useTheme()`  [EXTRACTED]
+  front-end/components/NutritionTracker.js → front-end/context/ThemeContext.js
 
 ## Import Cycles
 - None detected.
 
-## Communities (108 total, 39 thin omitted)
+## Communities (99 total, 39 thin omitted)
 
 ### Community 0 - "Front-End Screens & Shared Utils"
 Cohesion: 0.20
@@ -276,7 +267,7 @@ Cohesion: 0.29
 Nodes (6): BabyBook+ Explained: What It Does and What Problem It Solves, How It Solves the Problem, Step by Step, The Problem, in Plain Terms, What BabyBook+ Actually Does, Who Uses It, Why This Matters
 
 ### Community 32 - "Data Retention vs Excess Trackers"
-Cohesion: 0.21
+Cohesion: 0.16
 Nodes (15): ageText(), Dashboard(), dayDiff(), growthTrend(), makeStyles(), relativeTime(), shareExpiryText(), useDashboardFetch() (+7 more)
 
 ### Community 34 - "Evaluation Overall Scores"
@@ -320,8 +311,8 @@ Cohesion: 0.10
 Nodes (19): LanguageContext, translations, ApiError, clearToken(), getToken(), MIME_TO_EXT, request(), setToken() (+11 more)
 
 ### Community 50 - "space"
-Cohesion: 0.17
-Nodes (24): EmptyStateCard(), ListEntryCard(), makeStyles(), MemoryVisualCard(), RadioRow(), SectionContainerCard(), EmptyChild(), Health() (+16 more)
+Cohesion: 0.05
+Nodes (104): MainAppShell(), makeStyles(), SCREEN_TITLES, AllActivity(), makeStyles(), AppLoadingScreen(), makeStyles(), MESSAGES (+96 more)
 
 ### Community 52 - "Cards.js"
 Cohesion: 0.57
@@ -332,20 +323,12 @@ Cohesion: 0.12
 Nodes (15): Accessibility & Inclusion, Brand Commitments, Capabilities and Constraints, Confirmed functionality, Evidence on Hand, Explicitly undecided, Known gaps — real, and not to be papered over, Operating Context (+7 more)
 
 ### Community 54 - "Part 1 — Backend"
-Cohesion: 0.25
-Nodes (15): bucketLabel(), buildBuckets(), dayDiffInclusive(), emptyForm(), makeStyles(), MILK_TYPES, milkDurations(), MONTHS (+7 more)
+Cohesion: 0.19
+Nodes (13): bucketLabel(), buildBuckets(), dayDiffInclusive(), emptyForm(), makeStyles(), milkDurations(), nowTime(), NutritionTracker() (+5 more)
 
 ### Community 55 - "adapters.js"
 Cohesion: 0.15
 Nodes (6): AllMemories(), makeStyles(), childToProfile(), memoryToApp(), num(), profileFormToChild()
-
-### Community 56 - "3. Primary Direction — "The Yellow Card""
-Cohesion: 0.05
-Nodes (37): 1. Executive Summary, 2.1 Token audit — what `theme.js` actually provides (143 lines), 2.2 Typography — quantified flatness, 2.3 Color usage in practice, 2.4 Architecture (`App.js`, 1596 lines), 2.5 Surface & depth, screen by screen, 2.6 Emptiness and moments, 2.7 Imagery and iconography (+29 more)
-
-### Community 57 - "App.js"
-Cohesion: 0.12
-Nodes (18): MainAppShell(), makeStyles(), SCREEN_TITLES, AppLoadingScreen(), makeStyles(), MESSAGES, AboutApp(), makeStyles() (+10 more)
 
 ### Community 58 - "PrivacySettings.js"
 Cohesion: 0.22
@@ -354,34 +337,6 @@ Nodes (13): formatCapturedAt(), makeStyles(), ProfessionalView(), RecordsView(),
 ### Community 59 - "Part 1 — Backend"
 Cohesion: 0.39
 Nodes (8): { createClient }, crypto, deleteFile(), getClient(), isStorageRef(), resolveUrl(), resolveUrlField(), uploadFile()
-
-### Community 60 - "ThemeContext.js"
-Cohesion: 0.16
-Nodes (17): QrCodeView(), styles, makeStyles(), OPTIONS, ThemePreferences(), makeStyles(), parseUserAgent(), ShareRecords() (+9 more)
-
-### Community 61 - "CalendarView.js"
-Cohesion: 0.18
-Nodes (16): CalendarView(), CATEGORY_META, categoryColor(), makeStyles(), todayISO(), GeneralSettings(), LEAD_TIME_OPTIONS, makeStyles() (+8 more)
-
-### Community 62 - "space"
-Cohesion: 0.21
-Nodes (10): AllActivity(), makeStyles(), ageAt(), makeStyles(), MemoryDetail(), prettyDate(), makeStyles(), ShowMore() (+2 more)
-
-### Community 63 - "radius"
-Cohesion: 0.24
-Nodes (11): Auth(), FEATURES, Landing(), makeStyles(), TRUST, Button(), makeVariants(), Field() (+3 more)
-
-### Community 64 - "BabyBook+ — Tier 1 Remediation Plan"
-Cohesion: 0.18
-Nodes (10): BabyBook+ — Tier 1 Remediation Plan, If I have one week, If I have three days, Job A — Move uploads to Supabase Storage (closes 3.4 + 3.5), Job B — Extend the QR snapshot to medical history and attachments (closes 3.2 + 3.3), Job C — Offline mode (closes 3.1), Option C1 — Full: stale-while-revalidate + write queue, Option C2 — Shortcut: offline consultation summary (the document's own named fallback) (+2 more)
-
-### Community 65 - "PhotoAttach.js"
-Cohesion: 0.80
-Nodes (3): PhotoAttach(), pickerAvailable(), pickImage()
-
-### Community 66 - "HelpSupport.js"
-Cohesion: 0.67
-Nodes (3): FAQS, HelpSupport(), makeStyles()
 
 ### Community 78 - "graphify reference: GitHub clone and cross-repo merge"
 Cohesion: 0.20
@@ -420,21 +375,21 @@ Cohesion: 0.67
 Nodes (3): Features, For Healthcare Professionals, For Parents
 
 ## Knowledge Gaps
-- **539 isolated node(s):** `The Problem, in Plain Terms`, `What BabyBook+ Actually Does`, `How It Solves the Problem, Step by Step`, `Who Uses It`, `Why This Matters` (+534 more)
+- **499 isolated node(s):** `SCREEN_TITLES`, `MESSAGES`, `CATEGORY_META`, `TRUST`, `FEATURES` (+494 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **39 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `useTheme()` connect `space` to `Data Retention vs Excess Trackers`, `PhotoAttach.js`, `HelpSupport.js`, `Cards.js`, `Part 1 — Backend`, `adapters.js`, `App.js`, `PrivacySettings.js`, `ThemeContext.js`, `CalendarView.js`, `space`, `radius`?**
-  _High betweenness centrality (0.028) - this node is a cross-community bridge._
+- **Why does `useTheme()` connect `space` to `Data Retention vs Excess Trackers`, `Cards.js`, `Part 1 — Backend`, `adapters.js`, `PrivacySettings.js`?**
+  _High betweenness centrality (0.036) - this node is a cross-community bridge._
 - **Why does `QrScanner()` connect `PrivacySettings.js` to `space`?**
-  _High betweenness centrality (0.008) - this node is a cross-community bridge._
-- **Why does `BabyBook+` connect `Database Bootstrap & Server Startup` to `Architecture & Conventions`, `License & Credits`, `Deployment`, `Tech Stack`, `Roadmap & Known Limitations`, `Environment Variables`, `Features`, `graphify reference: GitHub clone and cross-repo merge`, `Responsive Breakpoints`, `Premium Feature Deemed Unnecessary`, `graphify reference: transcribe video and audio`, `Graphify Update & Cluster-Only Docs`?**
-  _High betweenness centrality (0.008) - this node is a cross-community bridge._
-- **What connects `The Problem, in Plain Terms`, `What BabyBook+ Actually Does`, `How It Solves the Problem, Step by Step` to the rest of the system?**
-  _567 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _High betweenness centrality (0.016) - this node is a cross-community bridge._
+- **Why does `dependencies` connect `Provider Sharing & QR Scanning` to `PrivacySettings.js`?**
+  _High betweenness centrality (0.015) - this node is a cross-community bridge._
+- **What connects `SCREEN_TITLES`, `MESSAGES`, `CATEGORY_META` to the rest of the system?**
+  _527 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Provider Sharing & QR Scanning` be split into smaller, more focused modules?**
   _Cohesion score 0.06451612903225806 - nodes in this community are weakly interconnected._
 - **Should `Front-End Package Manifest` be split into smaller, more focused modules?**
