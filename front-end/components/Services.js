@@ -229,19 +229,19 @@ const makeStyles = (colors) => StyleSheet.create({
         marginBottom: 6,
     },
     categoryBadge: {
-        backgroundColor: colors.tintGreen,
+        backgroundColor: colors.recCheckup.bg,
         paddingVertical: 2,
         paddingHorizontal: 6,
         borderRadius: 6,
         marginRight: 8,
     },
     alertBadge: {
-        backgroundColor: colors.softCoral,
+        backgroundColor: colors.dangerBg,
     },
     categoryBadgeText: {
         fontSize: 9,
         fontWeight: "800",
-        color: colors.primary,
+        color: colors.recCheckup.on,
     },
     alertBadgeText: {
         color: colors.danger,

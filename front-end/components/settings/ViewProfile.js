@@ -1,13 +1,18 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { SectionContainerCard } from "../common/Cards";
 import { useTheme } from "../../context/ThemeContext";
-import { space, radius } from "../../theme";
+import { space, radius, type, shadow } from "../../theme";
 import { api } from "../../utils/api";
 
 // Read-only account summary. "Edit Profile" (a separate menu destination)
 // is where the guardian actually changes these fields.
+//
+// The header card below deliberately echoes Dashboard.js's own "Baby
+// Summary Card" (surface + radius.xl + hairline border + shadow.card, an
+// avatar/name block on top, an icon-led fact grid underneath) so the
+// parent's own profile reads as a sibling of the child's, not a
+// differently-designed screen.
 export default function ViewProfile({ parentName, parentAvatar, parentGender, onEdit }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -28,29 +33,31 @@ export default function ViewProfile({ parentName, parentAvatar, parentGender, on
         })();
     }, []);
 
-    const rows = [
-        { label: "Full Name", value: parentName },
-        { label: "Email Address", value: email || "—" },
-        { label: "Phone Number", value: phone || "—" },
-        { label: "Gender", value: parentGender || "—" },
+    const facts = [
+        { icon: "mail-outline", text: email || "No email on file" },
+        { icon: "call-outline", text: phone || "No phone on file" },
+        { icon: "male-female-outline", text: parentGender || "Not set" },
     ];
 
     return (
         <ScrollView style={styles.container}>
-            <View style={styles.headerBox}>
-                <Image source={{ uri: parentAvatar }} style={styles.avatarMain} />
-                <Text style={styles.parentNameText}>{parentName}</Text>
-                <Text style={styles.parentRoleText}>Primary Guardian</Text>
-            </View>
-
-            <SectionContainerCard title="Account Details" subtitle="Your BabyBook+ guardian profile">
-                {rows.map((r) => (
-                    <View key={r.label} style={styles.row}>
-                        <Text style={styles.rowLabel}>{r.label}</Text>
-                        <Text style={styles.rowValue}>{r.value}</Text>
+            <View style={styles.profileCard}>
+                <View style={styles.headerRow}>
+                    <Image source={{ uri: parentAvatar }} style={styles.avatarMain} />
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.parentNameText}>{parentName}</Text>
+                        <Text style={styles.parentRoleText}>Primary Guardian</Text>
                     </View>
-                ))}
-            </SectionContainerCard>
+                </View>
+                <View style={styles.metaGrid}>
+                    {facts.map((f, idx) => (
+                        <View key={idx} style={styles.metaItem}>
+                            <Ionicons name={f.icon} size={14} color={colors.primary} />
+                            <Text style={styles.metaText} numberOfLines={1}>{f.text}</Text>
+                        </View>
+                    ))}
+                </View>
+            </View>
 
             <TouchableOpacity onPress={onEdit} style={styles.editBtn} accessibilityRole="button">
                 <Ionicons name="create-outline" size={17} color={colors.onAccent} style={{ marginRight: 8 }} />
@@ -63,19 +70,24 @@ export default function ViewProfile({ parentName, parentAvatar, parentGender, on
 const makeStyles = (colors) =>
     StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
-        headerBox: { alignItems: "center", marginVertical: space.lg },
-        avatarMain: { width: 80, height: 80, borderRadius: 40, borderWidth: 2, borderColor: colors.primary },
-        parentNameText: { fontSize: 18, fontWeight: "800", color: colors.primary, marginTop: 10 },
-        parentRoleText: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
-        row: {
-            flexDirection: "row",
-            justifyContent: "space-between",
-            paddingVertical: 10,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.hairline,
+        profileCard: {
+            backgroundColor: colors.surface,
+            borderRadius: radius.xl,
+            borderCurve: "continuous",
+            borderWidth: 1,
+            borderColor: colors.hairline,
+            padding: space.lg,
+            marginTop: space.lg,
+            marginBottom: space.lg,
+            ...shadow.card,
         },
-        rowLabel: { fontSize: 13, fontWeight: "700", color: colors.textMuted },
-        rowValue: { fontSize: 13, fontWeight: "600", color: colors.text },
+        headerRow: { flexDirection: "row", alignItems: "center", gap: space.md },
+        avatarMain: { width: 64, height: 64, borderRadius: 32, borderWidth: 2, borderColor: colors.primary },
+        parentNameText: { ...type.heading, color: colors.primary },
+        parentRoleText: { ...type.caption, color: colors.textMuted, marginTop: 2 },
+        metaGrid: { marginTop: space.lg },
+        metaItem: { flexDirection: "row", alignItems: "center", gap: space.sm, marginBottom: space.sm },
+        metaText: { ...type.caption, color: colors.textSecondary },
         editBtn: {
             flexDirection: "row",
             height: 48,
@@ -86,5 +98,5 @@ const makeStyles = (colors) =>
             justifyContent: "center",
             marginBottom: space.xxl,
         },
-        editBtnText: { color: colors.onAccent, fontWeight: "800", fontSize: 14 },
+        editBtnText: { ...type.label, color: colors.onAccent },
     });

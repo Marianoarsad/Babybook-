@@ -1,14 +1,29 @@
 import React, { useMemo } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
-import { SectionContainerCard } from "../common/Cards";
+import { View, StyleSheet, ScrollView } from "react-native";
+import { SectionContainerCard, RadioRow } from "../common/Cards";
 import { useTheme } from "../../context/ThemeContext";
-import { space } from "../../theme";
+import { space, PALETTES, paletteFor } from "../../theme";
 
 const OPTIONS = [
-    { key: "auto", label: "Automatic", swatch: null },
-    { key: "girl", label: "Girl Theme", sub: "Always pink", swatch: "#EC4F96" },
-    { key: "boy", label: "Boy Theme", sub: "Always blue", swatch: "#2F7BF6" },
+    { key: "auto", label: "Automatic" },
+    { key: "girl", label: "Girl Theme", sub: "Always pink" },
+    { key: "boy", label: "Boy Theme", sub: "Always blue" },
 ];
+
+// 3 small dots per option, read live from theme.js's PALETTES export, so the
+// swatches are never at risk of drifting from the real palette values.
+function PaletteDots({ palette }) {
+    return (
+        <View style={{ flexDirection: "row", gap: 4 }}>
+            {[palette.primary, palette.accent, palette.primarySoft].map((c, i) => (
+                <View
+                    key={i}
+                    style={{ width: 12, height: 12, borderRadius: 6, borderWidth: 1, borderColor: palette.hairline, backgroundColor: c }}
+                />
+            ))}
+        </View>
+    );
+}
 
 export default function ThemePreferences({ themeOverride = "auto", onThemeOverrideChange, childGender }) {
     const { colors } = useTheme();
@@ -24,23 +39,17 @@ export default function ThemePreferences({ themeOverride = "auto", onThemeOverri
                             ? "Follows the selected baby's gender" +
                               (childGender ? ` (currently ${childGender === "boy" ? "Boy · Blue" : "Girl · Pink"})` : "")
                             : opt.sub;
+                    const palette =
+                        opt.key === "girl" ? PALETTES.girl : opt.key === "boy" ? PALETTES.boy : paletteFor(childGender);
                     return (
-                        <TouchableOpacity
+                        <RadioRow
                             key={opt.key}
+                            label={opt.label}
+                            sublabel={sub}
+                            selected={on}
                             onPress={() => onThemeOverrideChange && onThemeOverrideChange(opt.key)}
-                            accessibilityRole="radio"
-                            accessibilityState={{ selected: on }}
-                            style={[styles.option, on && styles.optionActive]}
-                        >
-                            <View style={[styles.radio, on && styles.radioActive]}>
-                                {on ? <View style={styles.radioDot} /> : null}
-                            </View>
-                            <View style={{ flex: 1 }}>
-                                <Text style={[styles.optionLabel, on && styles.optionLabelActive]}>{opt.label}</Text>
-                                <Text style={styles.optionSub}>{sub}</Text>
-                            </View>
-                            {opt.swatch ? <View style={[styles.swatch, { backgroundColor: opt.swatch }]} /> : null}
-                        </TouchableOpacity>
+                            trailing={<PaletteDots palette={palette} />}
+                        />
                     );
                 })}
             </SectionContainerCard>
@@ -51,32 +60,4 @@ export default function ThemePreferences({ themeOverride = "auto", onThemeOverri
 const makeStyles = (colors) =>
     StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
-        option: {
-            flexDirection: "row",
-            alignItems: "center",
-            paddingVertical: 12,
-            paddingHorizontal: 12,
-            borderRadius: 14,
-            borderWidth: 1,
-            borderColor: colors.border,
-            backgroundColor: colors.surface,
-            marginBottom: 8,
-        },
-        optionActive: { borderColor: colors.primary, backgroundColor: colors.softGreen },
-        radio: {
-            width: 20,
-            height: 20,
-            borderRadius: 10,
-            borderWidth: 2,
-            borderColor: "#D6D3D1",
-            alignItems: "center",
-            justifyContent: "center",
-            marginRight: 10,
-        },
-        radioActive: { borderColor: colors.primary },
-        radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary },
-        optionLabel: { fontSize: 14, fontWeight: "700", color: colors.text },
-        optionLabelActive: { color: colors.primary },
-        optionSub: { fontSize: 11, color: colors.textMuted, marginTop: 1 },
-        swatch: { width: 22, height: 22, borderRadius: 11 },
     });

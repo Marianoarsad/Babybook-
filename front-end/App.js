@@ -16,7 +16,14 @@ import {
 } from "react-native";
 import { LanguageProvider, useLanguage } from "./context/LanguageContext";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { colors, radius, space, shadow } from "./theme";
+import { Archivo_600SemiBold, Archivo_700Bold } from "@expo-google-fonts/archivo";
+import {
+    PublicSans_400Regular,
+    PublicSans_500Medium,
+    PublicSans_600SemiBold,
+    PublicSans_700Bold,
+} from "@expo-google-fonts/public-sans";
+import { colors, radius, space, shadow, type, MIN_TOUCH } from "./theme";
 
 // Guarded expo-font so the app still runs if it isn't available.
 let ExpoFont = null;
@@ -54,10 +61,11 @@ import ShareRecords from "./components/ShareRecords";
 import ProfessionalView from "./components/ProfessionalView";
 import EmptyChild from "./components/EmptyChild";
 import ToastProvider, { useToast } from "./components/ui/Toast";
-import SideMenu from "./components/SideMenu";
+import SideMenu, { MENU_TITLES } from "./components/SideMenu";
 import CalendarView from "./components/CalendarView";
 import AllActivity from "./components/AllActivity";
 import AllMemories from "./components/AllMemories";
+import OfflineSummaryView from "./components/OfflineSummaryView";
 import AppLoadingScreen from "./components/AppLoadingScreen";
 import { DateField, TimeField } from "./components/ui/DateField";
 import ViewProfile from "./components/settings/ViewProfile";
@@ -74,6 +82,13 @@ import { scheduleReminder, morningOf } from "./utils/notifications";
 import { childToProfile, profileFormToChild } from "./utils/adapters";
 import { pickImage, pickerAvailable } from "./utils/imagePicker";
 
+// Header title shown ("← <title>") whenever currentView is a side-menu
+// destination or Share Records — reuses SideMenu's own labels so they can't
+// drift apart. Screens absent here (the 5 bottom tabs, allActivity,
+// allMemories — the latter two already draw their own back header) keep
+// showing the baby's name instead.
+const SCREEN_TITLES = { ...MENU_TITLES, share: "Share Records", offlineSummary: "Offline Summary" };
+
 function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChange }) {
     const { language, t } = useLanguage();
     const { colors } = useTheme();
@@ -87,7 +102,16 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
         (async () => {
             try {
                 if (ExpoFont && ExpoFont.loadAsync) {
-                    await ExpoFont.loadAsync({ ...Ionicons.font, ...MaterialCommunityIcons.font });
+                    await ExpoFont.loadAsync({
+                        ...Ionicons.font,
+                        ...MaterialCommunityIcons.font,
+                        Archivo_600SemiBold,
+                        Archivo_700Bold,
+                        PublicSans_400Regular,
+                        PublicSans_500Medium,
+                        PublicSans_600SemiBold,
+                        PublicSans_700Bold,
+                    });
                 }
             } catch (e) {
                 console.log("font preload:", e.message);
@@ -119,12 +143,28 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
     // navKey bumps on every request so repeated taps re-apply the tab.
     const [navTab, setNavTab] = useState(null);
     const [navKey, setNavKey] = useState(0);
+    // Back-button history for the global header — every navigation that goes
+    // through changeView() pushes the screen it left, so goBack() can return
+    // to wherever the parent actually came from (View Profile -> Edit Profile
+    // -> back lands on View Profile, not Home). Capped so a long tab-hopping
+    // session can't grow this unbounded; back only ever needs to pop one level.
+    const historyRef = useRef([]);
     const changeView = (view, tab = null) => {
-        setCurrentView(view);
+        setCurrentView((prevView) => {
+            if (view !== prevView) {
+                historyRef.current = [...historyRef.current, prevView].slice(-10);
+            }
+            return view;
+        });
         if (tab) {
             setNavTab(tab);
             setNavKey((k) => k + 1);
         }
+    };
+    const goBack = () => {
+        const prev = historyRef.current[historyRef.current.length - 1];
+        historyRef.current = historyRef.current.slice(0, -1);
+        setCurrentView(prev || "dashboard");
     };
 
     // Floating "log something" button (bottom-right, above the tab bar) and
@@ -343,6 +383,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
         setProfiles([]);
         setSelectedProfileId(null);
         setCurrentView("dashboard");
+        historyRef.current = []; // don't let a new session's back arrow reach the old one
         try {
             await clearToken();
         } catch (e) {
@@ -582,13 +623,29 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
             {/* Dynamic Header */}
             <View style={styles.header}>
                 <View style={styles.headerLeft}>
-                    <Text style={styles.babyName}>{activeProfile.name}</Text>
+                    {SCREEN_TITLES[currentView] ? (
+                        <>
+                            <TouchableOpacity
+                                onPress={goBack}
+                                style={styles.backBtn}
+                                accessibilityRole="button"
+                                accessibilityLabel="Back"
+                            >
+                                <Ionicons name="arrow-back" size={22} color={colors.text} />
+                            </TouchableOpacity>
+                            <Text style={styles.screenTitle} numberOfLines={1}>
+                                {SCREEN_TITLES[currentView]}
+                            </Text>
+                        </>
+                    ) : (
+                        <Text style={styles.babyName}>{activeProfile.name}</Text>
+                    )}
                 </View>
                 <View style={styles.headerRight}>
                     <TouchableOpacity
                         onPress={() => {
                             setUnseenCount(0);
-                            setCurrentView("share");
+                            changeView("share");
                         }}
                         style={styles.headerQrBtn}
                     >
@@ -676,10 +733,10 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                 {currentView === "services" && <Services />}
                 {currentView === "calendar" && <CalendarView profile={activeProfile} />}
                 {currentView === "allActivity" && (
-                    <AllActivity profile={activeProfile} onClose={() => setCurrentView("dashboard")} />
+                    <AllActivity profile={activeProfile} onClose={goBack} />
                 )}
                 {currentView === "allMemories" && (
-                    <AllMemories profile={activeProfile} onClose={() => setCurrentView("dashboard")} />
+                    <AllMemories profile={activeProfile} onClose={goBack} />
                 )}
                 {currentView === "share" && (
                     <ShareRecords
@@ -687,15 +744,16 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                         immunizations={immunizations}
                         milestones={milestones}
                         appointments={appointments}
-                        onClose={() => setCurrentView("dashboard")}
+                        onClose={goBack}
                     />
                 )}
+                {currentView === "offlineSummary" && <OfflineSummaryView profile={activeProfile} />}
                 {currentView === "viewProfile" && (
                     <ViewProfile
                         parentName={parentName}
                         parentAvatar={parentAvatar}
                         parentGender={parentGender}
-                        onEdit={() => setCurrentView("editProfile")}
+                        onEdit={() => changeView("editProfile")}
                     />
                 )}
                 {currentView === "editProfile" && (
@@ -738,7 +796,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                         <TouchableOpacity
                             key={tab.key}
                             style={styles.tabItem}
-                            onPress={() => setCurrentView(tab.key)}
+                            onPress={() => changeView(tab.key)}
                             accessibilityRole="button"
                             accessibilityLabel={tab.label}
                             accessibilityState={{ selected: active }}
@@ -1237,7 +1295,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                 parentName={parentName}
                 parentAvatar={parentAvatar}
                 onNavigate={(key) => {
-                    setCurrentView(key);
+                    changeView(key);
                     setMenuOpen(false);
                 }}
                 onLogout={() => {
@@ -1342,6 +1400,14 @@ const makeStyles = (colors) => StyleSheet.create({
         color: colors.primary,
         letterSpacing: -0.2,
     },
+    backBtn: {
+        width: MIN_TOUCH,
+        height: MIN_TOUCH,
+        alignItems: "center",
+        justifyContent: "center",
+        marginLeft: -space.sm, // optical alignment with the screen content below
+    },
+    screenTitle: { ...type.heading, color: colors.text, flexShrink: 1 },
     menuBtn: {
         width: 42,
         height: 42,
@@ -1378,7 +1444,7 @@ const makeStyles = (colors) => StyleSheet.create({
         justifyContent: "center",
     },
     tabPillActive: {
-        backgroundColor: colors.softCoral,
+        backgroundColor: colors.primarySoft,
     },
     tabLabel: {
         fontSize: 11,

@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useMemo } from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import React, { useEffect, useRef, useState, useMemo } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Platform } from "react-native";
 import { useTheme } from "../context/ThemeContext";
 
 // Guarded import so the app runs even if expo-camera isn't installed.
@@ -21,6 +21,7 @@ export default function QrScanner({ onScanned, onClose }) {
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const [granted, setGranted] = useState(null);
     const [scanned, setScanned] = useState(false);
+    const flashAnim = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
         let active = true;
@@ -80,9 +81,22 @@ export default function QrScanner({ onScanned, onClose }) {
                 onBarcodeScanned={({ data }) => {
                     if (scanned) return;
                     setScanned(true);
-                    onScanned(data);
+                    Animated.sequence([
+                        Animated.timing(flashAnim, { toValue: 1, duration: 120, useNativeDriver: Platform.OS !== "web" }),
+                        Animated.timing(flashAnim, { toValue: 0, duration: 280, useNativeDriver: Platform.OS !== "web" }),
+                    ]).start();
+                    // Let the flash play before handing off — the caller
+                    // typically unmounts this screen the instant onScanned fires.
+                    setTimeout(() => onScanned(data), 260);
                 }}
             />
+            <View style={styles.viewfinder} pointerEvents="none">
+                <View style={[styles.corner, styles.cornerTL]} />
+                <View style={[styles.corner, styles.cornerTR]} />
+                <View style={[styles.corner, styles.cornerBL]} />
+                <View style={[styles.corner, styles.cornerBR]} />
+                <Animated.View style={[styles.flash, { opacity: flashAnim }]} pointerEvents="none" />
+            </View>
             <View style={styles.overlay}>
                 <Text style={styles.hint}>Point the camera at the parent's QR code</Text>
                 <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
@@ -104,6 +118,25 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     msg: { fontSize: 14, color: colors.textSecondary, textAlign: "center", marginBottom: 16, lineHeight: 20 },
     link: { fontSize: 13, color: colors.primary, fontWeight: "700" },
+    viewfinder: {
+        position: "absolute",
+        top: "50%",
+        left: "50%",
+        width: 240,
+        height: 240,
+        marginLeft: -120,
+        marginTop: -120,
+    },
+    corner: { position: "absolute", width: 32, height: 32, borderColor: "#FFFFFF" },
+    cornerTL: { top: 0, left: 0, borderTopWidth: 4, borderLeftWidth: 4, borderTopLeftRadius: 12 },
+    cornerTR: { top: 0, right: 0, borderTopWidth: 4, borderRightWidth: 4, borderTopRightRadius: 12 },
+    cornerBL: { bottom: 0, left: 0, borderBottomWidth: 4, borderLeftWidth: 4, borderBottomLeftRadius: 12 },
+    cornerBR: { bottom: 0, right: 0, borderBottomWidth: 4, borderRightWidth: 4, borderBottomRightRadius: 12 },
+    flash: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: colors.success,
+        borderRadius: 12,
+    },
     overlay: {
         position: "absolute",
         bottom: 40,

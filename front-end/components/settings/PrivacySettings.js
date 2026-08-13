@@ -5,7 +5,7 @@ import { SectionContainerCard } from "../common/Cards";
 import { api } from "../../utils/api";
 import { useToast } from "../ui/Toast";
 import { useTheme } from "../../context/ThemeContext";
-import { space, radius } from "../../theme";
+import { space, radius, type, shadow } from "../../theme";
 import { exportChildRecordsPdf, pdfExportAvailable } from "../../utils/exportPdf";
 import { CATEGORY_LABELS } from "../../utils/pdfTemplate";
 
@@ -87,8 +87,30 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
         : "—";
     const consentDate = user?.consentDate ? new Date(user.consentDate).toLocaleDateString() : "—";
 
+    // Consent-status banner — the one thing worth knowing at a glance before
+    // reading the detail rows below. Only two states are backed by real data
+    // (consentReviewDue is a plain yes/no from the API), so the banner uses
+    // the "overdue" ramp when review is due and "completed" otherwise rather
+    // than inventing a third "upcoming" bucket we have no date to drive.
+    const reviewDue = !!user?.consentReviewDue;
+    const bannerColor = reviewDue ? colors.overdue : colors.completed;
+    const bannerBg = reviewDue ? colors.overdueBg : colors.completedBg;
+
     return (
         <ScrollView style={styles.container}>
+            <View style={[styles.consentBanner, { backgroundColor: bannerBg }, reviewDue && shadow.active(colors.warning)]}>
+                <Ionicons
+                    name={reviewDue ? "alert-circle" : "checkmark-circle"}
+                    size={20}
+                    color={bannerColor}
+                />
+                <Text style={[styles.consentBannerText, { color: bannerColor }]}>
+                    {reviewDue
+                        ? "Annual consent review is due — renew below to keep your data active."
+                        : "Your consent is up to date."}
+                </Text>
+            </View>
+
             <SectionContainerCard
                 title="Data Privacy Act of 2012 (RA 10173)"
                 subtitle="Your consent and data-retention status"
@@ -134,7 +156,7 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
                                         accessibilityState={{ checked: on }}
                                     >
                                         <View style={[styles.checkbox, on && styles.checkboxOn]}>
-                                            {on && <Ionicons name="checkmark" size={13} color="#FFFFFF" />}
+                                            {on && <Ionicons name="checkmark" size={13} color={colors.onPrimary} />}
                                         </View>
                                         <Text style={styles.exportLabel}>{CATEGORY_LABELS[key]}</Text>
                                     </TouchableOpacity>
@@ -213,6 +235,16 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
 const makeStyles = (colors) =>
     StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
+        consentBanner: {
+            flexDirection: "row",
+            alignItems: "center",
+            gap: space.sm,
+            borderRadius: radius.lg,
+            borderCurve: "continuous",
+            padding: space.md,
+            marginBottom: space.lg,
+        },
+        consentBannerText: { ...type.bodyStrong, flex: 1 },
         row: {
             flexDirection: "row",
             justifyContent: "space-between",
@@ -220,11 +252,11 @@ const makeStyles = (colors) =>
             borderBottomWidth: 1,
             borderBottomColor: colors.hairline,
         },
-        rowLabel: { fontSize: 13, fontWeight: "700", color: colors.textMuted },
-        rowValue: { fontSize: 13, fontWeight: "600", color: colors.text },
+        rowLabel: { ...type.label, color: colors.textMuted },
+        rowValue: { ...type.label, color: colors.text },
         exportGrid: { marginBottom: space.md },
         exportRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 7 },
-        exportLabel: { fontSize: 13, color: colors.text, fontWeight: "600" },
+        exportLabel: { ...type.label, color: colors.text },
         checkbox: {
             width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: colors.primary,
             alignItems: "center", justifyContent: "center", backgroundColor: colors.surface,
@@ -239,8 +271,8 @@ const makeStyles = (colors) =>
             alignItems: "center",
             marginTop: space.md,
         },
-        renewBtnText: { color: colors.onAccent, fontWeight: "700", fontSize: 13 },
-        warnText: { fontSize: 13, color: colors.textSecondary, lineHeight: 18, marginBottom: space.md },
+        renewBtnText: { ...type.label, color: colors.onAccent },
+        warnText: { ...type.caption, color: colors.textSecondary, marginBottom: space.md },
         deleteBtn: {
             height: 44,
             borderRadius: radius.md,
@@ -249,7 +281,7 @@ const makeStyles = (colors) =>
             justifyContent: "center",
             alignItems: "center",
         },
-        deleteBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 13 },
+        deleteBtnText: { ...type.label, color: colors.onPrimary },
         cancelBtn: { alignItems: "center", paddingVertical: 12, marginTop: space.xs },
-        cancelBtnText: { color: colors.textSecondary, fontWeight: "700", fontSize: 13 },
+        cancelBtnText: { ...type.label, color: colors.textSecondary },
     });

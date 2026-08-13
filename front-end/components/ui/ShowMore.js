@@ -44,5 +44,5 @@ const makeStyles = (colors) =>
             borderColor: colors.border,
             backgroundColor: colors.softGreen,
         },
-        loadMoreText: { fontSize: 13, fontWeight: "700", color: colors.primary },
+        loadMoreText: { fontSize: 13, fontWeight: "700", color: colors.primaryDark },
     });

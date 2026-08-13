@@ -379,6 +379,25 @@ function RecordsView({ session, onEnd, onExit }) {
                 </Section>
             )}
 
+            {p.medicalHistory && (
+                <Section icon="pulse-outline" title={RECORD_LABELS.medicalHistory}>
+                    {p.medicalHistory.length === 0 && <Text style={styles.empty}>No records.</Text>}
+                    {p.medicalHistory.map((m, i) => (
+                        <View key={i} style={styles.listItem}>
+                            <View style={[styles.dot, { backgroundColor: m.resolved ? "#22C55E" : "#EF4444" }]} />
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.itemTitle}>
+                                    {m.title || m.category} <Text style={styles.itemSub}>· {m.category}</Text>
+                                </Text>
+                                <Text style={styles.itemSub}>
+                                    {[m.date_recorded, m.resolved ? "resolved" : "ongoing"].filter(Boolean).join(" · ")}
+                                </Text>
+                            </View>
+                        </View>
+                    ))}
+                </Section>
+            )}
+
             <View style={styles.readOnlyNote}>
                 <Ionicons name="lock-closed" size={13} color={colors.textMuted} />
                 <Text style={styles.readOnlyText}>
@@ -444,7 +463,7 @@ const makeStyles = (colors) => StyleSheet.create({
         flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: colors.surfaceAlt,
         borderRadius: 12, padding: 10, marginTop: 10, marginBottom: 14,
     },
-    snapshotBannerStale: { backgroundColor: colors.tintAmber },
+    snapshotBannerStale: { backgroundColor: colors.warningBg },
     snapshotText: { fontSize: 12, color: colors.textMuted, fontWeight: "600" },
     snapshotTextStale: { color: colors.warning, fontWeight: "800" },
     snapshotWarningText: { fontSize: 11, color: colors.warning, marginTop: 3, lineHeight: 15 },

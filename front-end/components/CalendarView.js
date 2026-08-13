@@ -521,7 +521,7 @@ const makeStyles = (colors) =>
         },
         switcherBtnActive: { backgroundColor: colors.softGreen },
         switcherText: { fontSize: 12, fontWeight: "700", color: colors.textMuted },
-        switcherTextActive: { color: colors.primary },
+        switcherTextActive: { color: colors.primaryDark },
         todayBtn: { marginLeft: "auto", paddingVertical: 8, paddingHorizontal: space.md },
         todayBtnText: { fontSize: 12, fontWeight: "800", color: colors.accentStrong },
         addEventBtn: {
@@ -662,7 +662,7 @@ const makeStyles = (colors) =>
         },
         leadOptionActive: { borderColor: colors.primary, backgroundColor: colors.softGreen },
         leadOptionText: { fontSize: 12, fontWeight: "700", color: colors.textMuted },
-        leadOptionTextActive: { color: colors.primary },
+        leadOptionTextActive: { color: colors.primaryDark },
         modalButtons: { flexDirection: "row", justifyContent: "flex-end", gap: space.md, marginTop: space.lg },
         modalCancelBtn: {
             paddingVertical: 12,

@@ -1,8 +1,8 @@
 import React, { useMemo } from "react";
-import { View, Text, StyleSheet, ScrollView, Image } from "react-native";
+import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { SectionContainerCard } from "../common/Cards";
 import { useTheme } from "../../context/ThemeContext";
-import { space } from "../../theme";
+import { space, radius, type } from "../../theme";
 
 const APP_VERSION = "1.0.0";
 
@@ -12,9 +12,14 @@ export default function AboutApp() {
 
     return (
         <ScrollView style={styles.container}>
+            {/* Version-plate hero — anchors the app identity + clinical
+                credibility claim before the reference sections below. */}
             <View style={styles.brandBox}>
                 <Text style={styles.brandTitle}>BabyBook+</Text>
                 <Text style={styles.brandVersion}>Version {APP_VERSION}</Text>
+                <View style={styles.epiBadge}>
+                    <Text style={styles.epiBadgeText}>DOH-aligned EPI schedule</Text>
+                </View>
             </View>
 
             <SectionContainerCard title="About This App">
@@ -41,7 +46,16 @@ const makeStyles = (colors) =>
     StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
         brandBox: { alignItems: "center", marginVertical: space.lg },
-        brandTitle: { fontSize: 22, fontWeight: "800", color: colors.primary },
-        brandVersion: { fontSize: 12, color: colors.textMuted, marginTop: 4 },
-        paragraph: { fontSize: 13, color: colors.textSecondary, lineHeight: 19 },
+        brandTitle: { ...type.display, color: colors.primary },
+        brandVersion: { ...type.caption, color: colors.textMuted, marginTop: 4 },
+        epiBadge: {
+            backgroundColor: colors.recVaccine.bg,
+            borderRadius: radius.pill,
+            borderCurve: "continuous",
+            paddingVertical: 6,
+            paddingHorizontal: space.md,
+            marginTop: space.md,
+        },
+        epiBadgeText: { ...type.label, color: colors.recVaccine.on },
+        paragraph: { ...type.body, color: colors.textSecondary },
     });

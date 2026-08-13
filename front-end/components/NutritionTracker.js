@@ -270,7 +270,7 @@ export default function NutritionTracker({ childId, initialAction, navKey }) {
                     </TouchableOpacity>
                 }
             >
-                {listed.length === 0 && <EmptyStateCard message="No nutrition entries yet. Tap Add to log milk or solids." />}
+                {listed.length === 0 && <EmptyStateCard message="No nutrition entries yet. Tap Add to log milk or solids." icon="restaurant-outline" />}
                 {listed.slice(0, visibleCount).map((e) => (
                     <ListEntryCard
                         key={e.id}
@@ -292,7 +292,7 @@ export default function NutritionTracker({ childId, initialAction, navKey }) {
                                 color={colors.primary}
                             />
                         }
-                        iconBg={e.entryType === "milk" ? colors.tintBlue : colors.tintAmber}
+                        iconBg={e.entryType === "milk" ? colors.infoBg : colors.recNutrition.bg}
                         actions={
                             <View style={{ flexDirection: "row", gap: space.sm }}>
                                 <TouchableOpacity onPress={() => openEdit(e)} accessibilityRole="button" accessibilityLabel="Edit entry">
@@ -486,7 +486,7 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     rangeChipActive: { backgroundColor: colors.softGreen, borderColor: colors.primary },
     rangeChipText: { fontSize: 12, fontWeight: "700", color: colors.textMuted },
-    rangeChipTextActive: { color: colors.primary },
+    rangeChipTextActive: { color: colors.primaryDark },
     chart: { flexDirection: "row", alignItems: "flex-end", gap: space.md, paddingVertical: space.sm, minHeight: 160 },
     barCol: { alignItems: "center", width: 34 },
     bar: {

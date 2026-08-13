@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useMemo } from "react";
-import { paletteFor, PALETTES, space, radius, type, shadow, MIN_TOUCH } from "../theme";
+import { paletteFor, PALETTES, space, radius, type, shadow, MIN_TOUCH, motion } from "../theme";
 
 // Centralized runtime theme. The active color palette is derived from the
 // selected child's gender, with an optional manual override from Settings:
@@ -15,6 +15,7 @@ const defaultValue = {
     type,
     shadow,
     MIN_TOUCH,
+    motion,
 };
 
 const ThemeContext = createContext(defaultValue);
@@ -30,7 +31,7 @@ export function ThemeProvider({ gender, override = "auto", children }) {
                   : gender === "girl" || gender === "Female"
                     ? "girl"
                     : "neutral";
-        return { colors, mode, space, radius, type, shadow, MIN_TOUCH };
+        return { colors, mode, space, radius, type, shadow, MIN_TOUCH, motion };
     }, [gender, override]);
 
     return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

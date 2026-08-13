@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { View, Text, TouchableOpacity, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { radius, space } from "../../theme";
+import { radius, space, type } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
 
 // Cross-platform date / time picker.
@@ -61,13 +61,13 @@ function PickerField({
     const [show, setShow] = useState(false);
 
     const labelNode = label ? (
-        <Text style={{ fontSize: 13, fontWeight: "700", color: colors.textSecondary }}>
+        <Text style={{ ...type.label, color: colors.textSecondary }}>
             {label}
             {required ? <Text style={{ color: colors.danger }}> *</Text> : null}
         </Text>
     ) : null;
     const helperNode = helper ? (
-        <Text style={{ fontSize: 12, color: colors.textMuted }}>{helper}</Text>
+        <Text style={{ ...type.caption, color: colors.textMuted }}>{helper}</Text>
     ) : null;
 
     // --- Web: real browser date/time input ---
@@ -90,9 +90,9 @@ function PickerField({
                         border: `1px solid ${colors.border}`,
                         borderRadius: radius.md,
                         padding: "0 12px",
-                        fontSize: 15,
+                        fontSize: type.body.fontSize,
                         color: value ? colors.text : colors.placeholder,
-                        fontFamily: "inherit",
+                        fontFamily: "PublicSans_400Regular, inherit",
                         outline: "none",
                     }}
                 />
@@ -107,7 +107,7 @@ function PickerField({
             <View style={{ gap: space.xs, marginBottom: space.md }}>
                 {labelNode}
                 <View style={inputBox(colors)}>
-                    <Text style={{ fontSize: 15, color: value ? colors.text : colors.placeholder }}>
+                    <Text style={{ ...type.body, color: value ? colors.text : colors.placeholder }}>
                         {value || placeholder || (mode === "time" ? "HH:MM" : "YYYY-MM-DD")}
                     </Text>
                     <Ionicons name={mode === "time" ? "time-outline" : "calendar-outline"} size={18} color={colors.textMuted} />

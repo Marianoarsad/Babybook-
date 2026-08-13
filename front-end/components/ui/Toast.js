@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useCallback, useRef, useState } from "react";
+import React, { createContext, useContext, useCallback, useMemo, useRef, useState } from "react";
 import { Animated, Text, View, StyleSheet, Easing } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, radius, space, shadow } from "../../theme";
+import { radius, space, shadow, type } from "../../theme";
+import { useTheme } from "../../context/ThemeContext";
 
 // Lightweight, non-blocking toast to replace blocking alert()/Alert.alert calls.
 // Usage:
@@ -19,13 +20,19 @@ export function useToast() {
     return useContext(ToastContext);
 }
 
-const KIND = {
-    success: { icon: "checkmark-circle", color: colors.success, bg: colors.successBg },
-    error: { icon: "alert-circle", color: colors.danger, bg: colors.dangerBg },
-    info: { icon: "information-circle", color: colors.info, bg: colors.softGreen },
-};
-
 export function ToastProvider({ children }) {
+    const { colors } = useTheme();
+    // KIND must be built from the live palette, not the static default — a
+    // toast previously always rendered girl-pink regardless of the selected
+    // child's theme because this read the module-scope `colors` import.
+    const KIND = useMemo(
+        () => ({
+            success: { icon: "checkmark-circle", color: colors.success, bg: colors.successBg },
+            error: { icon: "alert-circle", color: colors.danger, bg: colors.dangerBg },
+            info: { icon: "information-circle", color: colors.info, bg: colors.infoBg },
+        }),
+        [colors]
+    );
     const [toast, setToast] = useState(null); // { message, kind }
     const opacity = useRef(new Animated.Value(0)).current;
     const translateY = useRef(new Animated.Value(20)).current;
@@ -108,7 +115,7 @@ const styles = StyleSheet.create({
         borderRadius: radius.md,
         borderCurve: "continuous",
     },
-    text: { fontSize: 14, fontWeight: "700", flexShrink: 1 },
+    text: { ...type.label, flexShrink: 1 },
 });
 
 export default ToastProvider;

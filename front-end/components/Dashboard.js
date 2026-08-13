@@ -1,28 +1,32 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
     View,
     Text,
     StyleSheet,
     Image,
     TouchableOpacity,
+    Pressable,
     ScrollView,
     TextInput,
     Modal,
 } from "react-native";
 import { useLanguage } from "../context/LanguageContext";
-import { EmptyStateCard } from "./common/Cards";
+import { EmptyStateCard, SectionContainerCard, MemoryVisualCard } from "./common/Cards";
 import MemoryDetail from "./MemoryDetail";
 import GrowthChart from "./GrowthChart";
+import { DashboardSkeleton } from "./ui/Skeleton";
+import Button from "./ui/Button";
 import { Ionicons } from "@expo/vector-icons";
-import { radius, space, shadow } from "../theme";
+import { radius, space, shadow, type } from "../theme";
 import { useTheme } from "../context/ThemeContext";
 import { api } from "../utils/api";
 import { memoryToApp, toMilliliters } from "../utils/adapters";
 import { pickImage, pickerAvailable } from "../utils/imagePicker";
 import { useToast } from "./ui/Toast";
+import { cacheSummary } from "../utils/offlineSummary";
 
 // Age in a friendly form ("15 months", "2y 3m") from a YYYY-MM-DD DOB.
-function ageText(dob) {
+export function ageText(dob) {
     if (!dob) return "";
     const b = new Date(`${String(dob).slice(0, 10)}T00:00:00`);
     if (isNaN(b.getTime())) return "";
@@ -116,6 +120,44 @@ function growthTrend(rows) {
     return result;
 }
 
+// Local, minimal — theme colors are 6-digit hex today. Guards against a
+// future non-hex token by passing it through unmodified instead of
+// concatenating garbage onto it. (The same color+"1A" pattern exists in
+// AllActivity.js / CalendarView.js / Button.js — out of scope here.)
+const withAlpha = (hex, alphaHex) =>
+    typeof hex === "string" && hex.startsWith("#") ? hex + alphaHex : hex;
+
+// Runs `loader(isActive)` whenever `deps` change, tracking loading/error
+// uniformly and exposing retry(). `loader` receives isActive() so it can bail
+// out on stale results exactly like a manual `if (!active) return;` guard
+// would — this only centralizes that bookkeeping across Dashboard's three
+// fetches, it doesn't change what each one fetches.
+function useDashboardFetch(loader, deps) {
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [nonce, setNonce] = useState(0);
+    const activeRef = useRef(true);
+    useEffect(() => {
+        activeRef.current = true;
+        setLoading(true);
+        setError(null);
+        loader(() => activeRef.current)
+            .catch((e) => {
+                if (activeRef.current) {
+                    setError(e?.message || "Couldn't load. Check your connection and try again.");
+                }
+            })
+            .finally(() => {
+                if (activeRef.current) setLoading(false);
+            });
+        return () => {
+            activeRef.current = false;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [...deps, nonce]);
+    return { loading, error, retry: useCallback(() => setNonce((n) => n + 1), []) };
+}
+
 export default function Dashboard({
     profile,
     profiles,
@@ -139,29 +181,47 @@ export default function Dashboard({
     const [activity, setActivity] = useState([]);
     const [upcoming, setUpcoming] = useState(null);
     const [vaxProgress, setVaxProgress] = useState(null);
+    const [nextVax, setNextVax] = useState(null);
     const [overdueVax, setOverdueVax] = useState([]);
     const [ongoingConcern, setOngoingConcern] = useState([]);
     const [todayFeeding, setTodayFeeding] = useState(null);
     const [activeShares, setActiveShares] = useState([]);
     const [summaryExpanded, setSummaryExpanded] = useState(false);
-    useEffect(() => {
-        let active = true;
-        (async () => {
-            try {
-                const [vax, checkups, nutrition, milestones, medHistory, events, shares] = await Promise.all([
-                    api.listRecords(profile.id, "vaccinations").catch(() => []),
-                    api.listRecords(profile.id, "checkups").catch(() => []),
-                    api.listRecords(profile.id, "nutrition").catch(() => []),
-                    api.listRecords(profile.id, "milestones").catch(() => []),
-                    api.listRecords(profile.id, "medical-history").catch(() => []),
-                    // Custom calendar events — only exist once the calendar_events
-                    // migration has run (CLAUDE.md, "Pending user action"). This
-                    // catch keeps the rest of the dashboard working either way.
-                    api.listRecords(profile.id, "calendar-events").catch(() => []),
-                    api.listShares(profile.id).catch(() => []),
-                ]);
-                if (!active) return;
-                const todayStr = new Date().toISOString().slice(0, 10);
+    // Tracks profile IDs whose avatar URL is present but failed to actually
+    // load — e.g. an upload that's since been wiped (see PRODUCT.md's known
+    // gap: uploads sit on an ephemeral filesystem). A truthy-but-dead URL
+    // otherwise slips past the `avatarUrl ? Image : fallback` check below and
+    // renders as a blank circle instead of the fallback it was meant to show.
+    const [brokenAvatars, setBrokenAvatars] = useState(() => new Set());
+    const loadActivityBundle = useCallback(async (isActive) => {
+        const failed = [];
+        const safe = (p, label) =>
+            p.catch((e) => {
+                failed.push(label);
+                return [];
+            });
+        const [vax, checkups, nutrition, milestones, medHistory, events, shares] = await Promise.all([
+            safe(api.listRecords(profile.id, "vaccinations"), "vaccinations"),
+            safe(api.listRecords(profile.id, "checkups"), "checkups"),
+            safe(api.listRecords(profile.id, "nutrition"), "nutrition"),
+            safe(api.listRecords(profile.id, "milestones"), "milestones"),
+            safe(api.listRecords(profile.id, "medical-history"), "medical-history"),
+            // Custom calendar events — only exist once the calendar_events
+            // migration has run (CLAUDE.md, "Pending user action"). `safe()`
+            // keeps the rest of the dashboard working either way, while still
+            // letting a genuine outage surface below instead of being hidden.
+            safe(api.listRecords(profile.id, "calendar-events"), "calendar-events"),
+            safe(api.listShares(profile.id), "shares"),
+        ]);
+        if (!isActive()) return;
+
+        // Cache a flattened offline-consultation summary from the data this
+        // load already fetched — no extra request. Best-effort: a parent
+        // opening the app with a live connection should always leave with a
+        // fresh copy on the device, ready for the next time they don't have one.
+        cacheSummary(profile, { vaccinations: vax, checkups, medicalHistory: medHistory }).catch(() => {});
+
+        const todayStr = new Date().toISOString().slice(0, 10);
                 const items = [];
                 (vax || [])
                     .filter((v) => v.status === "completed" && v.date_given)
@@ -262,6 +322,15 @@ export default function Dashboard({
                     total: (vax || []).length,
                 });
 
+                // Soonest dose still to be given. Same filter the upcoming-appointment
+                // box uses for vaccinations (above) — overdue doses are deliberately
+                // excluded, they're the Needs Attention strip's job.
+                setNextVax(
+                    (vax || [])
+                        .filter((v) => v.status !== "completed" && v.due_date && v.due_date >= todayStr)
+                        .sort((a, b) => a.due_date.localeCompare(b.due_date))[0] || null,
+                );
+
                 // Needs Attention: vaccinations past their due date and still
                 // not given, plus illnesses and hospitalizations not yet
                 // marked resolved (a current hospital stay is at least as
@@ -302,36 +371,36 @@ export default function Dashboard({
                 } else {
                     setTodayFeeding(null);
                 }
-            } catch (e) {
-                console.log("load activity:", e.message);
-            }
-        })();
-        return () => {
-            active = false;
-        };
+        if (failed.length) {
+            // Some sources didn't load — the dashboard still shows whatever
+            // did, but this keeps "failed to load" from reading identically
+            // to "this child genuinely has no history yet".
+            throw new Error("Some records may not be up to date. Retry to refresh.");
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [profile.id]);
+    const {
+        loading: activityLoading,
+        error: activityError,
+        retry: retryActivity,
+    } = useDashboardFetch(loadActivityBundle, [profile.id]);
 
     // Growth history — separate fetch, since nothing else on this screen
     // needs the measurement history. Kept raw (growthRows) for the chart, on
     // top of the computed faster/slower verdict (trend) the summary card uses.
     const [trend, setTrend] = useState(null);
     const [growthRows, setGrowthRows] = useState([]);
-    useEffect(() => {
-        let active = true;
-        (async () => {
-            try {
-                const rows = await api.listRecords(profile.id, "growth");
-                if (!active) return;
-                setTrend(growthTrend(rows));
-                setGrowthRows(rows || []);
-            } catch (e) {
-                console.log("load growth trend:", e.message);
-            }
-        })();
-        return () => {
-            active = false;
-        };
+    const loadGrowth = useCallback(async (isActive) => {
+        const rows = await api.listRecords(profile.id, "growth");
+        if (!isActive()) return;
+        setTrend(growthTrend(rows));
+        setGrowthRows(rows || []);
     }, [profile.id]);
+    const {
+        loading: growthLoading,
+        error: growthError,
+        retry: retryGrowth,
+    } = useDashboardFetch(loadGrowth, [profile.id]);
 
     // Photo memories load from and persist to the backend.
     const [memories, setMemories] = useState([]);
@@ -340,20 +409,25 @@ export default function Dashboard({
     const [memCaption, setMemCaption] = useState("");
     const [memNotes, setMemNotes] = useState("");
     const [memPhotoUri, setMemPhotoUri] = useState("");
-    useEffect(() => {
-        let active = true;
-        (async () => {
-            try {
-                const rows = await api.listRecords(profile.id, "memories");
-                if (active) setMemories(rows.map(memoryToApp));
-            } catch (e) {
-                console.log("load memories:", e.message);
-            }
-        })();
-        return () => {
-            active = false;
-        };
+    const [savingMemory, setSavingMemory] = useState(false);
+    const loadMemories = useCallback(async (isActive) => {
+        const rows = await api.listRecords(profile.id, "memories");
+        if (!isActive()) return;
+        setMemories(rows.map(memoryToApp));
     }, [profile.id]);
+    const {
+        loading: memoriesLoading,
+        error: memoriesError,
+        retry: retryMemories,
+    } = useDashboardFetch(loadMemories, [profile.id]);
+
+    const dashboardLoading = activityLoading || growthLoading || memoriesLoading;
+    const dashboardError = activityError || growthError || memoriesError;
+    const retryAll = () => {
+        retryActivity();
+        retryGrowth();
+        retryMemories();
+    };
 
     // Arriving here from the floating log button's "Add Memory" choice opens
     // the form automatically, the same pattern NutritionTracker.js uses for
@@ -371,10 +445,7 @@ export default function Dashboard({
         const notes = memNotes;
         const photoUri = memPhotoUri;
         const date_recorded = new Date().toISOString().split("T")[0];
-        setShowMemoryModal(false);
-        setMemCaption("");
-        setMemNotes("");
-        setMemPhotoUri("");
+        setSavingMemory(true);
         try {
             const saved = photoUri
                 ? await api.uploadMemory(profile.id, { photoUri, caption, notes, date_recorded })
@@ -386,8 +457,16 @@ export default function Dashboard({
                   });
             setMemories((prev) => [memoryToApp(saved), ...prev]);
             toast.success("Memory saved");
+            // Only clear the form and close on success — on failure the user's
+            // typed caption/notes/photo stay in place instead of vanishing.
+            setShowMemoryModal(false);
+            setMemCaption("");
+            setMemNotes("");
+            setMemPhotoUri("");
         } catch (e) {
             toast.error(e.message || "Could not save memory");
+        } finally {
+            setSavingMemory(false);
         }
     };
 
@@ -412,8 +491,16 @@ export default function Dashboard({
     const babyMeta = [
         { icon: profile.gender === "boy" ? "male" : "female", text: null, a11y: sexLabel },
         { icon: "time-outline", text: ageText(profile.dateOfBirth) || "—", a11y: null },
-        { icon: "scale-outline", text: `${fmt(weight, trend ? trend.weightDelta : null)} kg`, a11y: null },
-        { icon: "resize-outline", text: `${fmt(height, trend ? trend.heightDelta : null)} cm`, a11y: null },
+        {
+            icon: "scale-outline",
+            text: weight != null ? `${fmt(weight, trend ? trend.weightDelta : null)} kg` : "No weight recorded",
+            a11y: null,
+        },
+        {
+            icon: "resize-outline",
+            text: height != null ? `${fmt(height, trend ? trend.heightDelta : null)} cm` : "No height recorded",
+            a11y: null,
+        },
     ];
     if (headCirc != null) {
         babyMeta.push({ icon: "ellipse-outline", text: `${Number(headCirc)} cm head`, a11y: null });
@@ -459,15 +546,30 @@ export default function Dashboard({
                         contentContainerStyle={styles.profilesScroll}
                     >
                         {profiles.map((p) => (
-                            <TouchableOpacity
+                            <Pressable
                                 key={p.id}
                                 onPress={() => onSelectProfile(p.id)}
-                                style={[styles.profileTab, profile.id === p.id && styles.profileTabActive]}
+                                style={({ pressed, hovered, focused }) => [
+                                    styles.profileTab,
+                                    profile.id === p.id && styles.profileTabActive,
+                                    { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
+                                    focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.accent, "59")}` } : null,
+                                ]}
                                 accessibilityRole="button"
                                 accessibilityLabel={`Switch to ${p.name}`}
                             >
-                                <Image source={{ uri: p.avatarUrl }} style={styles.avatarMini} />
-                            </TouchableOpacity>
+                                {p.avatarUrl && !brokenAvatars.has(p.id) ? (
+                                    <Image
+                                        source={{ uri: p.avatarUrl }}
+                                        style={styles.avatarMini}
+                                        onError={() => setBrokenAvatars((prev) => new Set(prev).add(p.id))}
+                                    />
+                                ) : (
+                                    <View style={[styles.avatarMini, styles.avatarFallback]}>
+                                        <Ionicons name="person" size={16} color={colors.primary} />
+                                    </View>
+                                )}
+                            </Pressable>
                         ))}
                         <TouchableOpacity
                             onPress={onOpenAddModal}
@@ -488,11 +590,63 @@ export default function Dashboard({
                 </View>
             )}
 
+            {dashboardError ? (
+                <TouchableOpacity
+                    style={styles.errorBanner}
+                    onPress={retryAll}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${dashboardError} Tap to retry.`}
+                >
+                    <Ionicons name="alert-circle-outline" size={16} color={colors.danger} />
+                    <Text style={styles.errorBannerText}>{dashboardError}</Text>
+                    <Text style={styles.errorBannerRetry}>Retry</Text>
+                </TouchableOpacity>
+            ) : null}
+
+            {dashboardLoading ? (
+                <DashboardSkeleton />
+            ) : (
+                <>
             {/* Needs Attention — only renders when something actually needs it,
                 so a normal day still looks calm. Medications are deliberately
                 left out: the medication record has no start/end date or
                 resolved flag, so "currently taking this" can't be worked out
                 reliably from the data as it stands. */}
+            {/* Zero-data rule for this screen's sections:
+                 - Always-present habitual-log cards (Feeding) show an inline
+                   zero-state CTA inside the same persistent card.
+                 - List/gallery sections (Milestone Memories, Recent Activity)
+                   show EmptyStateCard, DESIGN.md's dedicated empty-state
+                   surface.
+                 - Occasional call-out cards (Upcoming, Vaccination Progress,
+                   Needs Attention, Active Share) render nothing when there's
+                   nothing to say — that's intentional, not a bug: a permanent
+                   "no upcoming appointment" card would manufacture urgency on
+                   an ordinary day. */}
+            {/* Offline Summary — always visible, not conditional on a failed
+                fetch. A parent needs to prepare this at home while there's
+                still signal, not discover it only after the connection has
+                already failed them at the clinic. */}
+            <Pressable
+                style={({ pressed, hovered, focused }) => [
+                    styles.offlineCard,
+                    { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
+                    focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.primary, "59")}` } : null,
+                ]}
+                onPress={() => nav("offlineSummary")}
+                accessibilityRole="button"
+                accessibilityLabel="View offline consultation summary"
+            >
+                <View style={styles.offlineIcon}>
+                    <Ionicons name="cloud-offline-outline" size={18} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                    <Text style={styles.offlineLabel}>Offline Summary</Text>
+                    <Text style={styles.offlineSub}>Works without signal — worth opening once while you have it</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+            </Pressable>
+
             {hasNeedsAttention ? (
                 <View style={styles.attentionCard}>
                     <View style={styles.attentionHeader}>
@@ -500,27 +654,35 @@ export default function Dashboard({
                         <Text style={styles.attentionTitle}>Needs Attention</Text>
                     </View>
                     {attentionItems.slice(0, 1).map((item) => (
-                        <TouchableOpacity
+                        <Pressable
                             key={item.key}
-                            style={styles.attentionRow}
+                            style={({ pressed, hovered, focused }) => [
+                                styles.attentionRow,
+                                { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
+                                focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.danger, "59")}` } : null,
+                            ]}
                             onPress={() => nav("health", item.tab)}
                             accessibilityRole="button"
                             accessibilityLabel={item.text}
                         >
                             <Text style={styles.attentionText}>{item.text}</Text>
                             <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-                        </TouchableOpacity>
+                        </Pressable>
                     ))}
                     {attentionItems.length > 1 ? (
-                        <TouchableOpacity
-                            style={styles.attentionRow}
+                        <Pressable
+                            style={({ pressed, hovered, focused }) => [
+                                styles.attentionRow,
+                                { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
+                                focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.danger, "59")}` } : null,
+                            ]}
                             onPress={() => nav("health")}
                             accessibilityRole="button"
                             accessibilityLabel={`${attentionItems.length - 1} more items need attention`}
                         >
                             <Text style={styles.attentionMoreText}>+{attentionItems.length - 1} more</Text>
                             <Ionicons name="chevron-forward" size={16} color={colors.danger} />
-                        </TouchableOpacity>
+                        </Pressable>
                     ) : null}
                 </View>
             ) : null}
@@ -531,8 +693,12 @@ export default function Dashboard({
                 it still shows on an ordinary day with nothing overdue. Only
                 renders when at least one code is active. */}
             {soonestShare ? (
-                <TouchableOpacity
-                    style={styles.shareCard}
+                <Pressable
+                    style={({ pressed, hovered, focused }) => [
+                        styles.shareCard,
+                        { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
+                        focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.info, "59")}` } : null,
+                    ]}
                     onPress={() => nav("share")}
                     accessibilityRole="button"
                     accessibilityLabel={`${activeShares.length} share code${activeShares.length === 1 ? "" : "s"} active`}
@@ -550,7 +716,7 @@ export default function Dashboard({
                         </Text>
                     </View>
                     <Ionicons name="chevron-forward" size={18} color={colors.info} />
-                </TouchableOpacity>
+                </Pressable>
             ) : null}
 
             {/* Baby Summary Card — 2-column meta grid. The photo and name
@@ -559,20 +725,21 @@ export default function Dashboard({
                 Collapsed by default to just gender/age/weight/height; tap
                 anywhere on the card to reveal head circumference, the
                 growth-pace line, and the allergy/blood-type chips. */}
-            <TouchableOpacity
-                style={styles.summaryCard}
-                onPress={() => setSummaryExpanded((v) => !v)}
-                activeOpacity={0.85}
-                accessibilityRole="button"
-                accessibilityLabel={`${profile.name}'s summary`}
-                accessibilityState={{ expanded: summaryExpanded }}
-            >
+            <View style={styles.summaryCard}>
                 <View style={styles.summaryTopRow}>
-                    <Ionicons
-                        name={summaryExpanded ? "chevron-up" : "chevron-down"}
-                        size={16}
-                        color={colors.textMuted}
-                    />
+                    <Pressable
+                        onPress={() => setSummaryExpanded((v) => !v)}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${summaryExpanded ? "Collapse" : "Expand"} ${profile.name}'s summary`}
+                        accessibilityState={{ expanded: summaryExpanded }}
+                    >
+                        <Ionicons
+                            name={summaryExpanded ? "chevron-up" : "chevron-down"}
+                            size={16}
+                            color={colors.textMuted}
+                        />
+                    </Pressable>
                     <TouchableOpacity
                         onPress={onOpenEditModal}
                         style={styles.summaryEdit}
@@ -582,75 +749,100 @@ export default function Dashboard({
                         <Ionicons name="pencil" size={15} color={colors.primary} />
                     </TouchableOpacity>
                 </View>
-                <View style={styles.metaGrid}>
-                    {(summaryExpanded ? babyMeta : babyMeta.slice(0, 4)).map((m, idx) => (
-                        <View
-                            key={idx}
-                            style={styles.metaItem}
-                            accessible={!!m.a11y}
-                            accessibilityLabel={m.a11y || undefined}
-                        >
-                            <Ionicons name={m.icon} size={14} color={colors.primary} />
-                            {m.text ? <Text style={styles.metaText}>{m.text}</Text> : null}
+                {/* A separate touchable from the chevron above — not nested
+                    inside it — so no button ever contains another button
+                    (React Native Web renders TouchableOpacity as <button>,
+                    and a nested <button> is invalid HTML and threw a
+                    hydration error). Tapping the chevron OR this body both
+                    toggle the same summaryExpanded state. */}
+                <TouchableOpacity
+                    activeOpacity={0.85}
+                    onPress={() => setSummaryExpanded((v) => !v)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${summaryExpanded ? "Collapse" : "Expand"} ${profile.name}'s summary details`}
+                    accessibilityState={{ expanded: summaryExpanded }}
+                >
+                    <View style={styles.metaGrid}>
+                        {(summaryExpanded ? babyMeta : babyMeta.slice(0, 4)).map((m, idx) => (
+                            <View
+                                key={idx}
+                                style={styles.metaItem}
+                                accessible={!!m.a11y}
+                                accessibilityLabel={m.a11y || undefined}
+                            >
+                                <Ionicons name={m.icon} size={14} color={colors.primary} />
+                                {m.text ? <Text style={styles.metaText}>{m.text}</Text> : null}
+                            </View>
+                        ))}
+                    </View>
+                    {summaryExpanded && trend && trend.pace ? (
+                        <View style={styles.trendRow}>
+                            <Ionicons
+                                name={
+                                    trend.pace === "faster"
+                                        ? "trending-up"
+                                        : trend.pace === "slower"
+                                          ? "trending-down"
+                                          : "remove-outline"
+                                }
+                                size={14}
+                                color={
+                                    trend.pace === "faster"
+                                        ? colors.success
+                                        : trend.pace === "slower"
+                                          ? colors.warning
+                                          : colors.textMuted
+                                }
+                            />
+                            <Text style={styles.trendText}>
+                                {trend.pace === "faster"
+                                    ? "Growing faster than before"
+                                    : trend.pace === "slower"
+                                      ? "Growing slower than before"
+                                      : "Growing at a steady pace"}
+                            </Text>
                         </View>
-                    ))}
-                </View>
-                {summaryExpanded && trend && trend.pace ? (
-                    <View style={styles.trendRow}>
-                        <Ionicons
-                            name={
-                                trend.pace === "faster"
-                                    ? "trending-up"
-                                    : trend.pace === "slower"
-                                      ? "trending-down"
-                                      : "remove-outline"
-                            }
-                            size={14}
-                            color={
-                                trend.pace === "faster"
-                                    ? colors.success
-                                    : trend.pace === "slower"
-                                      ? colors.warning
-                                      : colors.textMuted
-                            }
-                        />
-                        <Text style={styles.trendText}>
-                            {trend.pace === "faster"
-                                ? "Growing faster than before"
-                                : trend.pace === "slower"
-                                  ? "Growing slower than before"
-                                  : "Growing at a steady pace"}
-                        </Text>
-                    </View>
-                ) : null}
-                {summaryExpanded && (hasAllergies || profile.bloodType) ? (
-                    <View style={styles.healthRow}>
-                        {hasAllergies ? (
-                            <View style={[styles.healthChip, styles.healthChipWarning]}>
-                                <Ionicons name="alert-circle-outline" size={12} color={colors.danger} />
-                                <Text style={styles.healthChipTextWarning} numberOfLines={1}>
-                                    {profile.allergies.join(", ")}
-                                </Text>
-                            </View>
-                        ) : null}
-                        {profile.bloodType ? (
-                            <View style={styles.healthChip}>
-                                <Ionicons name="water-outline" size={12} color={colors.textSecondary} />
-                                <Text style={styles.healthChipText}>{profile.bloodType}</Text>
-                            </View>
-                        ) : null}
-                    </View>
-                ) : null}
-            </TouchableOpacity>
+                    ) : null}
+                    {summaryExpanded && (hasAllergies || profile.bloodType) ? (
+                        <View style={styles.healthRow}>
+                            {hasAllergies ? (
+                                <View style={[styles.healthChip, styles.healthChipWarning]}>
+                                    <Ionicons name="alert-circle-outline" size={12} color={colors.danger} />
+                                    <Text style={styles.healthChipTextWarning} numberOfLines={1}>
+                                        {profile.allergies.join(", ")}
+                                    </Text>
+                                </View>
+                            ) : null}
+                            {profile.bloodType ? (
+                                <View style={styles.healthChip}>
+                                    <Ionicons name="water-outline" size={12} color={colors.textSecondary} />
+                                    <Text style={styles.healthChipText}>{profile.bloodType}</Text>
+                                </View>
+                            ) : null}
+                        </View>
+                    ) : null}
+                </TouchableOpacity>
+            </View>
 
             {/* Growth chart — reuses the same growth history already fetched
-                for the faster/slower verdict above. */}
-            <GrowthChart rows={growthRows} />
+                for the faster/slower verdict above. Sex and date of birth are
+                what let it draw the WHO reference bands; without them it still
+                plots the child's own line. */}
+            <GrowthChart
+                rows={growthRows}
+                sex={profile?.sex || profile?.gender}
+                dateOfBirth={profile?.dateOfBirth}
+                loading={growthLoading}
+            />
 
             {/* Upcoming appointment — the only way to Calendar from this screen. */}
             {upcoming ? (
-                <TouchableOpacity
-                    style={styles.upcomingCard}
+                <Pressable
+                    style={({ pressed, hovered, focused }) => [
+                        styles.upcomingCard,
+                        { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
+                        focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.primary, "59")}` } : null,
+                    ]}
                     onPress={() => nav("calendar")}
                     accessibilityRole="button"
                     accessibilityLabel={`Next: ${upcoming.title}, ${upcoming.date}`}
@@ -666,7 +858,7 @@ export default function Dashboard({
                         </Text>
                     </View>
                     <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-                </TouchableOpacity>
+                </Pressable>
             ) : null}
 
             {/* Vaccination progress */}
@@ -682,13 +874,41 @@ export default function Dashboard({
                     <View style={styles.progressTrack}>
                         <View style={[styles.progressFill, { width: `${vaxPct}%` }]} />
                     </View>
+                    {nextVax && upcoming?.key !== `vax-${nextVax.id}` ? (
+                        <Pressable
+                            style={({ pressed, hovered, focused }) => [
+                                styles.nextVaxRow,
+                                { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
+                                focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.primary, "59")}` } : null,
+                            ]}
+                            onPress={() => nav("health", "immunizations")}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Next vaccine: ${nextVax.vaccine_name || "Vaccination"}, due ${nextVax.due_date}`}
+                        >
+                            <Ionicons name="medkit-outline" size={15} color={colors.recVaccine.on} />
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.nextVaxLabel}>
+                                    Next vaccine: {nextVax.vaccine_name || "Vaccination"}
+                                </Text>
+                                <Text style={styles.nextVaxSub}>
+                                    {nextVax.due_date}
+                                    {nextVax.visit_name ? ` · ${nextVax.visit_name}` : ""}
+                                </Text>
+                            </View>
+                            <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                        </Pressable>
+                    ) : null}
                 </View>
             ) : null}
 
             {/* Today's feeding summary — reuses nutrition rows already loaded
                 for Recent Activity. */}
-            <TouchableOpacity
-                style={styles.feedingCard}
+            <Pressable
+                style={({ pressed, hovered, focused }) => [
+                    styles.feedingCard,
+                    { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
+                    focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.primary, "59")}` } : null,
+                ]}
                 onPress={() => nav("nutrition")}
                 accessibilityRole="button"
                 accessibilityLabel={
@@ -715,14 +935,14 @@ export default function Dashboard({
                     </View>
                 )}
                 <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-            </TouchableOpacity>
+            </Pressable>
 
             {/* Photo Memories — square photo gallery. Adding a memory now
                 lives in the floating log button's menu, alongside Log Milk,
                 Log Food, etc., instead of a second add button here. */}
-            <View style={styles.gallerySection}>
-                <View style={styles.galleryHeader}>
-                    <Text style={styles.sectionHeadingFlush}>Milestone Memories</Text>
+            <SectionContainerCard
+                title="Milestone Memories"
+                action={
                     <TouchableOpacity
                         onPress={() => nav("growth", "gallery")}
                         accessibilityRole="button"
@@ -730,53 +950,43 @@ export default function Dashboard({
                     >
                         <Text style={styles.seeAllText}>See all</Text>
                     </TouchableOpacity>
-                </View>
+                }
+            >
                 {memories.length ? (
                     <View style={styles.galleryGrid}>
                         {memories.slice(0, 4).map((m, idx) => (
-                            <TouchableOpacity
+                            <MemoryVisualCard
                                 key={m.id || idx}
-                                style={styles.galleryCard}
-                                activeOpacity={0.85}
-                                onPress={() => setDetailMemory(m)}
-                                accessibilityRole="button"
-                                accessibilityLabel={`View memory: ${m.title}`}
-                            >
-                                {m.photoUrl ? (
-                                    <Image source={{ uri: m.photoUrl }} style={styles.galleryImg} />
-                                ) : (
-                                    <View style={[styles.galleryImg, styles.galleryPlaceholder]}>
-                                        <Ionicons name="image-outline" size={22} color={colors.textMuted} />
-                                    </View>
-                                )}
-                                <View style={styles.galleryScrim} />
-                                <View style={styles.galleryOverlay}>
-                                    <Text style={styles.galleryTitle} numberOfLines={1}>{m.title}</Text>
-                                    {m.date ? <Text style={styles.galleryDate}>{m.date}</Text> : null}
-                                </View>
-                            </TouchableOpacity>
+                                title={m.title}
+                                description={m.description}
+                                date={m.date}
+                                photoUrl={m.photoUrl}
+                                onClick={() => setDetailMemory(m)}
+                                style={styles.galleryTile}
+                            />
                         ))}
                     </View>
                 ) : (
                     <EmptyStateCard message="No memories yet. Tap Add to save your baby's precious moments." icon="image-outline" />
                 )}
-            </View>
+            </SectionContainerCard>
 
             {/* Recent Activity — moved to the bottom of the screen; the sections
                 above answer "does anything need attention or action" first. */}
-            <View style={styles.sectionHeaderRow}>
-                <Text style={styles.sectionHeadingFlush}>Recent Activity</Text>
-                <TouchableOpacity
-                    onPress={() => nav("allActivity")}
-                    accessibilityRole="button"
-                    accessibilityLabel="See all activity"
-                >
-                    <Text style={styles.seeAllText}>See all</Text>
-                </TouchableOpacity>
-            </View>
-            {activity.length ? (
-                <View style={styles.activityCard}>
-                    {activity.map((a, idx) => {
+            <SectionContainerCard
+                title="Recent Activity"
+                action={
+                    <TouchableOpacity
+                        onPress={() => nav("allActivity")}
+                        accessibilityRole="button"
+                        accessibilityLabel="See all activity"
+                    >
+                        <Text style={styles.seeAllText}>See all</Text>
+                    </TouchableOpacity>
+                }
+            >
+                {activity.length ? (
+                    activity.map((a, idx) => {
                         const tone = toneColor[a.tone] || colors.primary;
                         return (
                             <View
@@ -784,7 +994,7 @@ export default function Dashboard({
                                 style={[styles.activityRow, idx < activity.length - 1 && styles.activityRowBorder]}
                             >
                                 <View style={styles.activityLeft}>
-                                    <View style={[styles.activityIcon, { backgroundColor: tone + "1A" }]}>
+                                    <View style={[styles.activityIcon, { backgroundColor: withAlpha(tone, "1A") }]}>
                                         <Ionicons name={a.icon} size={18} color={tone} />
                                     </View>
                                     <View style={{ flex: 1 }}>
@@ -797,12 +1007,12 @@ export default function Dashboard({
                                 <Text style={styles.activityTime}>{relativeTime(a.date)}</Text>
                             </View>
                         );
-                    })}
-                </View>
-            ) : (
-                <View style={{ marginBottom: space.lg }}>
+                    })
+                ) : (
                     <EmptyStateCard message="No recent activity yet." icon="time-outline" />
-                </View>
+                )}
+            </SectionContainerCard>
+                </>
             )}
 
             <MemoryDetail
@@ -851,12 +1061,20 @@ export default function Dashboard({
                         )}
 
                         <View style={styles.modalButtons}>
-                            <TouchableOpacity onPress={() => setShowMemoryModal(false)} style={styles.modalCancelBtn}>
-                                <Text style={styles.modalCancelText}>{t("cancel")}</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={handleAddMemory} style={styles.modalSaveBtn}>
-                                <Text style={styles.modalSaveText}>{t("save")}</Text>
-                            </TouchableOpacity>
+                            <Button
+                                title={t("cancel")}
+                                variant="secondary"
+                                fullWidth={false}
+                                disabled={savingMemory}
+                                onPress={() => setShowMemoryModal(false)}
+                            />
+                            <Button
+                                title={t("save")}
+                                variant="accent"
+                                fullWidth={false}
+                                loading={savingMemory}
+                                onPress={handleAddMemory}
+                            />
                         </View>
                     </View>
                 </View>
@@ -884,12 +1102,13 @@ const makeStyles = (colors) => StyleSheet.create({
         borderColor: colors.border,
         borderRadius: radius.pill,
         borderCurve: "continuous",
-        padding: 3,
+        padding: space.xs,
         marginRight: space.sm,
         ...shadow.card,
     },
-    profileTabActive: { borderColor: colors.accent, backgroundColor: colors.softCoral },
-    avatarMini: { width: 32, height: 32, borderRadius: 16 },
+    profileTabActive: { borderColor: colors.accent, backgroundColor: colors.primarySoft },
+    avatarMini: { width: 32, height: 32, borderRadius: 16, borderCurve: "continuous" },
+    avatarFallback: { backgroundColor: colors.softGreen, alignItems: "center", justifyContent: "center" },
     addProfileButton: {
         flexDirection: "row",
         alignItems: "center",
@@ -899,7 +1118,7 @@ const makeStyles = (colors) => StyleSheet.create({
         borderRadius: radius.pill,
         borderCurve: "continuous",
         paddingHorizontal: space.md,
-        paddingVertical: 7,
+        paddingVertical: space.sm,
         minHeight: 44,
     },
     // Icon-only version, used in the multi-child switcher row where photos
@@ -908,13 +1127,14 @@ const makeStyles = (colors) => StyleSheet.create({
         width: 44,
         height: 44,
         borderRadius: 22,
+        borderCurve: "continuous",
         alignItems: "center",
         justifyContent: "center",
         backgroundColor: colors.softGreen,
         borderWidth: 1,
         borderColor: colors.border,
     },
-    addProfileText: { fontSize: 13, fontWeight: "700", color: colors.primary, marginLeft: 3 },
+    addProfileText: { ...type.label, color: colors.primaryDark, marginLeft: 3 },
 
     // Baby Summary Card
     summaryCard: {
@@ -931,7 +1151,8 @@ const makeStyles = (colors) => StyleSheet.create({
     summaryEdit: {
         width: 30,
         height: 30,
-        borderRadius: 15,
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
         alignItems: "center",
         justifyContent: "center",
         backgroundColor: colors.softGreen,
@@ -942,11 +1163,11 @@ const makeStyles = (colors) => StyleSheet.create({
         justifyContent: "space-between",
         marginTop: space.sm,
     },
-    metaItem: { width: "48%", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
-    metaText: { fontSize: 12.5, fontWeight: "600", color: colors.textSecondary },
-    trendRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
-    trendText: { fontSize: 11.5, fontWeight: "600", color: colors.textSecondary },
-    healthRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
+    metaItem: { width: "48%", flexDirection: "row", alignItems: "center", gap: space.sm, marginBottom: space.sm },
+    metaText: { ...type.caption, color: colors.textSecondary },
+    trendRow: { flexDirection: "row", alignItems: "center", gap: space.sm, marginTop: 4 },
+    trendText: { ...type.caption, color: colors.textSecondary },
+    healthRow: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginTop: 8 },
     healthChip: {
         flexDirection: "row",
         alignItems: "center",
@@ -959,8 +1180,25 @@ const makeStyles = (colors) => StyleSheet.create({
         maxWidth: "100%",
     },
     healthChipWarning: { backgroundColor: colors.dangerBg },
-    healthChipText: { fontSize: 11, fontWeight: "700", color: colors.textSecondary },
-    healthChipTextWarning: { fontSize: 11, fontWeight: "700", color: colors.danger, flexShrink: 1 },
+    healthChipText: { ...type.caption, color: colors.textSecondary },
+    healthChipTextWarning: { ...type.caption, color: colors.danger, flexShrink: 1 },
+
+    // Error banner — shown when a fetch genuinely failed, so a network outage
+    // never looks identical to "this child has no records yet".
+    errorBanner: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.sm,
+        backgroundColor: colors.dangerBg,
+        borderWidth: 1,
+        borderColor: colors.danger,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
+        padding: space.md,
+        marginBottom: space.lg,
+    },
+    errorBannerText: { ...type.caption, color: colors.text, flex: 1 },
+    errorBannerRetry: { ...type.caption, color: colors.danger },
 
     // Needs Attention
     attentionCard: {
@@ -971,17 +1209,18 @@ const makeStyles = (colors) => StyleSheet.create({
         borderColor: colors.danger,
         padding: space.md,
         marginBottom: space.lg,
+        ...shadow.card,
     },
-    attentionHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: space.xs },
-    attentionTitle: { fontSize: 13, fontWeight: "800", color: colors.danger },
+    attentionHeader: { flexDirection: "row", alignItems: "center", gap: space.sm, marginBottom: space.xs },
+    attentionTitle: { ...type.label, color: colors.danger },
     attentionRow: {
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
-        paddingVertical: 6,
+        paddingVertical: space.sm,
     },
-    attentionText: { fontSize: 12.5, fontWeight: "600", color: colors.text, flex: 1 },
-    attentionMoreText: { fontSize: 12.5, fontWeight: "700", color: colors.danger, flex: 1 },
+    attentionText: { ...type.caption, color: colors.text, flex: 1 },
+    attentionMoreText: { ...type.label, color: colors.danger, flex: 1 },
 
     // Today's feeding summary
     feedingCard: {
@@ -1000,13 +1239,14 @@ const makeStyles = (colors) => StyleSheet.create({
     feedingIcon: {
         width: 40,
         height: 40,
-        borderRadius: 20,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         backgroundColor: colors.softGreen,
         alignItems: "center",
         justifyContent: "center",
     },
-    feedingLabel: { fontSize: 14, fontWeight: "800", color: colors.text },
-    feedingSub: { fontSize: 12, fontWeight: "600", color: colors.textSecondary, marginTop: 1 },
+    feedingLabel: { ...type.bodyStrong, color: colors.text },
+    feedingSub: { ...type.caption, color: colors.textSecondary, marginTop: space.xs },
 
     // Active share-code notice — teal/info tint so it's clearly noticeable
     // next to the plain white cards around it, without reading as a medical
@@ -1014,7 +1254,7 @@ const makeStyles = (colors) => StyleSheet.create({
     shareCard: {
         flexDirection: "row",
         alignItems: "center",
-        backgroundColor: colors.info + "14",
+        backgroundColor: withAlpha(colors.info, "14"),
         borderRadius: radius.lg,
         borderCurve: "continuous",
         borderWidth: 1,
@@ -1027,23 +1267,44 @@ const makeStyles = (colors) => StyleSheet.create({
     shareIcon: {
         width: 40,
         height: 40,
-        borderRadius: 20,
-        backgroundColor: colors.info + "22",
+        borderRadius: radius.md,
+        borderCurve: "continuous",
+        backgroundColor: withAlpha(colors.info, "22"),
         alignItems: "center",
         justifyContent: "center",
     },
-    shareLabel: { fontSize: 14, fontWeight: "800", color: colors.info },
-    shareSub: { fontSize: 12, fontWeight: "600", color: colors.info },
+    shareLabel: { ...type.bodyStrong, color: colors.info },
+    shareSub: { ...type.caption, color: colors.info },
 
-    // Section heading
-    sectionHeadingFlush: { fontSize: 16, fontWeight: "800", color: colors.text },
-    sectionHeaderRow: {
+    // Offline Summary entry point — primary-tinted so it reads as a normal
+    // navigation card, not an alert (it's always shown, unlike the two above).
+    offlineCard: {
         flexDirection: "row",
         alignItems: "center",
-        justifyContent: "space-between",
-        marginBottom: space.md,
+        backgroundColor: withAlpha(colors.primary, "10"),
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
+        borderWidth: 1,
+        borderColor: colors.primary,
+        padding: space.md,
+        marginBottom: space.lg,
+        gap: space.md,
+        ...shadow.card,
     },
-    seeAllText: { fontSize: 12.5, fontWeight: "700", color: colors.accentStrong },
+    offlineIcon: {
+        width: 40,
+        height: 40,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
+        backgroundColor: withAlpha(colors.primary, "18"),
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    offlineLabel: { ...type.bodyStrong, color: colors.primary },
+    offlineSub: { ...type.caption, color: colors.textMuted },
+
+    // Section heading
+    seeAllText: { ...type.label, color: colors.accentStrong },
 
     // Vaccination progress
     progressCard: {
@@ -1056,16 +1317,28 @@ const makeStyles = (colors) => StyleSheet.create({
         marginBottom: space.md,
         ...shadow.card,
     },
-    progressHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: space.sm },
-    progressTitle: { fontSize: 13, fontWeight: "800", color: colors.text, flex: 1 },
-    progressCount: { fontSize: 12, fontWeight: "700", color: colors.textMuted },
+    progressHeader: { flexDirection: "row", alignItems: "center", gap: space.sm, marginBottom: space.sm },
+    progressTitle: { ...type.label, color: colors.text, flex: 1 },
+    progressCount: { ...type.caption, color: colors.textMuted },
     progressTrack: {
         height: 8,
         borderRadius: 4,
+        borderCurve: "continuous",
         backgroundColor: colors.surfaceAlt,
         overflow: "hidden",
     },
-    progressFill: { height: "100%", borderRadius: 4, backgroundColor: colors.primary },
+    progressFill: { height: "100%", borderRadius: 4, borderCurve: "continuous", backgroundColor: colors.primary },
+    nextVaxRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.sm,
+        marginTop: space.md,
+        paddingTop: space.md,
+        borderTopWidth: 1,
+        borderTopColor: colors.hairline,
+    },
+    nextVaxLabel: { ...type.label, color: colors.text },
+    nextVaxSub: { ...type.caption, color: colors.textSecondary, marginTop: 2 },
 
     // Upcoming appointment
     upcomingCard: {
@@ -1079,74 +1352,49 @@ const makeStyles = (colors) => StyleSheet.create({
         padding: space.md,
         marginBottom: space.lg,
         gap: space.md,
+        ...shadow.card,
     },
     upcomingIcon: {
         width: 40,
         height: 40,
-        borderRadius: 20,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         backgroundColor: colors.surface,
         alignItems: "center",
         justifyContent: "center",
     },
-    upcomingLabel: { fontSize: 14, fontWeight: "800", color: colors.text },
-    upcomingSub: { fontSize: 12, fontWeight: "600", color: colors.textSecondary, marginTop: 1 },
+    upcomingLabel: { ...type.bodyStrong, color: colors.text },
+    upcomingSub: { ...type.caption, color: colors.textSecondary, marginTop: space.xs },
 
-    // Milestone Memories gallery
-    gallerySection: { marginBottom: space.lg },
-    galleryHeader: {
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between",
-        marginBottom: space.md,
-    },
+    // Milestone Memories gallery — the tiles themselves are MemoryVisualCard
+    // (common/Cards.js), whose photo frame is already a self-scaling square;
+    // this just sets the 2-column tile width, no height override needed —
+    // the caption below the frame needs its own natural height.
     galleryGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
-    galleryCard: {
-        width: "48%",
-        aspectRatio: 1,
-        borderRadius: radius.lg,
-        borderCurve: "continuous",
-        overflow: "hidden",
-        backgroundColor: colors.surfaceAlt,
-        marginBottom: space.md,
-        ...shadow.soft,
-    },
-    galleryImg: { width: "100%", height: "100%", position: "absolute" },
-    galleryPlaceholder: { alignItems: "center", justifyContent: "center", backgroundColor: colors.softGreen },
-    galleryScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(28,25,23,0.30)" },
-    galleryOverlay: { ...StyleSheet.absoluteFillObject, padding: space.md, justifyContent: "flex-end" },
-    galleryTitle: { color: "#FFFFFF", fontSize: 13, fontWeight: "800" },
-    galleryDate: { color: "rgba(255,255,255,0.85)", fontSize: 10, fontWeight: "600", marginTop: 1 },
+    galleryTile: { width: "48%", marginBottom: space.md },
 
-    // Recent Activity
-    activityCard: {
-        backgroundColor: colors.surface,
-        borderRadius: radius.xl,
-        borderCurve: "continuous",
-        borderWidth: 1,
-        borderColor: colors.hairline,
-        marginBottom: space.lg,
-        overflow: "hidden",
-        ...shadow.card,
-    },
+    // Recent Activity — rows only; the wrapping card now comes from
+    // SectionContainerCard (common/Cards.js).
+    // No horizontal padding here — SectionContainerCard now supplies it.
     activityRow: {
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
         paddingVertical: space.md,
-        paddingHorizontal: space.md,
     },
     activityRowBorder: { borderBottomWidth: 1, borderBottomColor: colors.hairline },
     activityLeft: { flexDirection: "row", alignItems: "center", gap: space.md, flex: 1 },
     activityIcon: {
         width: 40,
         height: 40,
-        borderRadius: 20,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         alignItems: "center",
         justifyContent: "center",
     },
-    activityTitle: { fontSize: 14, fontWeight: "700", color: colors.text },
-    activitySubtitle: { fontSize: 12, fontWeight: "500", color: colors.textMuted, marginTop: 1 },
-    activityTime: { fontSize: 11, fontWeight: "600", color: colors.textMuted, marginLeft: space.sm },
+    activityTitle: { ...type.bodyStrong, color: colors.text },
+    activitySubtitle: { ...type.caption, color: colors.textMuted, marginTop: space.xs },
+    activityTime: { ...type.caption, color: colors.textMuted, marginLeft: space.sm },
 
     // Add Memory modal
     choosePhotoBtn: {
@@ -1162,7 +1410,7 @@ const makeStyles = (colors) => StyleSheet.create({
         backgroundColor: colors.softGreen,
         marginBottom: space.sm,
     },
-    choosePhotoText: { color: colors.primary, fontWeight: "700", fontSize: 13 },
+    choosePhotoText: { ...type.label, color: colors.primaryDark },
     modalBg: {
         flex: 1,
         backgroundColor: "rgba(28,25,23,0.55)",
@@ -1181,14 +1429,11 @@ const makeStyles = (colors) => StyleSheet.create({
         borderColor: colors.hairline,
         ...shadow.raised,
     },
-    modalTitle: { fontSize: 20, fontWeight: "800", color: colors.text, marginBottom: space.lg },
+    modalTitle: { ...type.title, color: colors.text, marginBottom: space.lg },
     modalLabel: {
-        fontSize: 11,
-        fontWeight: "800",
+        ...type.subheading,
         color: colors.textMuted,
-        textTransform: "uppercase",
-        letterSpacing: 0.6,
-        marginBottom: 6,
+        marginBottom: space.sm,
     },
     modalInput: {
         backgroundColor: colors.surface,
@@ -1198,26 +1443,10 @@ const makeStyles = (colors) => StyleSheet.create({
         borderCurve: "continuous",
         paddingHorizontal: space.md,
         height: 48,
-        fontSize: 16,
+        fontSize: type.body.fontSize,
+        fontFamily: type.body.fontFamily,
         color: colors.text,
         marginBottom: space.lg,
     },
     modalButtons: { flexDirection: "row", justifyContent: "flex-end", gap: space.md },
-    modalCancelBtn: {
-        paddingVertical: 12,
-        paddingHorizontal: space.lg,
-        borderRadius: radius.pill,
-        borderCurve: "continuous",
-        backgroundColor: colors.surfaceAlt,
-    },
-    modalCancelText: { fontSize: 14, fontWeight: "700", color: colors.textSecondary },
-    modalSaveBtn: {
-        paddingVertical: 12,
-        paddingHorizontal: space.lg,
-        borderRadius: radius.pill,
-        borderCurve: "continuous",
-        backgroundColor: colors.accentStrong,
-        ...shadow.accent,
-    },
-    modalSaveText: { fontSize: 14, fontWeight: "800", color: colors.onAccent },
 });

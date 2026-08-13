@@ -140,8 +140,9 @@ export function AppointmentsSkeleton({ count = 3 }) {
 }
 
 // ── Memories lazy-load state ────────────────────────────────────────────────
-// Mirrors MemoryVisualCard (full-bleed 180px photo card) with faint caption
-// lines pinned to the bottom, echoing the Stitch shimmer aesthetic.
+// Mirrors MemoryVisualCard's mat-frame treatment (common/Cards.js): a square
+// photo block inside a bordered frame, with caption lines below it rather
+// than overlaid — the loading→content swap shouldn't visibly jump shape.
 export function MemoriesSkeleton({ count = 2 }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -150,15 +151,64 @@ export function MemoriesSkeleton({ count = 2 }) {
         <View accessibilityLabel="Loading memories">
             {Array.from({ length: count }).map((_, i) => (
                 <View key={i} style={styles.memoryCard}>
-                    <SkeletonBlock clock={clock} width="100%" height="100%" radius={R.lg + 2} />
-                    <View style={styles.memoryOverlay}>
-                        <SkeletonBlock clock={clock} width={64} height={16} radius={R.pill} />
+                    <View style={styles.memoryFrame}>
+                        <SkeletonBlock clock={clock} width="100%" height="100%" radius={R.md} />
+                    </View>
+                    <View style={styles.memoryCaption}>
+                        <SkeletonBlock clock={clock} width={48} height={10} radius={4} />
                         <SkeletonBlock
                             clock={clock}
                             width={i % 2 ? "60%" : "48%"}
                             height={14}
                             radius={6}
                             style={{ marginTop: 8 }}
+                        />
+                    </View>
+                </View>
+            ))}
+        </View>
+    );
+}
+
+// ── Home Dashboard lazy-load state ──────────────────────────────────────────
+// Stands in for the whole first paint while the three Dashboard fetches are in
+// flight — not a pixel-perfect double of every card, just enough shape (a
+// summary row, the growth chart, the feeding card, a few activity rows) that
+// the screen doesn't flash blank or show a stale/empty state before data
+// arrives.
+export function DashboardSkeleton() {
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
+    const clock = useShimmerClock();
+    return (
+        <View accessibilityLabel="Loading dashboard">
+            <View style={styles.dashSummary}>
+                <SkeletonBlock clock={clock} width={40} height={40} radius={R.pill} />
+                <View style={styles.dashSummaryGrid}>
+                    {[0, 1, 2, 3].map((i) => (
+                        <SkeletonBlock
+                            key={i}
+                            clock={clock}
+                            width={i % 2 ? "60%" : "72%"}
+                            height={12}
+                            radius={6}
+                        />
+                    ))}
+                </View>
+            </View>
+            <SkeletonBlock clock={clock} width="100%" height={150} radius={R.xl} style={{ marginBottom: space.lg }} />
+            <SkeletonBlock clock={clock} width="100%" height={64} radius={R.lg} style={{ marginBottom: space.lg }} />
+            {Array.from({ length: 3 }).map((_, i) => (
+                <View key={i} style={[styles.dashActivityRow, { opacity: 1 - i * 0.2 }]}>
+                    <SkeletonBlock clock={clock} width={40} height={40} radius={R.md} />
+                    <View style={styles.dashActivityText}>
+                        <SkeletonBlock clock={clock} width={i % 2 ? "50%" : "62%"} height={12} radius={6} />
+                        <SkeletonBlock
+                            clock={clock}
+                            width={i % 2 ? "70%" : "80%"}
+                            height={10}
+                            radius={6}
+                            style={{ marginTop: 7 }}
                         />
                     </View>
                 </View>
@@ -174,7 +224,7 @@ const makeStyles = (colors) =>
             alignItems: "center",
             paddingVertical: 12,
             borderBottomWidth: 1,
-            borderBottomColor: colors.surfaceAlt,
+            borderBottomColor: colors.hairline,
         },
         immunText: { flex: 1, marginLeft: 12, marginRight: 8 },
 
@@ -192,18 +242,46 @@ const makeStyles = (colors) =>
         apptText: { flex: 1, marginLeft: space.md },
 
         memoryCard: {
-            borderRadius: R.lg + 2,
+            borderRadius: R.lg,
+            borderCurve: "continuous",
+            borderWidth: 1,
+            borderColor: colors.borderStrong,
+            padding: space.sm,
+            backgroundColor: colors.surface,
+            marginBottom: space.md,
+            ...shadow.card,
+        },
+        memoryFrame: {
+            borderRadius: R.md,
             borderCurve: "continuous",
             overflow: "hidden",
-            height: 180,
+            aspectRatio: 1,
             backgroundColor: colors.surfaceAlt,
-            marginBottom: space.md,
-            position: "relative",
-            ...shadow.soft,
         },
-        memoryOverlay: {
-            ...StyleSheet.absoluteFillObject,
+        memoryCaption: { paddingTop: space.sm, paddingHorizontal: space.xs, paddingBottom: space.xs },
+
+        dashSummary: {
+            flexDirection: "row",
+            alignItems: "center",
+            gap: space.md,
             padding: space.lg,
-            justifyContent: "flex-end",
+            backgroundColor: colors.surface,
+            borderWidth: 1,
+            borderColor: colors.hairline,
+            borderRadius: R.xl,
+            borderCurve: "continuous",
+            marginBottom: space.lg,
         },
+        dashSummaryGrid: {
+            flex: 1,
+            flexDirection: "row",
+            flexWrap: "wrap",
+            gap: space.sm,
+        },
+        dashActivityRow: {
+            flexDirection: "row",
+            alignItems: "center",
+            paddingVertical: space.sm,
+        },
+        dashActivityText: { flex: 1, marginLeft: space.md },
     });

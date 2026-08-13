@@ -1,6 +1,6 @@
 import React from "react";
 import { View, Text, TextInput } from "react-native";
-import { radius, space } from "../../theme";
+import { radius, space, type } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
 
 // Accessible labelled text field with inline error + helper text.
@@ -22,7 +22,7 @@ export default function Field({
     return (
         <View style={[{ gap: space.xs, marginBottom: space.md }, style]}>
             {label ? (
-                <Text style={{ fontSize: 13, fontWeight: "700", color: colors.textSecondary }}>
+                <Text style={{ ...type.label, color: colors.textSecondary }}>
                     {label}
                 </Text>
             ) : null}
@@ -45,17 +45,18 @@ export default function Field({
                     borderCurve: "continuous",
                     paddingHorizontal: space.lg,
                     paddingVertical: multiline ? space.md : 0,
-                    fontSize: 16,
+                    fontSize: type.body.fontSize,
+                    fontFamily: type.body.fontFamily,
                     color: colors.text,
                     textAlignVertical: multiline ? "top" : "center",
                 }}
             />
             {error ? (
-                <Text selectable style={{ fontSize: 12.5, color: colors.danger, fontWeight: "600" }}>
+                <Text selectable style={{ ...type.caption, color: colors.danger }}>
                     {error}
                 </Text>
             ) : helper ? (
-                <Text style={{ fontSize: 12, color: colors.textMuted }}>{helper}</Text>
+                <Text style={{ ...type.caption, color: colors.textMuted }}>{helper}</Text>
             ) : null}
         </View>
     );
