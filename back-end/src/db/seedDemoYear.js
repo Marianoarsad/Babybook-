@@ -9,10 +9,13 @@
 //
 // Usage:  npm run db:seed:demo
 require("dotenv").config();
+const fs = require("fs");
+const path = require("path");
 const bcrypt = require("bcryptjs");
 const { pool, query, withTransaction } = require("./pool");
 const { buildSnapshot } = require("../utils/snapshot");
 const { generateCode, qrPayloadForCode } = require("../utils/shareCode");
+const storage = require("../utils/storage");
 
 const DEMO_EMAIL = "demo.parent@babybookplus.app";
 const DEMO_PASSWORD = "Demo1234!";
@@ -347,19 +350,24 @@ async function seed() {
             }
 
             // ================= RECORD ATTACHMENTS (seed demo photo) =================
-            // A single committed placeholder image stands in for the mandatory
+            // A single local placeholder image stands in for the mandatory
             // supporting photo on one representative record of each of the 5
-            // attachment-required types, so the demo still has working
-            // attachments after a fresh Render redeploy wipes the ephemeral
-            // uploads disk (see Documents/plans/BabyBook+_Web_Demo_Hosting_
-            // Migration_Plan.md, Risk 1). Put your own JPG/PNG at
+            // attachment-required types. Uploaded once to Supabase Storage
+            // (see utils/storage.js) so it survives redeploys like every other
+            // attachment now does — no more relying on a static /uploads route
+            // (see Documents/plans/BabyBook+_Web_Demo_Hosting_Migration_Plan.md,
+            // Risk 1). Put your own JPG/PNG at
             // back-end/uploads/seed/sample-record.jpg — the filename below
-            // must match exactly.
-            function seedAttachmentUrl(filename) {
-                const base = (process.env.PUBLIC_URL || "").replace(/\/$/, "");
-                return `${base}/uploads/seed/${filename}`;
+            // must match exactly; if it's missing, these 5 records are simply
+            // seeded without an attachment.
+            async function seedAttachmentRef(filename) {
+                const filePath = path.join(__dirname, "../../uploads/seed", filename);
+                if (!fs.existsSync(filePath)) return null;
+                const buffer = fs.readFileSync(filePath);
+                const ext = path.extname(filename).replace(/^\./, "");
+                return storage.uploadFile(buffer, "image/jpeg", ext);
             }
-            const SEED_PHOTO = seedAttachmentUrl("sample-record.jpg");
+            const SEED_PHOTO = await seedAttachmentRef("sample-record.jpg");
 
             const hepBVax = (await c.query(
                 `SELECT id FROM vaccinations WHERE child_id = $1 AND vaccine_name = 'HepB (Hepatitis B)' LIMIT 1`,
@@ -390,11 +398,13 @@ async function seed() {
                 jaundiceHosp && ["hospitalization", jaundiceHosp.id],
             ].filter(Boolean);
 
-            for (const [recordType, recordId] of attachTargets) {
-                await c.query(
-                    `INSERT INTO record_attachments (child_id, record_type, record_id, file_url) VALUES ($1,$2,$3,$4)`,
-                    [childId, recordType, recordId, SEED_PHOTO]
-                );
+            if (SEED_PHOTO) {
+                for (const [recordType, recordId] of attachTargets) {
+                    await c.query(
+                        `INSERT INTO record_attachments (child_id, record_type, record_id, file_url) VALUES ($1,$2,$3,$4)`,
+                        [childId, recordType, recordId, SEED_PHOTO]
+                    );
+                }
             }
 
             // ================= REMINDERS =================
