@@ -14,6 +14,7 @@ import { milestoneToApp } from "../utils/adapters";
 import { useToast } from "./ui/Toast";
 import { useLanguage } from "../context/LanguageContext";
 import { useTheme } from "../context/ThemeContext";
+import { radius, space, type, shadow } from "../theme";
 import {
     SectionContainerCard,
     ListEntryCard,
@@ -23,7 +24,51 @@ import {
 import { MemoriesSkeleton } from "./ui/Skeleton";
 import ShowMore from "./ui/ShowMore";
 import MemoryDetail from "./MemoryDetail";
+import PercentileChart from "./PercentileChart";
+import {
+    WHO_MAX_DAY,
+    ageInDays,
+    formatPercentile,
+    normalizeSex,
+    percentileFromZ,
+    unitFor,
+    zScore,
+} from "../utils/whoGrowth";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+
+const METRIC_TABS = [
+    { key: "weight", label: "Weight", field: "weight" },
+    { key: "height", label: "Height", field: "height" },
+    { key: "head", label: "Head", field: "head_circumference" },
+];
+
+// Plain description of where a measurement sits. Deliberately positional, never
+// diagnostic: WHO's own cut-offs carry clinical labels ("underweight") that this
+// product is not entitled to apply — see PRODUCT.md, "Never imply clinical
+// authority". We say where the point is and let a health worker judge it.
+function describeZ(z) {
+    const a = Math.abs(z);
+    if (a <= 2) return { text: "Within the range WHO reports for most children this age", flag: false };
+    if (a <= 3)
+        return {
+            text: `${z > 0 ? "Above" : "Below"} the range WHO reports for most children this age`,
+            flag: true,
+        };
+    return {
+        text: `Well ${z > 0 ? "above" : "below"} the range WHO reports for most children this age`,
+        flag: true,
+    };
+}
+
+function ageLabel(days) {
+    if (days == null) return "";
+    if (days < 31) return `${days} day${days === 1 ? "" : "s"} old`;
+    const months = Math.floor(days / 30.4375);
+    if (months < 24) return `${months} month${months === 1 ? "" : "s"} old`;
+    const years = Math.floor(months / 12);
+    const rem = months % 12;
+    return rem ? `${years}y ${rem}m old` : `${years} year${years === 1 ? "" : "s"} old`;
+}
 
 const ageChecklists = [
     {
@@ -123,14 +168,24 @@ export default function Growth({
     const [memoriesVisible, setMemoriesVisible] = useState(10);
     const [growthLoading, setGrowthLoading] = useState(true);
     const [detailMemory, setDetailMemory] = useState(null);
+    // Raw growth_records rows. The Metrics tab used to show only the two values
+    // cached on the profile, so there was no history and nothing to plot.
+    const [growthRows, setGrowthRows] = useState([]);
+    const [metricsVisible, setMetricsVisible] = useState(10);
+    const [metricKey, setMetricKey] = useState("weight");
+    const [reloadTick, setReloadTick] = useState(0);
     useEffect(() => {
         let active = true;
         setGrowthLoading(true);
         (async () => {
             try {
-                const mRows = await api.listRecords(profile.id, "milestones");
+                const [mRows, gRows] = await Promise.all([
+                    api.listRecords(profile.id, "milestones"),
+                    api.listRecords(profile.id, "growth").catch(() => []),
+                ]);
                 if (!active) return;
                 setMstones(mRows.map(milestoneToApp));
+                setGrowthRows(Array.isArray(gRows) ? gRows : []);
             } catch (e) {
                 console.log("load growth records:", e.message);
             } finally {
@@ -140,7 +195,63 @@ export default function Growth({
         return () => {
             active = false;
         };
-    }, [profile.id]);
+    }, [profile.id, reloadTick]);
+
+    // WHO publishes separate curves per sex and none for an unrecorded sex.
+    // adapters.js quietly defaults an unknown sex to girl for theming; that
+    // default must not decide which growth curve a child is measured against,
+    // so this reads the recorded value and yields null when it is absent.
+    const sexKey = useMemo(() => normalizeSex(profile.sex || profile.gender), [profile.sex, profile.gender]);
+
+    const activeMetric = METRIC_TABS.find((m) => m.key === metricKey) || METRIC_TABS[0];
+
+    const measurements = useMemo(() => {
+        return (growthRows || [])
+            .map((r) => {
+                const date = r.date_recorded ? String(r.date_recorded).slice(0, 10) : null;
+                if (!date) return null;
+                return {
+                    id: r.id,
+                    date,
+                    day: ageInDays(profile.dateOfBirth, date),
+                    weight: r.weight != null && r.weight !== "" ? Number(r.weight) : null,
+                    height: r.height != null && r.height !== "" ? Number(r.height) : null,
+                    head_circumference:
+                        r.head_circumference != null && r.head_circumference !== ""
+                            ? Number(r.head_circumference)
+                            : null,
+                };
+            })
+            .filter(Boolean)
+            .sort((a, b) => b.date.localeCompare(a.date));
+    }, [growthRows, profile.dateOfBirth]);
+
+    // The profile's cached currentHeight/currentWeight are only written when
+    // someone saves through this screen's form, so for a seeded or imported
+    // child they fall back to birth values — which read as a contradiction next
+    // to a chart plotting the real latest measurement. Prefer the record.
+    const latestVitals = useMemo(() => {
+        const h = measurements.find((m) => m.height != null);
+        const w = measurements.find((m) => m.weight != null);
+        return {
+            height: h ? h.height : profile.currentHeight || profile.birthHeight,
+            weight: w ? w.weight : profile.currentWeight || profile.birthWeight,
+        };
+    }, [measurements, profile.currentHeight, profile.birthHeight, profile.currentWeight, profile.birthWeight]);
+
+    // Where the most recent measurement of the selected metric falls.
+    const reading = useMemo(() => {
+        if (!sexKey || !profile.dateOfBirth) return null;
+        const usable = measurements
+            .filter((m) => m.day != null && m.day <= WHO_MAX_DAY && m[activeMetric.field] > 0)
+            .sort((a, b) => a.day - b.day);
+        const latest = usable[usable.length - 1];
+        if (!latest) return null;
+        const value = latest[activeMetric.field];
+        const z = zScore(metricKey, sexKey, latest.day, value);
+        if (z == null) return null;
+        return { latest, value, z, percentile: percentileFromZ(z), ...describeZ(z) };
+    }, [measurements, activeMetric.field, metricKey, sexKey, profile.dateOfBirth]);
 
     const completedMilestones = useMemo(() => mstones.filter((m) => m.isCompleted), [mstones]);
 
@@ -202,6 +313,9 @@ export default function Growth({
                 head_circumference: parseFloat(metricHead) || null,
                 date_recorded: new Date().toISOString().split("T")[0],
             });
+            // Pull the list again so the chart and history include what was
+            // just saved instead of going stale until the screen remounts.
+            setReloadTick((n) => n + 1);
         } catch (e) {
             console.log("save growth:", e.message);
         }
@@ -386,7 +500,7 @@ export default function Growth({
                                     />
                                 ))}
                         {!growthLoading && completedMilestones.length === 0 && (
-                            <EmptyStateCard message="No milestones reached yet." />
+                            <EmptyStateCard message="No milestones reached yet." icon="trophy-outline" />
                         )}
                         {!growthLoading && (
                             <ShowMore
@@ -429,9 +543,7 @@ export default function Growth({
                                     Height
                                 </Text>
                                 <Text style={styles.metricsHeaderValue}>
-                                    {profile.currentHeight ||
-                                        profile.birthHeight}{" "}
-                                    cm
+                                    {latestVitals.height} cm
                                 </Text>
                             </View>
                             <View style={styles.metricsHeaderDivider} />
@@ -440,38 +552,127 @@ export default function Growth({
                                     Weight
                                 </Text>
                                 <Text style={styles.metricsHeaderValue}>
-                                    {profile.currentWeight ||
-                                        profile.birthWeight}{" "}
-                                    kg
+                                    {latestVitals.weight} kg
                                 </Text>
                             </View>
                         </View>
 
-                        <ListEntryCard
-                            title="Recent Growth Parameters"
-                            subtitle="Latest clinic update"
-                            label={
-                                <Text style={{ fontSize: 13, color: colors.textSecondary }}>
-                                    Height:{" "}
-                                    {profile.currentHeight ||
-                                        profile.birthHeight}
-                                    cm | Weight:{" "}
-                                    {profile.currentWeight ||
-                                        profile.birthWeight}
-                                    kg
-                                </Text>
-                            }
-                            icon={
-                                <MaterialCommunityIcons
-                                    name="scale"
-                                    size={18}
-                                    color={colors.primary}
-                                />
-                            }
-                            iconBg={colors.tintGreen}
+                        <View style={styles.metricSwitch}>
+                            {METRIC_TABS.map((m) => {
+                                const on = metricKey === m.key;
+                                return (
+                                    <TouchableOpacity
+                                        key={m.key}
+                                        onPress={() => setMetricKey(m.key)}
+                                        style={[styles.metricChip, on && styles.metricChipOn]}
+                                        accessibilityRole="button"
+                                        accessibilityState={{ selected: on }}
+                                        accessibilityLabel={`Show ${m.label} chart`}
+                                    >
+                                        <Text style={[styles.metricChipText, on && styles.metricChipTextOn]}>
+                                            {m.label}
+                                        </Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+
+                        <PercentileChart
+                            indicator={metricKey}
+                            sex={sexKey}
+                            dateOfBirth={profile.dateOfBirth}
+                            rows={growthRows}
                         />
+
+                        {reading ? (
+                            <View style={styles.readingBox}>
+                                <View style={styles.readingTop}>
+                                    <Text style={styles.readingValue}>
+                                        {reading.value} {unitFor(metricKey)}
+                                    </Text>
+                                    <Text style={styles.readingPct}>
+                                        {formatPercentile(reading.percentile)} percentile
+                                    </Text>
+                                </View>
+                                <Text style={styles.readingText}>
+                                    {reading.text} — measured at {ageLabel(reading.latest.day)}.
+                                </Text>
+                            </View>
+                        ) : null}
+
+                        {reading && reading.flag ? (
+                            <View style={styles.promptBox}>
+                                <Ionicons
+                                    name="chatbubble-ellipses-outline"
+                                    size={16}
+                                    color={colors.info}
+                                    style={{ marginTop: 1 }}
+                                />
+                                <Text style={styles.promptText}>
+                                    Worth mentioning at the next check-up. Children grow at different rates
+                                    and a single measurement outside the range is common — your health
+                                    worker can tell you whether it means anything.
+                                </Text>
+                            </View>
+                        ) : null}
+
+                        <Text style={styles.sourceNote}>
+                            {sexKey
+                                ? `Shaded bands are the WHO Child Growth Standards for ${sexKey}, birth to 5 years. This compares your child with a reference population — it is not a medical assessment.`
+                                : "Reference bands come from the WHO Child Growth Standards, birth to 5 years. They compare a child with a reference population and are not a medical assessment."}
+                        </Text>
                     </SectionContainerCard>
 
+                    <SectionContainerCard
+                        title="Measurement History"
+                        subtitle={
+                            measurements.length
+                                ? `${measurements.length} recorded, newest first`
+                                : "Every measurement you record appears here"
+                        }
+                    >
+                        {measurements.length === 0 ? (
+                            <EmptyStateCard
+                                message="No measurements recorded yet. Add one to start the chart."
+                                icon="analytics-outline"
+                            />
+                        ) : (
+                            <>
+                                {measurements.slice(0, metricsVisible).map((m) => {
+                                    const parts = [];
+                                    if (m.weight != null) parts.push(`${m.weight} kg`);
+                                    if (m.height != null) parts.push(`${m.height} cm`);
+                                    if (m.head_circumference != null)
+                                        parts.push(`head ${m.head_circumference} cm`);
+                                    return (
+                                        <ListEntryCard
+                                            key={m.id ?? m.date}
+                                            title={parts.join("  ·  ") || "No values recorded"}
+                                            subtitle={
+                                                m.day != null
+                                                    ? `${m.date} · ${ageLabel(m.day)}`
+                                                    : m.date
+                                            }
+                                            icon={
+                                                <MaterialCommunityIcons
+                                                    name="scale"
+                                                    size={18}
+                                                    color={colors.recGrowth.on}
+                                                />
+                                            }
+                                            iconBg={colors.recGrowth.bg}
+                                        />
+                                    );
+                                })}
+                                <ShowMore
+                                    total={measurements.length}
+                                    visible={metricsVisible}
+                                    onPress={() => setMetricsVisible((c) => c + 10)}
+                                    noun="measurements"
+                                />
+                            </>
+                        )}
+                    </SectionContainerCard>
                 </View>
             )}
 
@@ -553,34 +754,31 @@ const makeStyles = (colors) => StyleSheet.create({
     tabContainer: {
         flexDirection: "row",
         backgroundColor: colors.surfaceAlt,
-        borderRadius: 24,
-        padding: 4,
-        marginBottom: 16,
+        borderRadius: radius.xl,
+        borderCurve: "continuous",
+        padding: space.xs,
+        marginBottom: space.lg,
         borderWidth: 1,
         borderColor: colors.border,
     },
     tabButton: {
         flex: 1,
-        paddingVertical: 10,
-        borderRadius: 20,
+        paddingVertical: space.sm + 2,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
         alignItems: "center",
     },
     tabButtonActive: {
-        backgroundColor: "#FFFFFF",
-        shadowColor: "#374151",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-        elevation: 1,
+        backgroundColor: colors.surface,
+        ...shadow.card,
     },
     tabButtonText: {
-        fontSize: 12,
-        fontWeight: "600",
+        ...type.caption,
         color: colors.textMuted,
     },
     tabButtonTextActive: {
-        color: colors.primary,
-        fontWeight: "750",
+        color: colors.primaryDark,
+        ...type.label,
     },
     ageSelector: {
         flexDirection: "row",
@@ -590,24 +788,24 @@ const makeStyles = (colors) => StyleSheet.create({
     ageTab: {
         flex: 1,
         paddingVertical: 8,
-        backgroundColor: "#FFFFFF",
+        backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.border,
-        borderRadius: 16,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         alignItems: "center",
     },
     ageTabActive: {
         borderColor: colors.accentStrong,
-        backgroundColor: colors.softCoral,
+        backgroundColor: colors.primarySoft,
     },
     ageTabText: {
-        fontSize: 12,
-        fontWeight: "600",
+        ...type.caption,
         color: colors.textSecondary,
     },
     ageTabTextActive: {
-        color: colors.accentStrong,
-        fontWeight: "700",
+        color: colors.primaryDark,
+        ...type.label,
     },
     checklistRow: {
         flexDirection: "row",
@@ -620,23 +818,24 @@ const makeStyles = (colors) => StyleSheet.create({
     checklistImg: {
         width: 48,
         height: 48,
-        borderRadius: 12,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         marginRight: 10,
     },
     checklistTitle: {
-        fontSize: 13,
-        fontWeight: "700",
+        ...type.bodyStrong,
         color: colors.text,
     },
     checklistDesc: {
-        fontSize: 11,
+        ...type.caption,
         color: colors.textMuted,
         marginTop: 2,
     },
     checkBtn: {
         width: 28,
         height: 28,
-        borderRadius: 8,
+        borderRadius: radius.sm,
+        borderCurve: "continuous",
         borderWidth: 1,
         borderColor: colors.primary,
         justifyContent: "center",
@@ -649,19 +848,20 @@ const makeStyles = (colors) => StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         backgroundColor: colors.accentStrong,
-        borderRadius: 14,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         paddingHorizontal: 12,
         paddingVertical: 6,
     },
     addApptBtnText: {
+        ...type.label,
         color: "#FFFFFF",
-        fontSize: 11,
-        fontWeight: "700",
     },
     metricsHeaderBox: {
         flexDirection: "row",
         backgroundColor: colors.surfaceAlt,
-        borderRadius: 16,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         padding: 16,
         alignItems: "center",
         marginBottom: 16,
@@ -671,14 +871,11 @@ const makeStyles = (colors) => StyleSheet.create({
         alignItems: "center",
     },
     metricsHeaderLabel: {
-        fontSize: 10,
-        fontWeight: "700",
+        ...type.subheading,
         color: colors.textMuted,
-        textTransform: "uppercase",
     },
     metricsHeaderValue: {
-        fontSize: 18,
-        fontWeight: "800",
+        ...type.heading,
         color: colors.primary,
         marginTop: 4,
     },
@@ -686,6 +883,65 @@ const makeStyles = (colors) => StyleSheet.create({
         width: 1,
         height: "100%",
         backgroundColor: colors.border,
+    },
+    metricSwitch: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 8,
+        marginBottom: 12,
+    },
+    metricChip: {
+        minHeight: 34,
+        justifyContent: "center",
+        paddingHorizontal: 14,
+        paddingVertical: 7,
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+    },
+    metricChipOn: {
+        backgroundColor: colors.softGreen,
+        borderColor: colors.primary,
+    },
+    metricChipText: { ...type.label, color: colors.textMuted },
+    metricChipTextOn: { color: colors.primaryDark },
+    readingBox: {
+        marginTop: 14,
+        padding: 14,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
+        backgroundColor: colors.surfaceAlt,
+        borderWidth: 1,
+        borderColor: colors.hairline,
+    },
+    readingTop: {
+        flexDirection: "row",
+        alignItems: "baseline",
+        justifyContent: "space-between",
+        gap: 8,
+        marginBottom: 4,
+    },
+    readingValue: { ...type.title, color: colors.text },
+    readingPct: { ...type.bodyStrong, color: colors.primary },
+    readingText: { ...type.bodyStrong, color: colors.textSecondary },
+    promptBox: {
+        flexDirection: "row",
+        gap: 10,
+        marginTop: 10,
+        padding: 14,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
+        backgroundColor: colors.infoBg,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    promptText: { flex: 1, ...type.caption, color: colors.textSecondary },
+    sourceNote: {
+        marginTop: 12,
+        ...type.caption,
+        color: colors.textMuted,
     },
     modalBg: {
         flex: 1,
@@ -696,7 +952,8 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     modalCard: {
         backgroundColor: colors.background,
-        borderRadius: 24,
+        borderRadius: radius.xl,
+        borderCurve: "continuous",
         padding: 20,
         width: "100%",
         maxWidth: 340,
@@ -704,26 +961,25 @@ const makeStyles = (colors) => StyleSheet.create({
         borderColor: colors.border,
     },
     modalTitle: {
-        fontSize: 18,
-        fontWeight: "800",
+        ...type.heading,
         color: colors.primary,
         marginBottom: 16,
     },
     modalLabel: {
-        fontSize: 11,
-        fontWeight: "700",
+        ...type.subheading,
         color: colors.textMuted,
-        textTransform: "uppercase",
         marginBottom: 6,
     },
     modalInput: {
         backgroundColor: colors.surfaceAlt,
         borderWidth: 1,
         borderColor: colors.border,
-        borderRadius: 12,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         paddingHorizontal: 12,
         height: 44,
-        fontSize: 16,
+        fontSize: type.body.fontSize,
+        fontFamily: type.body.fontFamily,
         color: colors.text,
         marginBottom: 16,
     },
@@ -735,23 +991,23 @@ const makeStyles = (colors) => StyleSheet.create({
     modalCancelBtn: {
         paddingVertical: 10,
         paddingHorizontal: 16,
-        borderRadius: 12,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         backgroundColor: colors.surfaceAlt,
     },
     modalCancelText: {
-        fontSize: 13,
-        fontWeight: "600",
+        ...type.caption,
         color: colors.textMuted,
     },
     modalSaveBtn: {
         paddingVertical: 10,
         paddingHorizontal: 16,
-        borderRadius: 12,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         backgroundColor: colors.accentStrong,
     },
     modalSaveText: {
-        fontSize: 13,
-        fontWeight: "700",
+        ...type.label,
         color: "#FFFFFF",
     },
 });
