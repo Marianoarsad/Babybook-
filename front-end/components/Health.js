@@ -33,6 +33,7 @@ import ShowMore from "./ui/ShowMore";
 import { ImmunizationsSkeleton, AppointmentsSkeleton } from "./ui/Skeleton";
 import { DateField, TimeField } from "./ui/DateField";
 import ImageViewer from "./ui/ImageViewer";
+import TipStrip from "./ui/TipStrip";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
 export default function Health({
@@ -47,13 +48,6 @@ export default function Health({
     const toast = useToast();
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
-    const Alert = {
-        alert: (title, message) => {
-            const m = message || title || "";
-            if (title === "Error" || /invalid|fail|denied|unable/i.test(String(title))) toast.error(m);
-            else toast.success(m);
-        },
-    };
     const [activeTab, setActiveTab] = useState("immunizations");
     // Apply a deep-link tab request from the floating log button, and — for
     // "Add Medication" — open the Add Rx form directly instead of just
@@ -344,7 +338,7 @@ export default function Health({
 
     const handleAddVaccine = async () => {
         if (!vaxName) {
-            Alert.alert("Error", "Please enter a vaccine name");
+            toast.error("Please enter a vaccine name");
             return;
         }
         if (!requireAttach()) return;
@@ -379,7 +373,7 @@ export default function Health({
                     .catch(() => {});
             }
         } catch (e) {
-            Alert.alert("Error", e.message || "Could not add vaccine");
+            toast.error(e.message || "Could not add vaccine");
         }
     };
 
@@ -401,7 +395,7 @@ export default function Health({
         } catch (e) {
             // revert on failure
             setVaccines((prev) => prev.map((v) => (v.id === vax.id ? vax : v)));
-            Alert.alert("Error", e.message || "Could not update vaccine");
+            toast.error(e.message || "Could not update vaccine");
         }
     };
 
@@ -474,7 +468,7 @@ export default function Health({
 
     const handleAddIllness = async () => {
         if (!illnessTitle) {
-            Alert.alert("Error", "Please enter illness name");
+            toast.error("Please enter illness name");
             return;
         }
         if (!requireAttach()) return;
@@ -493,15 +487,15 @@ export default function Health({
             });
             setIllnesses((prev) => [medHistoryToIllness(saved), ...prev]);
             await uploadAttachFor("illness", saved.id);
-            Alert.alert("Success", "Medical condition recorded successfully.");
+            toast.success("Medical condition recorded successfully.");
         } catch (e) {
-            Alert.alert("Error", e.message || "Could not save condition");
+            toast.error(e.message || "Could not save condition");
         }
     };
 
     const handleAddMedication = async () => {
         if (!medTitle) {
-            Alert.alert("Error", "Please enter medication name");
+            toast.error("Please enter medication name");
             return;
         }
         if (!requireAttach()) return;
@@ -519,15 +513,15 @@ export default function Health({
             });
             setMedications((prev) => [medHistoryToMed(saved), ...prev]);
             await uploadAttachFor("medication", saved.id);
-            Alert.alert("Success", "Prescribed medication logged successfully.");
+            toast.success("Prescribed medication logged successfully.");
         } catch (e) {
-            Alert.alert("Error", e.message || "Could not save medication");
+            toast.error(e.message || "Could not save medication");
         }
     };
 
     const handleAddHospitalization = async () => {
         if (!hospTitle) {
-            Alert.alert("Error", "Please enter a reason for hospitalization");
+            toast.error("Please enter a reason for hospitalization");
             return;
         }
         if (!requireAttach()) return;
@@ -546,15 +540,15 @@ export default function Health({
             });
             setHospitalizations((prev) => [medHistoryToIllness(saved), ...prev]);
             await uploadAttachFor("hospitalization", saved.id);
-            Alert.alert("Success", "Hospitalization recorded.");
+            toast.success("Hospitalization recorded.");
         } catch (e) {
-            Alert.alert("Error", e.message || "Could not save hospitalization");
+            toast.error(e.message || "Could not save hospitalization");
         }
     };
 
     const handleAddAppointment = async () => {
         if (!apptTitle || !apptDoctor || !apptDate) {
-            Alert.alert("Error", "Please fill out required fields");
+            toast.error("Please fill out required fields");
             return;
         }
         if (!requireAttach()) return;
@@ -585,12 +579,9 @@ export default function Health({
                     })
                     .catch(() => {});
             }
-            Alert.alert(
-                "Appointment Slotted",
-                `Pediatric session scheduled successfully.`,
-            );
+            toast.success("Pediatric session scheduled successfully.");
         } catch (e) {
-            Alert.alert("Error", e.message || "Could not save appointment");
+            toast.error(e.message || "Could not save appointment");
         }
     };
 
@@ -610,6 +601,11 @@ export default function Health({
 
     return (
         <ScrollView style={styles.container}>
+            <TipStrip tipKey="tip_health">
+                Every vaccine in the DOH schedule is already here, dated from your child's birthday. Tap one to
+                mark it given.
+            </TipStrip>
+
             {/* Care Team Banner Card */}
             <View style={styles.careTeamBox}>
                 <View style={styles.careTeamHeader}>

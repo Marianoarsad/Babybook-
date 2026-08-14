@@ -6,11 +6,14 @@ import { useTheme } from "../context/ThemeContext";
 import { space, radius, shadow } from "../theme";
 import { api } from "../utils/api";
 import { EmptyStateCard } from "./common/Cards";
+import { AppointmentsSkeleton } from "./ui/Skeleton";
+import { useRefreshControl } from "./ui/useRefreshControl";
 import { DateField, TimeField } from "./ui/DateField";
 import { useToast } from "./ui/Toast";
 import { scheduleReminder } from "../utils/notifications";
 import { storage } from "../utils/storageAdapter";
 import { LEAD_TIME_KEY, LEAD_TIME_OPTIONS } from "./settings/GeneralSettings";
+import TipStrip from "./ui/TipStrip";
 
 // Category -> theme-derived dot/accent color. Kept to semantic status tones
 // (not brand hex) so it stays consistent across the girl/boy palette switch.
@@ -148,6 +151,8 @@ export default function CalendarView({ profile }) {
     useEffect(() => {
         loadEvents();
     }, [loadEvents]);
+
+    const refreshControl = useRefreshControl(loading, loadEvents);
 
     useEffect(() => {
         (async () => {
@@ -330,7 +335,12 @@ export default function CalendarView({ profile }) {
                 </TouchableOpacity>
             </View>
 
-            <ScrollView contentContainerStyle={styles.scrollContent}>
+            <ScrollView contentContainerStyle={styles.scrollContent} refreshControl={refreshControl}>
+                <TipStrip tipKey="tip_calendar">
+                    Appointments and vaccine due dates appear here automatically. Tap any date to add your own
+                    event.
+                </TipStrip>
+
                 <View style={styles.legendRow}>
                     {Object.entries(CATEGORY_META).map(([key, meta]) => (
                         <View key={key} style={styles.legendItem}>
@@ -380,8 +390,8 @@ export default function CalendarView({ profile }) {
                     <Text style={styles.eventsSectionTitle}>
                         {selectedDate === todayISO() ? "Today" : selectedDate}
                     </Text>
-                    {loading ? (
-                        <Text style={styles.loadingText}>Loading…</Text>
+                    {loading && !dayEvents.length ? (
+                        <AppointmentsSkeleton />
                     ) : dayEvents.length ? (
                         dayEvents.map(renderEventRow)
                     ) : (
@@ -578,7 +588,6 @@ const makeStyles = (colors) =>
         dayNavLabel: { fontSize: 14, fontWeight: "800", color: colors.text },
         eventsSection: { marginTop: space.xs },
         eventsSectionTitle: { fontSize: 13, fontWeight: "800", color: colors.textMuted, marginBottom: space.sm },
-        loadingText: { fontSize: 13, color: colors.textMuted },
         eventRow: {
             flexDirection: "row",
             alignItems: "center",

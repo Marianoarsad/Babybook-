@@ -26,13 +26,6 @@ export default function EditProfile({
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const toast = useToast();
-    const Alert = {
-        alert: (title, message) => {
-            const m = message || title || "";
-            if (title === "Error" || /invalid|fail|denied|unable/i.test(String(title))) toast.error(m);
-            else toast.success(m);
-        },
-    };
 
     const [email, setEmail] = useState("");
     const [phone, setPhone] = useState("");
@@ -56,7 +49,7 @@ export default function EditProfile({
 
     const handleSaveInfo = async () => {
         if (!parentName.trim()) {
-            Alert.alert("Error", "Name cannot be empty.");
+            toast.error("Name cannot be empty.");
             return;
         }
         try {
@@ -67,9 +60,9 @@ export default function EditProfile({
                 gender: parentGender,
                 avatarUrl: parentAvatar,
             });
-            Alert.alert("Success", "Profile settings updated successfully!");
+            toast.success("Profile settings updated successfully!");
         } catch (e) {
-            Alert.alert("Error", e.message || "Could not update profile");
+            toast.error(e.message || "Could not update profile");
         }
     };
 

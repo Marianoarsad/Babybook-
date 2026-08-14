@@ -9,7 +9,6 @@ import {
     Modal,
     TextInput,
     Image,
-    Alert,
     ScrollView,
     Platform,
     AppState,
@@ -33,8 +32,20 @@ try {
 } catch (e) {
     ExpoFont = null;
 }
+// Guarded expo-splash-screen — keeps the native splash (app.json) on screen
+// until fonts are loaded and the saved session is restored, so nothing ever
+// flashes blank/white before AppLoadingScreen can paint.
+let SplashScreen = null;
+try {
+    // eslint-disable-next-line global-require
+    SplashScreen = require("expo-splash-screen");
+    SplashScreen.preventAutoHideAsync().catch(() => {});
+} catch (e) {
+    SplashScreen = null;
+}
 import ThemeProvider, { useTheme } from "./context/ThemeContext";
 import { storage } from "./utils/storageAdapter";
+import { seen, markSeen } from "./utils/firstRun";
 
 // Web only: one consistent muted-gray placeholder across every input, so raw
 // TextInputs match the themed `colors.placeholder` used by shared components.
@@ -60,6 +71,7 @@ import NutritionTracker from "./components/NutritionTracker";
 import ShareRecords from "./components/ShareRecords";
 import ProfessionalView from "./components/ProfessionalView";
 import EmptyChild from "./components/EmptyChild";
+import Onboarding from "./components/Onboarding";
 import ToastProvider, { useToast } from "./components/ui/Toast";
 import SideMenu, { MENU_TITLES } from "./components/SideMenu";
 import CalendarView from "./components/CalendarView";
@@ -117,11 +129,22 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                 console.log("font preload:", e.message);
             } finally {
                 if (active) setFontsReady(true);
+                // Hand off from the native splash to AppLoadingScreen only once
+                // fonts are ready, so there's no blank/white frame between them.
+                if (SplashScreen) SplashScreen.hideAsync().catch(() => {});
             }
         })();
         return () => {
             active = false;
         };
+    }, []);
+
+    // Welcome carousel — shown once, on the very first launch ever, ahead of
+    // Landing.js. null = still checking storage (folds into the AppLoadingScreen
+    // gate below so nothing flashes before the check resolves).
+    const [onboarded, setOnboarded] = useState(null);
+    useEffect(() => {
+        seen("onboarding").then(setOnboarded);
     }, []);
 
     // Authentication State
@@ -402,7 +425,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
 
     const handleAddProfile = async () => {
         if (!formName) {
-            Alert.alert("Error", "Please enter baby name");
+            toast.error("Please enter baby name");
             return;
         }
         try {
@@ -452,13 +475,13 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
             setFormHealthCenter("");
             setFormAvatarUri("");
         } catch (e) {
-            Alert.alert("Error", e.message || "Could not add child");
+            toast.error(e.message || "Could not add child");
         }
     };
 
     const handleEditProfile = async () => {
         if (!formName) {
-            Alert.alert("Error", "Please enter baby name");
+            toast.error("Please enter baby name");
             return;
         }
         try {
@@ -495,7 +518,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
             setShowEditProfileModal(false);
             setFormAvatarUri("");
         } catch (e) {
-            Alert.alert("Error", e.message || "Could not update child");
+            toast.error(e.message || "Could not update child");
         }
     };
 
@@ -568,9 +591,10 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
         );
     };
 
-    // Show the branded loading screen until icon fonts are ready and the saved
-    // session has been restored — so no screen ever renders with blank icons.
-    if (!fontsReady || bootstrapping) {
+    // Show the branded loading screen until icon fonts are ready, the saved
+    // session has been restored, and the one-time onboarding check resolves —
+    // so no screen ever renders with blank icons or a flash of the carousel.
+    if (!fontsReady || bootstrapping || onboarded === null) {
         return <AppLoadingScreen />;
     }
 
@@ -579,6 +603,27 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
     }
 
     if (!isAuthenticated) {
+        // Welcome carousel — first launch ever, ahead of Landing.js. Both its
+        // CTAs mark the flag so it never reappears, whichever one is used;
+        // logging out later does NOT reset this (see handleLogOut).
+        if (!onboarded) {
+            return (
+                <Onboarding
+                    onGetStarted={() => {
+                        markSeen("onboarding");
+                        setOnboarded(true);
+                        setAuthScene("register");
+                        setShowLanding(false);
+                    }}
+                    onLogin={() => {
+                        markSeen("onboarding");
+                        setOnboarded(true);
+                        setAuthScene("login");
+                        setShowLanding(false);
+                    }}
+                />
+            );
+        }
         // Landing page first; its CTAs decide which Auth scene opens.
         if (showLanding) {
             return (

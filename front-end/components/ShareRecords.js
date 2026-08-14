@@ -19,7 +19,10 @@ import { api } from "../utils/api";
 import { useToast } from "./ui/Toast";
 import { useTheme } from "../context/ThemeContext";
 import { motion, shadow, space, type } from "../theme";
+import { EmptyStateCard } from "./common/Cards";
+import { useRefreshControl } from "./ui/useRefreshControl";
 import ShowMore from "./ui/ShowMore";
+import TipStrip from "./ui/TipStrip";
 
 // Turns a raw user-agent string into a short readable summary, e.g. "Chrome on Android".
 function parseUserAgent(ua) {
@@ -59,6 +62,7 @@ export default function ShareRecords({ profile }) {
     const [historyVisible, setHistoryVisible] = useState(10);
     const [logVisible, setLogVisible] = useState(10);
     const [avatarBroken, setAvatarBroken] = useState(false);
+    const [loading, setLoading] = useState(true);
 
     // Reveal pulse for the freshly-generated QR — reassures the parent that
     // something just happened, mirrors Skeleton.js's useNativeDriver gating.
@@ -81,6 +85,7 @@ export default function ShareRecords({ profile }) {
     }, [activeShare, pulseAnim]);
 
     const refresh = useCallback(async () => {
+        setLoading(true);
         try {
             const [shares, log] = await Promise.all([
                 api.listShares(profile.id),
@@ -91,12 +96,16 @@ export default function ShareRecords({ profile }) {
             api.markAccessLogSeen(profile.id).catch(() => {});
         } catch (e) {
             console.log("share refresh:", e.message);
+        } finally {
+            setLoading(false);
         }
     }, [profile.id]);
 
     useEffect(() => {
         refresh();
     }, [refresh]);
+
+    const refreshControl = useRefreshControl(loading, refresh);
 
     const toggle = (key) => {
         setSelected((prev) => {
@@ -148,7 +157,7 @@ export default function ShareRecords({ profile }) {
     if (activeShare) {
         const keys = activeShare.shared_record_keys || [];
         return (
-            <ScrollView contentContainerStyle={styles.scroll}>
+            <ScrollView contentContainerStyle={styles.scroll} refreshControl={refreshControl}>
                 <View style={styles.resultCard}>
                     <View style={styles.identityRow}>
                         {profile.avatarUrl && !avatarBroken ? (
@@ -213,7 +222,11 @@ export default function ShareRecords({ profile }) {
 
     // ---- builder view ----
     return (
-        <ScrollView contentContainerStyle={styles.scroll}>
+        <ScrollView contentContainerStyle={styles.scroll} refreshControl={refreshControl}>
+            <TipStrip tipKey="tip_share">
+                Pick what a doctor may see, then show them the code. Access is read-only and expires on its own.
+            </TipStrip>
+
             <View style={styles.headerRow}>
                 <View style={{ flex: 1 }}>
                     <Text style={styles.h1}>Share for Consultation</Text>
@@ -271,9 +284,12 @@ export default function ShareRecords({ profile }) {
                 )}
             </TouchableOpacity>
 
-            {history.length > 0 && (
+            {!loading && (
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>Active & recent shares</Text>
+                    {history.length === 0 && (
+                        <EmptyStateCard message="No shares yet. Generate a QR code above." icon="qr-code-outline" />
+                    )}
                     {history.slice(0, historyVisible).map((s) => (
                         <View key={s.id} style={styles.histRow}>
                             <View style={{ flex: 1 }}>
@@ -304,9 +320,12 @@ export default function ShareRecords({ profile }) {
                 </View>
             )}
 
-            {accessLog.length > 0 && (
+            {!loading && (
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>Access log · who viewed records</Text>
+                    {accessLog.length === 0 && (
+                        <EmptyStateCard message="No one has viewed shared records yet." icon="eye-outline" />
+                    )}
                     {accessLog.slice(0, logVisible).map((l) => (
                         <View key={l.id} style={styles.logRow}>
                             <Ionicons name="eye-outline" size={15} color={colors.primary} />

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
@@ -6,6 +6,8 @@ import { space } from "../theme";
 import { api } from "../utils/api";
 import { memoryToApp } from "../utils/adapters";
 import { MemoryVisualCard, EmptyStateCard } from "./common/Cards";
+import { MemoriesSkeleton } from "./ui/Skeleton";
+import { useRefreshControl } from "./ui/useRefreshControl";
 import ShowMore from "./ui/ShowMore";
 import MemoryDetail from "./MemoryDetail";
 
@@ -20,7 +22,7 @@ export default function AllMemories({ profile, onClose }) {
     const [detailMemory, setDetailMemory] = useState(null);
     const [visibleCount, setVisibleCount] = useState(10);
 
-    useEffect(() => {
+    const load = useCallback(() => {
         let active = true;
         (async () => {
             setLoading(true);
@@ -38,6 +40,10 @@ export default function AllMemories({ profile, onClose }) {
         };
     }, [profile.id]);
 
+    useEffect(() => load(), [load]);
+
+    const refreshControl = useRefreshControl(loading, load);
+
     return (
         <View style={styles.root}>
             <View style={styles.header}>
@@ -52,10 +58,10 @@ export default function AllMemories({ profile, onClose }) {
                 <Text style={styles.headerTitle}>Milestone Memories</Text>
                 <View style={styles.headerBtn} />
             </View>
-            <ScrollView contentContainerStyle={styles.content}>
-                {loading ? (
-                    <Text style={styles.loadingText}>Loading…</Text>
-                ) : memories.length === 0 ? (
+            <ScrollView contentContainerStyle={styles.content} refreshControl={refreshControl}>
+                {loading && memories.length === 0 ? (
+                    <MemoriesSkeleton />
+                ) : !loading && memories.length === 0 ? (
                     <EmptyStateCard message="No memories yet." icon="image-outline" />
                 ) : (
                     memories.slice(0, visibleCount).map((m, idx) => (
@@ -105,5 +111,4 @@ const makeStyles = (colors) =>
         headerBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
         headerTitle: { fontSize: 18, fontWeight: "800", color: colors.primary },
         content: { padding: space.lg, paddingBottom: space.xxl },
-        loadingText: { fontSize: 13, color: colors.textMuted, textAlign: "center", marginTop: space.xl },
     });

@@ -35,6 +35,7 @@ import {
     zScore,
 } from "../utils/whoGrowth";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import TipStrip from "./ui/TipStrip";
 
 const METRIC_TABS = [
     { key: "weight", label: "Weight", field: "weight" },
@@ -139,13 +140,6 @@ export default function Growth({
     const toast = useToast();
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
-    const Alert = {
-        alert: (title, message) => {
-            const m = message || title || "";
-            if (title === "Error" || /invalid|fail|denied|unable/i.test(String(title))) toast.error(m);
-            else toast.success(m);
-        },
-    };
     const [growthTab, setGrowthTab] = useState("milestones");
     const [selectedAgeGroup, setSelectedAgeGroup] = useState("0-3m");
     // Apply a deep-link tab request from the floating log button, and — for
@@ -270,7 +264,7 @@ export default function Growth({
                 });
             } catch (e) {
                 setMstones((prev) => prev.map((m) => (m.id === existing.id ? existing : m)));
-                Alert.alert("Error", e.message || "Could not update milestone");
+                toast.error(e.message || "Could not update milestone");
             }
         } else {
             try {
@@ -281,7 +275,7 @@ export default function Growth({
                 });
                 setMstones((prev) => [milestoneToApp(saved), ...prev]);
             } catch (e) {
-                Alert.alert("Error", e.message || "Could not add milestone");
+                toast.error(e.message || "Could not add milestone");
             }
         }
     };
@@ -296,7 +290,7 @@ export default function Growth({
         const h = parseFloat(metricHeight);
         const w = parseFloat(metricWeight);
         if (isNaN(h) || isNaN(w) || h <= 0 || w <= 0) {
-            Alert.alert("Error", "Please enter valid parameters");
+            toast.error("Please enter valid parameters");
             return;
         }
         onUpdateProfile({
@@ -319,14 +313,16 @@ export default function Growth({
         } catch (e) {
             console.log("save growth:", e.message);
         }
-        Alert.alert(
-            "Metrics Saved",
-            `Height: ${h}cm, Weight: ${w}kg saved.`,
-        );
+        toast.success(`Height: ${h}cm, Weight: ${w}kg saved.`);
     };
 
     return (
         <ScrollView style={styles.container}>
+            <TipStrip tipKey="tip_growth">
+                Measurements plot against WHO growth curves, so you can see where your child sits versus the
+                standard for their age.
+            </TipStrip>
+
             {/* Tab Switcher */}
             <View style={styles.tabContainer}>
                 <TouchableOpacity

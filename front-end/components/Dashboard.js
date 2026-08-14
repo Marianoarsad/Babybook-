@@ -17,13 +17,14 @@ import GrowthChart from "./GrowthChart";
 import { DashboardSkeleton } from "./ui/Skeleton";
 import Button from "./ui/Button";
 import { Ionicons } from "@expo/vector-icons";
-import { radius, space, shadow, type } from "../theme";
+import { radius, space, shadow, type, MIN_TOUCH } from "../theme";
 import { useTheme } from "../context/ThemeContext";
 import { api } from "../utils/api";
 import { memoryToApp, toMilliliters } from "../utils/adapters";
 import { pickImage, pickerAvailable } from "../utils/imagePicker";
 import { useToast } from "./ui/Toast";
 import { cacheSummary } from "../utils/offlineSummary";
+import { seen, markSeen } from "../utils/firstRun";
 
 // Age in a friendly form ("15 months", "2y 3m") from a YYYY-MM-DD DOB.
 export function ageText(dob) {
@@ -482,6 +483,40 @@ export default function Dashboard({
 
     const nav = (view, tab) => onChangeView && onChangeView(view, tab);
 
+    // Setup checklist — completion is derived from state this screen already
+    // loads, no extra fetches and no per-item flags that could drift out of
+    // sync. "immunizations" is the plain tab-switch key (not "vaccine", which
+    // also opens the add-vaccine form — see CLAUDE.md Section 7); the
+    // checklist wants the tab, not a form.
+    const setupItems = [
+        { key: "child", label: "Add your child's profile", done: true },
+        { key: "growth", label: "Record a growth measurement", done: growthRows.length > 0, onPress: () => nav("growth", "metrics") },
+        { key: "vaccine", label: "Mark a vaccine as given", done: !!vaxProgress && vaxProgress.completed > 0, onPress: () => nav("health", "immunizations") },
+        { key: "share", label: "Share records with a doctor", done: activeShares.length > 0, onPress: () => nav("share") },
+    ];
+    const setupDoneCount = setupItems.filter((i) => i.done).length;
+    const setupComplete = setupDoneCount === setupItems.length;
+    // null = still checking storage (see effect below), true = hidden
+    // (dismissed or already completed once), false = show it.
+    const [setupDismissed, setSetupDismissed] = useState(null);
+    useEffect(() => {
+        seen("setup").then(setSetupDismissed);
+    }, []);
+    // Once every item is done, mark it seen for good — otherwise a share
+    // expiring later (activeShares empties out) would drop setupComplete
+    // back to false and resurrect a checklist the parent already finished.
+    useEffect(() => {
+        if (setupComplete && setupDismissed === false) {
+            markSeen("setup");
+            setSetupDismissed(true);
+        }
+    }, [setupComplete, setupDismissed]);
+    const dismissSetup = () => {
+        setSetupDismissed(true);
+        markSeen("setup");
+    };
+    const showSetupCard = setupDismissed === false && !setupComplete;
+
     // Gender is icon-only now — the word next to it used to repeat exactly
     // what the icon already showed (evaluation doc, Section 2). The
     // accessibility label keeps the information available to screen readers.
@@ -623,6 +658,51 @@ export default function Dashboard({
                    nothing to say — that's intentional, not a bug: a permanent
                    "no upcoming appointment" card would manufacture urgency on
                    an ordinary day. */}
+            {/* Setup checklist — one-time, first-run guidance for a brand-new
+                account. Dismissible, and removes itself for good once every
+                item is done (see the effect above) or the parent taps close. */}
+            {showSetupCard ? (
+                <View style={styles.setupCard}>
+                    <View style={styles.setupHeader}>
+                        <Text style={styles.setupTitle}>
+                            Get started — {setupDoneCount} of {setupItems.length}
+                        </Text>
+                        <TouchableOpacity
+                            onPress={dismissSetup}
+                            accessibilityRole="button"
+                            accessibilityLabel="Dismiss setup checklist"
+                            hitSlop={8}
+                            style={styles.setupCloseBtn}
+                        >
+                            <Ionicons name="close" size={16} color={colors.textMuted} />
+                        </TouchableOpacity>
+                    </View>
+                    {setupItems.map((item) => (
+                        <TouchableOpacity
+                            key={item.key}
+                            disabled={item.done || !item.onPress}
+                            onPress={item.onPress}
+                            style={styles.setupRow}
+                            accessibilityRole="button"
+                            accessibilityLabel={item.label}
+                            accessibilityState={{ disabled: item.done || !item.onPress }}
+                        >
+                            <Ionicons
+                                name={item.done ? "checkmark-circle" : "ellipse-outline"}
+                                size={18}
+                                color={item.done ? colors.success : colors.textMuted}
+                            />
+                            <Text style={[styles.setupRowText, item.done && styles.setupRowTextDone]}>
+                                {item.label}
+                            </Text>
+                            {!item.done ? (
+                                <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                            ) : null}
+                        </TouchableOpacity>
+                    ))}
+                </View>
+            ) : null}
+
             {/* Offline Summary — always visible, not conditional on a failed
                 fetch. A parent needs to prepare this at home while there's
                 still signal, not discover it only after the connection has
@@ -1302,6 +1382,41 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     offlineLabel: { ...type.bodyStrong, color: colors.primary },
     offlineSub: { ...type.caption, color: colors.textMuted },
+
+    // Setup checklist
+    setupCard: {
+        backgroundColor: colors.surface,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
+        borderWidth: 1,
+        borderColor: colors.border,
+        padding: space.md,
+        marginBottom: space.lg,
+        ...shadow.card,
+    },
+    setupHeader: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        marginBottom: space.sm,
+    },
+    setupTitle: { ...type.bodyStrong, color: colors.text },
+    setupCloseBtn: {
+        width: MIN_TOUCH * 0.6,
+        height: MIN_TOUCH * 0.6,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    setupRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.sm,
+        paddingVertical: space.sm,
+        borderTopWidth: 1,
+        borderTopColor: colors.hairline,
+    },
+    setupRowText: { ...type.body, color: colors.text, flex: 1 },
+    setupRowTextDone: { color: colors.textMuted, textDecorationLine: "line-through" },
 
     // Section heading
     seeAllText: { ...type.label, color: colors.accentStrong },
