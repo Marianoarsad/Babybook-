@@ -50,6 +50,13 @@ const SECTIONS = [
     },
 ];
 
+// Reused by App.js's global header so the "← <screen name>" title on every
+// menu destination stays in sync with the label shown here, instead of a
+// second hand-typed copy drifting out of step.
+export const MENU_TITLES = Object.fromEntries(
+    SECTIONS.flatMap((s) => s.items.map((i) => [i.key, i.label])),
+);
+
 // Slide-in drawer from the right, opened from the header avatar. Holds every
 // account/app/support/security destination plus logout (see CLAUDE.md §9).
 export default function SideMenu({ visible, onClose, parentName, parentAvatar, onNavigate, onLogout }) {

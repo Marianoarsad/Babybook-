@@ -7,6 +7,7 @@ import Field from "./ui/Field";
 import Button from "./ui/Button";
 import DateField from "./ui/DateField";
 import { useToast } from "./ui/Toast";
+import KeyboardAvoider from "./ui/KeyboardAvoider";
 
 // Shown when an authenticated parent has no children yet.
 // Progressive disclosure: required fields first, optional details behind a toggle.
@@ -55,6 +56,7 @@ export default function EmptyChild({ parentName, onCreate, onLogOut }) {
     };
 
     return (
+        <KeyboardAvoider>
         <ScrollView
             contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: space.xl }}
             style={{ backgroundColor: colors.background }}
@@ -188,5 +190,6 @@ export default function EmptyChild({ parentName, onCreate, onLogOut }) {
                 <Button title="Log out" variant="ghost" icon="log-out-outline" onPress={onLogOut} style={{ marginTop: space.sm }} />
             </View>
         </ScrollView>
+        </KeyboardAvoider>
     );
 }

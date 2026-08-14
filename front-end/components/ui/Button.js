@@ -1,7 +1,7 @@
 import React from "react";
 import { Text, Pressable, ActivityIndicator, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { radius, space, shadow, MIN_TOUCH } from "../../theme";
+import { radius, space, shadow, type, MIN_TOUCH } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
 
 // Optional haptics (guarded so it's a no-op if expo-haptics isn't installed).
@@ -16,9 +16,9 @@ try {
 const makeVariants = (colors) => ({
     primary: { bg: colors.primary, fg: colors.onPrimary, border: "transparent", elevate: true, ring: colors.primary + "59" },
     accent: { bg: colors.accentStrong, fg: colors.onAccent, border: "transparent", elevate: true, ring: colors.accentStrong + "59" },
-    secondary: { bg: colors.softGreen, fg: colors.primary, border: colors.border, elevate: false, ring: colors.primary + "4D" },
+    secondary: { bg: colors.primarySoft, fg: colors.primaryDark, border: colors.border, elevate: false, ring: colors.primary + "4D" },
     ghost: { bg: "transparent", fg: colors.primary, border: colors.border, elevate: false, ring: colors.primary + "4D" },
-    danger: { bg: colors.dangerBg, fg: colors.danger, border: "#FECACA", elevate: false, ring: "rgba(185,28,28,0.30)" },
+    danger: { bg: colors.dangerBg, fg: colors.danger, border: colors.danger, elevate: false, ring: colors.danger + "4D" },
 });
 
 // Consistent, touch-friendly, accessible button with hover/focus/pressed states.
@@ -77,7 +77,7 @@ export default function Button({
             ) : (
                 <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
                     {icon ? <Ionicons name={icon} size={18} color={v.fg} /> : null}
-                    <Text style={{ color: v.fg, fontWeight: "800", fontSize: 15 }}>{title}</Text>
+                    <Text style={{ ...type.label, color: v.fg }}>{title}</Text>
                 </View>
             )}
         </Pressable>

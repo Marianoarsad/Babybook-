@@ -8,6 +8,7 @@ import { useTheme } from "../context/ThemeContext";
 import Field from "./ui/Field";
 import Button from "./ui/Button";
 import { useToast } from "./ui/Toast";
+import KeyboardAvoider from "./ui/KeyboardAvoider";
 
 export default function Auth({ onLoginSuccess, onProfessional, onBack, initialScene = "login" }) {
     const { language } = useLanguage();
@@ -97,6 +98,7 @@ export default function Auth({ onLoginSuccess, onProfessional, onBack, initialSc
     };
 
     return (
+        <KeyboardAvoider>
         <ScrollView
             contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: space.lg }}
             style={{ backgroundColor: colors.background }}
@@ -388,5 +390,6 @@ export default function Auth({ onLoginSuccess, onProfessional, onBack, initialSc
                 )}
             </View>
         </ScrollView>
+        </KeyboardAvoider>
     );
 }

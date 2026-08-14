@@ -1,10 +1,12 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
 import { space, radius, shadow } from "../theme";
 import { api } from "../utils/api";
 import { EmptyStateCard } from "./common/Cards";
+import { AppointmentsSkeleton } from "./ui/Skeleton";
+import { useRefreshControl } from "./ui/useRefreshControl";
 import ShowMore from "./ui/ShowMore";
 
 // "See all" destination for Dashboard's Recent Activity section. Dashboard
@@ -19,7 +21,7 @@ export default function AllActivity({ profile, onClose }) {
     const [loading, setLoading] = useState(true);
     const [visibleCount, setVisibleCount] = useState(10);
 
-    useEffect(() => {
+    const load = useCallback(() => {
         let active = true;
         (async () => {
             setLoading(true);
@@ -98,6 +100,10 @@ export default function AllActivity({ profile, onClose }) {
         };
     }, [profile.id]);
 
+    useEffect(() => load(), [load]);
+
+    const refreshControl = useRefreshControl(loading, load);
+
     const toneColor = { primary: colors.primary, danger: colors.danger, success: colors.success, info: colors.info };
 
     return (
@@ -114,10 +120,10 @@ export default function AllActivity({ profile, onClose }) {
                 <Text style={styles.headerTitle}>Recent Activity</Text>
                 <View style={styles.headerBtn} />
             </View>
-            <ScrollView contentContainerStyle={styles.content}>
-                {loading ? (
-                    <Text style={styles.loadingText}>Loading…</Text>
-                ) : activity.length === 0 ? (
+            <ScrollView contentContainerStyle={styles.content} refreshControl={refreshControl}>
+                {loading && activity.length === 0 ? (
+                    <AppointmentsSkeleton />
+                ) : !loading && activity.length === 0 ? (
                     <EmptyStateCard message="No activity yet." icon="time-outline" />
                 ) : (
                     <View style={styles.activityCard}>
@@ -174,7 +180,6 @@ const makeStyles = (colors) =>
         headerBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
         headerTitle: { fontSize: 18, fontWeight: "800", color: colors.primary },
         content: { padding: space.lg, paddingBottom: space.xxl },
-        loadingText: { fontSize: 13, color: colors.textMuted, textAlign: "center", marginTop: space.xl },
         activityCard: {
             backgroundColor: colors.surface,
             borderRadius: radius.xl,

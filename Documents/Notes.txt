@@ -1,0 +1,13 @@
+RESEARCH:
+DigiVacc - a digital immunization suite in the Philippines that aims to digitalize and streamline how children’s immunization records are captured, stored, and accessed
+
+Rourke Baby Record - an evidence-based guide used by healthcare professionals for preventive care during the first five years of life. It includes growth and nutrition monitoring, developmental surveillance, physical examination, immunizations, and health promotion guidance.
+
+CDC Milestone Tracker App - allows parents to track developmental milestones from two months to five years using illustrated checklists and guidance
+
+Japan’s Maternal and Child Health Handbook - a parent-held handbook used to record information about pregnancy, childbirth, child health examinations, immunizations, dental examinations, and child development.
+
+Suhaimi and Ghazali's Web-Based Baby Health Record System (2023) - system design, development, user evaluation
+
+JUSTIFICATION
+1st time mothers difficulties and need of guidance

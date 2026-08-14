@@ -5,9 +5,10 @@ const { query } = require("../db/pool");
 const { ApiError, asyncHandler } = require("../middleware/error");
 const { handleValidation } = require("../middleware/validate");
 const { requireAuth, requireChildOwnership } = require("../middleware/auth");
-const { upload, publicUrlFor } = require("../middleware/upload");
+const { upload, extOf } = require("../middleware/upload");
 const { encryptFields, decryptRow } = require("../utils/crypto");
 const { insertEpiSchedule } = require("../utils/epiGenerator");
+const storage = require("../utils/storage");
 
 // Sensitive child identity/medical text columns encrypted at rest.
 const CHILD_ENCRYPTED = [
@@ -40,6 +41,14 @@ function pickChildBody(body) {
     return encryptFields(out, CHILD_ENCRYPTED);
 }
 
+// Decrypt + resolve a stored avatar reference (sb://... or a legacy/pasted
+// URL — resolveUrl() passes anything else through unchanged) to a viewable URL.
+async function toChildResponse(row) {
+    const decrypted = decryptRow(row, CHILD_ENCRYPTED);
+    decrypted.avatar_url = await storage.resolveUrl(decrypted.avatar_url);
+    return decrypted;
+}
+
 // GET /api/children — all children for the user
 router.get(
     "/",
@@ -49,7 +58,7 @@ router.get(
             "SELECT * FROM children WHERE user_id = $1 ORDER BY created_at ASC",
             [req.user.id]
         );
-        res.json(rows.map((r) => decryptRow(r, CHILD_ENCRYPTED)));
+        res.json(await Promise.all(rows.map(toChildResponse)));
     })
 );
 
@@ -84,7 +93,7 @@ router.post(
             }
         }
 
-        res.status(201).json({ ...decryptRow(child, CHILD_ENCRYPTED), scheduleGenerated });
+        res.status(201).json({ ...(await toChildResponse(child)), scheduleGenerated });
     })
 );
 
@@ -114,7 +123,7 @@ router.get(
     requireAuth,
     requireChildOwnership,
     asyncHandler(async (req, res) => {
-        res.json(decryptRow(req.child, CHILD_ENCRYPTED));
+        res.json(await toChildResponse(req.child));
     })
 );
 
@@ -133,7 +142,7 @@ router.put(
             `UPDATE children SET ${setClause} WHERE id = $${cols.length + 1} RETURNING *`,
             params
         );
-        res.json(decryptRow(rows[0], CHILD_ENCRYPTED));
+        res.json(await toChildResponse(rows[0]));
     })
 );
 
@@ -145,13 +154,17 @@ router.post(
     requireChildOwnership,
     upload.single("photo"),
     asyncHandler(async (req, res) => {
-        const avatarUrl = req.file ? publicUrlFor(req.file.filename) : req.body.avatar_url;
-        if (!avatarUrl) throw new ApiError(400, "No image provided");
+        // Delete the old stored file (if any) before writing the new reference.
+        await storage.deleteFile(req.child.avatar_url);
+        const avatarRef = req.file
+            ? await storage.uploadFile(req.file.buffer, req.file.mimetype, extOf(req.file))
+            : req.body.avatar_url;
+        if (!avatarRef) throw new ApiError(400, "No image provided");
         const { rows } = await query(
             "UPDATE children SET avatar_url = $1 WHERE id = $2 RETURNING *",
-            [avatarUrl, req.child.id]
+            [avatarRef, req.child.id]
         );
-        res.json(decryptRow(rows[0], CHILD_ENCRYPTED));
+        res.json(await toChildResponse(rows[0]));
     })
 );
 

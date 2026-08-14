@@ -13,6 +13,7 @@ export const RECORD_LABELS = {
   milestones: "Developmental Milestones",
   checkups: "Checkups & Appointments",
   nutrition: "Nutrition & Feeding",
+  medicalHistory: "Medical History (Illnesses, Medications, Hospitalizations)",
 };
 
 // The string actually encoded into the QR image.

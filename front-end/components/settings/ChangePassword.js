@@ -4,7 +4,21 @@ import { SectionContainerCard } from "../common/Cards";
 import { api } from "../../utils/api";
 import { useToast } from "../ui/Toast";
 import { useTheme } from "../../context/ThemeContext";
-import { space, radius } from "../../theme";
+import { space, radius, type } from "../../theme";
+import KeyboardAvoider from "../ui/KeyboardAvoider";
+
+// Cosmetic-only heuristic (length + character variety) driving the 4-segment
+// meter below. Not a security gate — the actual submit validation is
+// untouched (still just "at least 8 characters").
+function passwordStrength(pw) {
+    if (!pw) return 0;
+    let score = 0;
+    if (pw.length >= 8) score++;
+    if (pw.length >= 12) score++;
+    if (/[0-9]/.test(pw) && /[a-zA-Z]/.test(pw)) score++;
+    if (/[^a-zA-Z0-9]/.test(pw)) score++;
+    return Math.max(pw.length > 0 ? 1 : 0, Math.min(score, 4));
+}
 
 export default function ChangePassword() {
     const { colors } = useTheme();
@@ -15,6 +29,13 @@ export default function ChangePassword() {
     const [newPassword, setNewPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
     const [saving, setSaving] = useState(false);
+
+    const strength = passwordStrength(newPassword);
+    // Index by strength (1-4) — the whole meter turns one ramp color, it
+    // doesn't rainbow segment-by-segment.
+    const STRENGTH_COLOR = { 1: colors.danger, 2: colors.warning, 3: colors.info, 4: colors.success };
+    const strengthColor = STRENGTH_COLOR[strength];
+    const STRENGTH_LABEL = { 0: "", 1: "Weak", 2: "Fair", 3: "Good", 4: "Strong" };
 
     const handleSubmit = async () => {
         if (!currentPassword || !newPassword || !confirmPassword) {
@@ -44,6 +65,7 @@ export default function ChangePassword() {
     };
 
     return (
+        <KeyboardAvoider>
         <ScrollView style={styles.container}>
             <SectionContainerCard title="Change Password" subtitle="Use your current password to set a new one">
                 <View style={styles.formGroup}>
@@ -58,6 +80,24 @@ export default function ChangePassword() {
                 <View style={styles.formGroup}>
                     <Text style={styles.label}>New Password</Text>
                     <TextInput style={styles.input} secureTextEntry value={newPassword} onChangeText={setNewPassword} />
+                    {newPassword ? (
+                        <View style={styles.meterRow}>
+                            <View style={styles.meterBars}>
+                                {[0, 1, 2, 3].map((i) => (
+                                    <View
+                                        key={i}
+                                        style={[
+                                            styles.meterBar,
+                                            i < strength && { backgroundColor: strengthColor },
+                                        ]}
+                                    />
+                                ))}
+                            </View>
+                            <Text style={[styles.meterLabel, { color: strengthColor }]}>
+                                {STRENGTH_LABEL[strength]}
+                            </Text>
+                        </View>
+                    ) : null}
                 </View>
                 <View style={styles.formGroup}>
                     <Text style={styles.label}>Confirm New Password</Text>
@@ -83,6 +123,7 @@ export default function ChangePassword() {
                 </TouchableOpacity>
             </SectionContainerCard>
         </ScrollView>
+        </KeyboardAvoider>
     );
 }
 
@@ -90,13 +131,11 @@ const makeStyles = (colors) =>
     StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
         formGroup: { marginBottom: space.md },
-        label: {
-            fontSize: 10,
-            fontWeight: "700",
-            color: colors.textMuted,
-            textTransform: "uppercase",
-            marginBottom: 4,
-        },
+        label: { ...type.subheading, color: colors.textMuted, marginBottom: space.xs },
+        meterRow: { flexDirection: "row", alignItems: "center", marginTop: space.sm },
+        meterBars: { flexDirection: "row", gap: 4, flex: 1 },
+        meterBar: { flex: 1, height: 4, borderRadius: 2, backgroundColor: colors.hairline },
+        meterLabel: { ...type.caption, marginLeft: space.sm },
         input: {
             backgroundColor: colors.surfaceAlt,
             borderWidth: 1,
@@ -105,7 +144,7 @@ const makeStyles = (colors) =>
             borderCurve: "continuous",
             paddingHorizontal: space.md,
             height: 44,
-            fontSize: 13,
+            ...type.body,
             color: colors.text,
         },
         saveBtn: {
@@ -117,5 +156,5 @@ const makeStyles = (colors) =>
             alignItems: "center",
             marginTop: space.sm,
         },
-        saveBtnText: { color: colors.onAccent, fontWeight: "700", fontSize: 13 },
+        saveBtnText: { ...type.label, color: colors.onAccent },
     });

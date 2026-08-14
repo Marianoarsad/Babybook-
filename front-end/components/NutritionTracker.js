@@ -8,6 +8,9 @@ import { nutritionToApp, nutritionFormToRecord, toMilliliters } from "../utils/a
 import { useToast } from "./ui/Toast";
 import { DateField, TimeField } from "./ui/DateField";
 import { SectionContainerCard, ListEntryCard, EmptyStateCard } from "./common/Cards";
+import { AppointmentsSkeleton } from "./ui/Skeleton";
+import { useRefreshControl } from "./ui/useRefreshControl";
+import KeyboardAvoider from "./ui/KeyboardAvoider";
 import ShowMore from "./ui/ShowMore";
 
 const MILK_TYPES = ["Formula", "Breastmilk", "Mixed"];
@@ -102,6 +105,7 @@ export default function NutritionTracker({ childId, initialAction, navKey }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const [entries, setEntries] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
     const [editingId, setEditingId] = useState(null);
     const [form, setForm] = useState(emptyForm());
@@ -110,16 +114,22 @@ export default function NutritionTracker({ childId, initialAction, navKey }) {
     const [visibleCount, setVisibleCount] = useState(10);
 
     const load = async () => {
+        setLoading(true);
         try {
             const rows = await api.listRecords(childId, "nutrition");
             setEntries(rows.map(nutritionToApp));
         } catch (e) {
             console.log("load nutrition:", e.message);
+        } finally {
+            setLoading(false);
         }
     };
     useEffect(() => {
         load();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [childId]);
+
+    const refreshControl = useRefreshControl(loading, load);
 
     const setF = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
@@ -209,7 +219,7 @@ export default function NutritionTracker({ childId, initialAction, navKey }) {
     );
 
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView style={styles.container} refreshControl={refreshControl}>
             {/* Analytics */}
             <SectionContainerCard title="Milk Intake Analytics" subtitle="Consumption over time">
                 <View style={styles.rangeRow}>
@@ -226,7 +236,7 @@ export default function NutritionTracker({ childId, initialAction, navKey }) {
                     ))}
                 </View>
 
-                {buckets.length === 0 ? (
+                {loading && buckets.length === 0 ? null : buckets.length === 0 ? (
                     <EmptyStateCard message="No milk entries in this period yet." icon="bar-chart-outline" />
                 ) : (
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chart}>
@@ -270,7 +280,17 @@ export default function NutritionTracker({ childId, initialAction, navKey }) {
                     </TouchableOpacity>
                 }
             >
-                {listed.length === 0 && <EmptyStateCard message="No nutrition entries yet. Tap Add to log milk or solids." />}
+                {loading && listed.length === 0 ? (
+                    <AppointmentsSkeleton />
+                ) : (
+                    !loading &&
+                    listed.length === 0 && (
+                        <EmptyStateCard
+                            message="No nutrition entries yet. Tap Add to log milk or solids."
+                            icon="restaurant-outline"
+                        />
+                    )
+                )}
                 {listed.slice(0, visibleCount).map((e) => (
                     <ListEntryCard
                         key={e.id}
@@ -292,7 +312,7 @@ export default function NutritionTracker({ childId, initialAction, navKey }) {
                                 color={colors.primary}
                             />
                         }
-                        iconBg={e.entryType === "milk" ? colors.tintBlue : colors.tintAmber}
+                        iconBg={e.entryType === "milk" ? colors.infoBg : colors.recNutrition.bg}
                         actions={
                             <View style={{ flexDirection: "row", gap: space.sm }}>
                                 <TouchableOpacity onPress={() => openEdit(e)} accessibilityRole="button" accessibilityLabel="Edit entry">
@@ -315,6 +335,7 @@ export default function NutritionTracker({ childId, initialAction, navKey }) {
 
             {/* Add / Edit Modal */}
             <Modal visible={showModal} transparent animationType="slide">
+                <KeyboardAvoider>
                 <View style={styles.modalBg}>
                     <ScrollView contentContainerStyle={styles.modalScroll}>
                         <View style={styles.modalCard}>
@@ -468,6 +489,7 @@ export default function NutritionTracker({ childId, initialAction, navKey }) {
                         </View>
                     </ScrollView>
                 </View>
+                </KeyboardAvoider>
             </Modal>
         </ScrollView>
     );
@@ -486,7 +508,7 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     rangeChipActive: { backgroundColor: colors.softGreen, borderColor: colors.primary },
     rangeChipText: { fontSize: 12, fontWeight: "700", color: colors.textMuted },
-    rangeChipTextActive: { color: colors.primary },
+    rangeChipTextActive: { color: colors.primaryDark },
     chart: { flexDirection: "row", alignItems: "flex-end", gap: space.md, paddingVertical: space.sm, minHeight: 160 },
     barCol: { alignItems: "center", width: 34 },
     bar: {
@@ -546,7 +568,7 @@ const makeStyles = (colors) => StyleSheet.create({
         borderCurve: "continuous",
         paddingHorizontal: space.lg,
         height: 48,
-        fontSize: 15,
+        fontSize: 16,
         color: colors.text,
         marginBottom: space.md,
     },

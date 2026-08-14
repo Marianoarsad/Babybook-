@@ -9,14 +9,32 @@ import {
     Modal,
     TextInput,
     Image,
-    Alert,
     ScrollView,
     Platform,
     AppState,
+    Animated,
+    Easing,
 } from "react-native";
 import { LanguageProvider, useLanguage } from "./context/LanguageContext";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { colors, radius, space, shadow } from "./theme";
+import { Archivo_600SemiBold, Archivo_700Bold } from "@expo-google-fonts/archivo";
+import {
+    PublicSans_400Regular,
+    PublicSans_500Medium,
+    PublicSans_600SemiBold,
+    PublicSans_700Bold,
+} from "@expo-google-fonts/public-sans";
+import { radius, space, shadow, type, MIN_TOUCH, motion } from "./theme";
+
+// Guarded expo-haptics, same pattern as ui/Toast.js — a no-op if the module
+// isn't available rather than a crash.
+let Haptics = null;
+try {
+    // eslint-disable-next-line global-require
+    Haptics = require("expo-haptics");
+} catch (e) {
+    Haptics = null;
+}
 
 // Guarded expo-font so the app still runs if it isn't available.
 let ExpoFont = null;
@@ -26,8 +44,20 @@ try {
 } catch (e) {
     ExpoFont = null;
 }
+// Guarded expo-splash-screen — keeps the native splash (app.json) on screen
+// until fonts are loaded and the saved session is restored, so nothing ever
+// flashes blank/white before AppLoadingScreen can paint.
+let SplashScreen = null;
+try {
+    // eslint-disable-next-line global-require
+    SplashScreen = require("expo-splash-screen");
+    SplashScreen.preventAutoHideAsync().catch(() => {});
+} catch (e) {
+    SplashScreen = null;
+}
 import ThemeProvider, { useTheme } from "./context/ThemeContext";
 import { storage } from "./utils/storageAdapter";
+import { seen, markSeen } from "./utils/firstRun";
 
 // Web only: one consistent muted-gray placeholder across every input, so raw
 // TextInputs match the themed `colors.placeholder` used by shared components.
@@ -53,13 +83,17 @@ import NutritionTracker from "./components/NutritionTracker";
 import ShareRecords from "./components/ShareRecords";
 import ProfessionalView from "./components/ProfessionalView";
 import EmptyChild from "./components/EmptyChild";
+import Onboarding from "./components/Onboarding";
 import ToastProvider, { useToast } from "./components/ui/Toast";
-import SideMenu from "./components/SideMenu";
+import SideMenu, { MENU_TITLES } from "./components/SideMenu";
 import CalendarView from "./components/CalendarView";
 import AllActivity from "./components/AllActivity";
+import Search from "./components/Search";
 import AllMemories from "./components/AllMemories";
+import OfflineSummaryView from "./components/OfflineSummaryView";
 import AppLoadingScreen from "./components/AppLoadingScreen";
 import { DateField, TimeField } from "./components/ui/DateField";
+import KeyboardAvoider from "./components/ui/KeyboardAvoider";
 import ViewProfile from "./components/settings/ViewProfile";
 import EditProfile from "./components/settings/EditProfile";
 import GeneralSettings from "./components/settings/GeneralSettings";
@@ -74,9 +108,22 @@ import { scheduleReminder, morningOf } from "./utils/notifications";
 import { childToProfile, profileFormToChild } from "./utils/adapters";
 import { pickImage, pickerAvailable } from "./utils/imagePicker";
 
-function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChange }) {
+// Header title shown ("← <title>") whenever currentView is a side-menu
+// destination or Share Records — reuses SideMenu's own labels so they can't
+// drift apart. Screens absent here (the 5 bottom tabs, allActivity,
+// allMemories — the latter two already draw their own back header) keep
+// showing the baby's name instead.
+const SCREEN_TITLES = { ...MENU_TITLES, share: "Share Records", offlineSummary: "Offline Summary" };
+
+function MainAppShell({
+    onThemeGenderChange,
+    themeOverride,
+    onThemeOverrideChange,
+    schemeOverride,
+    onSchemeOverrideChange,
+}) {
     const { language, t } = useLanguage();
-    const { colors } = useTheme();
+    const { colors, scheme } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
 
     // Preload the icon fonts (@expo/vector-icons) so buttons/icons never render
@@ -87,17 +134,37 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
         (async () => {
             try {
                 if (ExpoFont && ExpoFont.loadAsync) {
-                    await ExpoFont.loadAsync({ ...Ionicons.font, ...MaterialCommunityIcons.font });
+                    await ExpoFont.loadAsync({
+                        ...Ionicons.font,
+                        ...MaterialCommunityIcons.font,
+                        Archivo_600SemiBold,
+                        Archivo_700Bold,
+                        PublicSans_400Regular,
+                        PublicSans_500Medium,
+                        PublicSans_600SemiBold,
+                        PublicSans_700Bold,
+                    });
                 }
             } catch (e) {
                 console.log("font preload:", e.message);
             } finally {
                 if (active) setFontsReady(true);
+                // Hand off from the native splash to AppLoadingScreen only once
+                // fonts are ready, so there's no blank/white frame between them.
+                if (SplashScreen) SplashScreen.hideAsync().catch(() => {});
             }
         })();
         return () => {
             active = false;
         };
+    }, []);
+
+    // Welcome carousel — shown once, on the very first launch ever, ahead of
+    // Landing.js. null = still checking storage (folds into the AppLoadingScreen
+    // gate below so nothing flashes before the check resolves).
+    const [onboarded, setOnboarded] = useState(null);
+    useEffect(() => {
+        seen("onboarding").then(setOnboarded);
     }, []);
 
     // Authentication State
@@ -115,16 +182,57 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
 
     // Main navigation view
     const [currentView, setCurrentView] = useState("dashboard");
+    // Enter-only screen transition (fade + rise) — the outgoing screen is
+    // swapped synchronously by React, only the incoming one animates in.
+    // useNativeDriver follows the house style already used in Skeleton.js/
+    // SideMenu.js: off on web, since RNW's transform driver doesn't support it.
+    const contentOpacity = useRef(new Animated.Value(1)).current;
+    const contentTranslateY = useRef(new Animated.Value(0)).current;
+    useEffect(() => {
+        contentOpacity.setValue(0);
+        contentTranslateY.setValue(8);
+        Animated.parallel([
+            Animated.timing(contentOpacity, {
+                toValue: 1,
+                duration: motion.standard.duration,
+                easing: Easing.bezier(...motion.standard.bezier),
+                useNativeDriver: Platform.OS !== "web",
+            }),
+            Animated.timing(contentTranslateY, {
+                toValue: 0,
+                duration: motion.standard.duration,
+                easing: Easing.bezier(...motion.standard.bezier),
+                useNativeDriver: Platform.OS !== "web",
+            }),
+        ]).start();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentView]);
     // Optional deep-link sub-tab for Health/Growth (set by Dashboard quick actions).
     // navKey bumps on every request so repeated taps re-apply the tab.
     const [navTab, setNavTab] = useState(null);
     const [navKey, setNavKey] = useState(0);
+    // Back-button history for the global header — every navigation that goes
+    // through changeView() pushes the screen it left, so goBack() can return
+    // to wherever the parent actually came from (View Profile -> Edit Profile
+    // -> back lands on View Profile, not Home). Capped so a long tab-hopping
+    // session can't grow this unbounded; back only ever needs to pop one level.
+    const historyRef = useRef([]);
     const changeView = (view, tab = null) => {
-        setCurrentView(view);
+        setCurrentView((prevView) => {
+            if (view !== prevView) {
+                historyRef.current = [...historyRef.current, prevView].slice(-10);
+            }
+            return view;
+        });
         if (tab) {
             setNavTab(tab);
             setNavKey((k) => k + 1);
         }
+    };
+    const goBack = () => {
+        const prev = historyRef.current[historyRef.current.length - 1];
+        historyRef.current = historyRef.current.slice(0, -1);
+        setCurrentView(prev || "dashboard");
     };
 
     // Floating "log something" button (bottom-right, above the tab bar) and
@@ -343,6 +451,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
         setProfiles([]);
         setSelectedProfileId(null);
         setCurrentView("dashboard");
+        historyRef.current = []; // don't let a new session's back arrow reach the old one
         try {
             await clearToken();
         } catch (e) {
@@ -361,7 +470,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
 
     const handleAddProfile = async () => {
         if (!formName) {
-            Alert.alert("Error", "Please enter baby name");
+            toast.error("Please enter baby name");
             return;
         }
         try {
@@ -411,13 +520,13 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
             setFormHealthCenter("");
             setFormAvatarUri("");
         } catch (e) {
-            Alert.alert("Error", e.message || "Could not add child");
+            toast.error(e.message || "Could not add child");
         }
     };
 
     const handleEditProfile = async () => {
         if (!formName) {
-            Alert.alert("Error", "Please enter baby name");
+            toast.error("Please enter baby name");
             return;
         }
         try {
@@ -454,7 +563,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
             setShowEditProfileModal(false);
             setFormAvatarUri("");
         } catch (e) {
-            Alert.alert("Error", e.message || "Could not update child");
+            toast.error(e.message || "Could not update child");
         }
     };
 
@@ -527,9 +636,10 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
         );
     };
 
-    // Show the branded loading screen until icon fonts are ready and the saved
-    // session has been restored — so no screen ever renders with blank icons.
-    if (!fontsReady || bootstrapping) {
+    // Show the branded loading screen until icon fonts are ready, the saved
+    // session has been restored, and the one-time onboarding check resolves —
+    // so no screen ever renders with blank icons or a flash of the carousel.
+    if (!fontsReady || bootstrapping || onboarded === null) {
         return <AppLoadingScreen />;
     }
 
@@ -538,6 +648,27 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
     }
 
     if (!isAuthenticated) {
+        // Welcome carousel — first launch ever, ahead of Landing.js. Both its
+        // CTAs mark the flag so it never reappears, whichever one is used;
+        // logging out later does NOT reset this (see handleLogOut).
+        if (!onboarded) {
+            return (
+                <Onboarding
+                    onGetStarted={() => {
+                        markSeen("onboarding");
+                        setOnboarded(true);
+                        setAuthScene("register");
+                        setShowLanding(false);
+                    }}
+                    onLogin={() => {
+                        markSeen("onboarding");
+                        setOnboarded(true);
+                        setAuthScene("login");
+                        setShowLanding(false);
+                    }}
+                />
+            );
+        }
         // Landing page first; its CTAs decide which Auth scene opens.
         if (showLanding) {
             return (
@@ -577,18 +708,42 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
 
     return (
         <SafeAreaView style={styles.container}>
-            <StatusBar barStyle="dark-content" backgroundColor="#FFFDF9" />
+            <StatusBar barStyle={scheme === "dark" ? "light-content" : "dark-content"} backgroundColor={colors.background} />
 
             {/* Dynamic Header */}
             <View style={styles.header}>
                 <View style={styles.headerLeft}>
-                    <Text style={styles.babyName}>{activeProfile.name}</Text>
+                    {SCREEN_TITLES[currentView] ? (
+                        <>
+                            <TouchableOpacity
+                                onPress={goBack}
+                                style={styles.backBtn}
+                                accessibilityRole="button"
+                                accessibilityLabel="Back"
+                            >
+                                <Ionicons name="arrow-back" size={22} color={colors.text} />
+                            </TouchableOpacity>
+                            <Text style={styles.screenTitle} numberOfLines={1}>
+                                {SCREEN_TITLES[currentView]}
+                            </Text>
+                        </>
+                    ) : (
+                        <Text style={styles.babyName}>{activeProfile.name}</Text>
+                    )}
                 </View>
                 <View style={styles.headerRight}>
                     <TouchableOpacity
+                        onPress={() => changeView("search")}
+                        style={[styles.menuBtn, { marginRight: space.md }]}
+                        accessibilityRole="button"
+                        accessibilityLabel="Search records"
+                    >
+                        <Ionicons name="search-outline" size={22} color={colors.primary} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
                         onPress={() => {
                             setUnseenCount(0);
-                            setCurrentView("share");
+                            changeView("share");
                         }}
                         style={styles.headerQrBtn}
                     >
@@ -613,7 +768,12 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
             </View>
 
             {/* Main Container View content */}
-            <View style={styles.content}>
+            <Animated.View
+                style={[
+                    styles.content,
+                    { opacity: contentOpacity, transform: [{ translateY: contentTranslateY }] },
+                ]}
+            >
                 {currentView === "dashboard" && (
                     <Dashboard
                         profile={activeProfile}
@@ -676,10 +836,13 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                 {currentView === "services" && <Services />}
                 {currentView === "calendar" && <CalendarView profile={activeProfile} />}
                 {currentView === "allActivity" && (
-                    <AllActivity profile={activeProfile} onClose={() => setCurrentView("dashboard")} />
+                    <AllActivity profile={activeProfile} onClose={goBack} />
                 )}
                 {currentView === "allMemories" && (
-                    <AllMemories profile={activeProfile} onClose={() => setCurrentView("dashboard")} />
+                    <AllMemories profile={activeProfile} onClose={goBack} />
+                )}
+                {currentView === "search" && (
+                    <Search profile={activeProfile} onClose={goBack} onNavigate={changeView} />
                 )}
                 {currentView === "share" && (
                     <ShareRecords
@@ -687,15 +850,16 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                         immunizations={immunizations}
                         milestones={milestones}
                         appointments={appointments}
-                        onClose={() => setCurrentView("dashboard")}
+                        onClose={goBack}
                     />
                 )}
+                {currentView === "offlineSummary" && <OfflineSummaryView profile={activeProfile} />}
                 {currentView === "viewProfile" && (
                     <ViewProfile
                         parentName={parentName}
                         parentAvatar={parentAvatar}
                         parentGender={parentGender}
-                        onEdit={() => setCurrentView("editProfile")}
+                        onEdit={() => changeView("editProfile")}
                     />
                 )}
                 {currentView === "editProfile" && (
@@ -713,6 +877,8 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                         themeOverride={themeOverride}
                         onThemeOverrideChange={onThemeOverrideChange}
                         childGender={activeProfile ? activeProfile.gender : undefined}
+                        schemeOverride={schemeOverride}
+                        onSchemeOverrideChange={onSchemeOverrideChange}
                     />
                 )}
                 {currentView === "languagePreferences" && <LanguagePreferences />}
@@ -722,7 +888,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                 {currentView === "privacySettings" && (
                     <PrivacySettings profile={activeProfile} onAccountDeleted={handleLogOut} />
                 )}
-            </View>
+            </Animated.View>
 
             {/* Modern bottom navigation tabs */}
             <View style={styles.tabBar}>
@@ -738,7 +904,12 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                         <TouchableOpacity
                             key={tab.key}
                             style={styles.tabItem}
-                            onPress={() => setCurrentView(tab.key)}
+                            onPress={() => {
+                                if (Haptics && Haptics.selectionAsync) {
+                                    Haptics.selectionAsync().catch(() => {});
+                                }
+                                changeView(tab.key);
+                            }}
                             accessibilityRole="button"
                             accessibilityLabel={tab.label}
                             accessibilityState={{ selected: active }}
@@ -821,6 +992,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                 transparent
                 animationType="slide"
             >
+                <KeyboardAvoider>
                 <View style={styles.modalBg}>
                     <ScrollView contentContainerStyle={styles.modalScroll}>
                         <View style={styles.modalCard}>
@@ -999,6 +1171,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                         </View>
                     </ScrollView>
                 </View>
+                </KeyboardAvoider>
             </Modal>
 
             {/* Modal: EDIT BABY PROFILE */}
@@ -1007,6 +1180,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                 transparent
                 animationType="slide"
             >
+                <KeyboardAvoider>
                 <View style={styles.modalBg}>
                     <ScrollView contentContainerStyle={styles.modalScroll}>
                         <View style={styles.modalCard}>
@@ -1183,6 +1357,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                         </View>
                     </ScrollView>
                 </View>
+                </KeyboardAvoider>
             </Modal>
 
             {/* Annual data-retention re-consent (Data Privacy Act of 2012, RA 10173) */}
@@ -1237,7 +1412,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                 parentName={parentName}
                 parentAvatar={parentAvatar}
                 onNavigate={(key) => {
-                    setCurrentView(key);
+                    changeView(key);
                     setMenuOpen(false);
                 }}
                 onLogout={() => {
@@ -1254,12 +1429,18 @@ export default function App() {
     // ("auto" | "girl" | "boy") can force it. Default is "auto".
     const [themeGender, setThemeGender] = useState(undefined);
     const [themeOverride, setThemeOverride] = useState("auto");
+    // Independent light/dark axis — "system" follows the OS setting, or a
+    // manual "light"/"dark" override. Combines with themeOverride above
+    // (e.g. "girl" + "dark" = dark pink theme).
+    const [schemeOverride, setSchemeOverride] = useState("system");
 
     useEffect(() => {
         (async () => {
             try {
                 const saved = await storage.getItem("bb_theme_override");
                 if (saved) setThemeOverride(saved);
+                const savedScheme = await storage.getItem("bb_dark_mode");
+                if (savedScheme) setSchemeOverride(savedScheme);
             } catch (e) {
                 /* ignore */
             }
@@ -1275,14 +1456,25 @@ export default function App() {
         }
     };
 
+    const changeSchemeOverride = async (v) => {
+        setSchemeOverride(v);
+        try {
+            await storage.setItem("bb_dark_mode", v);
+        } catch (e) {
+            /* ignore */
+        }
+    };
+
     return (
         <LanguageProvider>
-            <ThemeProvider gender={themeGender} override={themeOverride}>
+            <ThemeProvider gender={themeGender} override={themeOverride} schemeOverride={schemeOverride}>
                 <ToastProvider>
                     <MainAppShell
                         onThemeGenderChange={setThemeGender}
                         themeOverride={themeOverride}
                         onThemeOverrideChange={changeThemeOverride}
+                        schemeOverride={schemeOverride}
+                        onSchemeOverrideChange={changeSchemeOverride}
                     />
                 </ToastProvider>
             </ThemeProvider>
@@ -1342,6 +1534,14 @@ const makeStyles = (colors) => StyleSheet.create({
         color: colors.primary,
         letterSpacing: -0.2,
     },
+    backBtn: {
+        width: MIN_TOUCH,
+        height: MIN_TOUCH,
+        alignItems: "center",
+        justifyContent: "center",
+        marginLeft: -space.sm, // optical alignment with the screen content below
+    },
+    screenTitle: { ...type.heading, color: colors.text, flexShrink: 1 },
     menuBtn: {
         width: 42,
         height: 42,
@@ -1378,7 +1578,7 @@ const makeStyles = (colors) => StyleSheet.create({
         justifyContent: "center",
     },
     tabPillActive: {
-        backgroundColor: colors.softCoral,
+        backgroundColor: colors.primarySoft,
     },
     tabLabel: {
         fontSize: 11,
@@ -1529,7 +1729,7 @@ const makeStyles = (colors) => StyleSheet.create({
         borderCurve: "continuous",
         paddingHorizontal: space.lg,
         height: 52,
-        fontSize: 15,
+        fontSize: 16,
         color: colors.text,
         marginBottom: space.lg,
     },

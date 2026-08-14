@@ -10,6 +10,7 @@ const RECORD_LABELS = {
     milestones: "Developmental Milestones",
     checkups: "Checkups & Appointments",
     nutrition: "Nutrition & Feeding",
+    medicalHistory: "Medical History (Illnesses, Medications, Hospitalizations)",
 };
 
 // Builds a view-only snapshot of the selected records for a child.
@@ -84,6 +85,16 @@ async function buildSnapshot(child, keys) {
             [child.id]
         );
         snap.nutrition = rows.map((r) => decryptRow(r, ["formula_brand", "food_introduced", "reaction", "notes"]));
+    }
+
+    if (keys.includes("medicalHistory")) {
+        const { rows } = await query(
+            `SELECT category, title, description, date_recorded, resolved, notes FROM medical_history
+             WHERE child_id = $1 AND category IN ('Illness', 'Medication', 'Hospitalization')
+             ORDER BY date_recorded DESC NULLS LAST`,
+            [child.id]
+        );
+        snap.medicalHistory = rows.map((r) => decryptRow(r, ["title", "description", "notes"]));
     }
 
     return snap;

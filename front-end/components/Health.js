@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
     View,
     Text,
@@ -22,6 +22,7 @@ import { pickImage, pickerAvailable } from "../utils/imagePicker";
 import { useToast } from "./ui/Toast";
 import { useLanguage } from "../context/LanguageContext";
 import { useTheme } from "../context/ThemeContext";
+import { radius, space, type, shadow } from "../theme";
 import {
     SectionContainerCard,
     ListEntryCard,
@@ -30,8 +31,11 @@ import {
 import PhotoAttach from "./ui/PhotoAttach";
 import ShowMore from "./ui/ShowMore";
 import { ImmunizationsSkeleton, AppointmentsSkeleton } from "./ui/Skeleton";
+import { useRefreshControl } from "./ui/useRefreshControl";
 import { DateField, TimeField } from "./ui/DateField";
 import ImageViewer from "./ui/ImageViewer";
+import TipStrip from "./ui/TipStrip";
+import KeyboardAvoider from "./ui/KeyboardAvoider";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
 export default function Health({
@@ -46,13 +50,6 @@ export default function Health({
     const toast = useToast();
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
-    const Alert = {
-        alert: (title, message) => {
-            const m = message || title || "";
-            if (title === "Error" || /invalid|fail|denied|unable/i.test(String(title))) toast.error(m);
-            else toast.success(m);
-        },
-    };
     const [activeTab, setActiveTab] = useState("immunizations");
     // Apply a deep-link tab request from the floating log button, and — for
     // "Add Medication" — open the Add Rx form directly instead of just
@@ -102,7 +99,7 @@ export default function Health({
     // Vaccinations now load from and persist to the backend.
     const [vaccines, setVaccines] = useState([]);
     const [vaxLoading, setVaxLoading] = useState(true);
-    useEffect(() => {
+    const loadVaccines = useCallback(() => {
         let active = true;
         setVaxLoading(true);
         (async () => {
@@ -119,12 +116,13 @@ export default function Health({
             active = false;
         };
     }, [profile.id]);
+    useEffect(() => loadVaccines(), [loadVaccines]);
 
     // Checkups now load from and persist to the backend.
     const [appts, setAppts] = useState([]);
     const [apptsLoading, setApptsLoading] = useState(true);
     const [apptsVisible, setApptsVisible] = useState(10);
-    useEffect(() => {
+    const loadAppts = useCallback(() => {
         let active = true;
         setApptsLoading(true);
         (async () => {
@@ -141,6 +139,7 @@ export default function Health({
             active = false;
         };
     }, [profile.id]);
+    useEffect(() => loadAppts(), [loadAppts]);
 
     // Vaccine status/search filter — the full EPI schedule runs to 25 doses,
     // so "what does my child still need?" otherwise means scrolling all of it.
@@ -233,8 +232,10 @@ export default function Health({
     const [apptNotes, setApptNotes] = useState("");
 
     // Medical history (illnesses + medications) loads from the backend.
-    useEffect(() => {
+    const [histLoading, setHistLoading] = useState(true);
+    const loadMedHistory = useCallback(() => {
         let active = true;
+        setHistLoading(true);
         (async () => {
             try {
                 const rows = await api.listRecords(profile.id, "medical-history");
@@ -244,19 +245,24 @@ export default function Health({
                 setHospitalizations(rows.filter((r) => r.category === "Hospitalization").map(medHistoryToIllness));
             } catch (e) {
                 console.log("load medical history:", e.message);
+            } finally {
+                if (active) setHistLoading(false);
             }
         })();
         return () => {
             active = false;
         };
     }, [profile.id]);
+    useEffect(() => loadMedHistory(), [loadMedHistory]);
 
     // ===== Mandatory supporting-photo attachments =====
     const [attachUri, setAttachUri] = useState("");
     const [attachMap, setAttachMap] = useState({}); // `${type}:${id}` -> attachment row
     const [viewer, setViewer] = useState(null); // { uri, type, recordId, attachId }
 
-    const loadAttachments = async () => {
+    const [attachLoading, setAttachLoading] = useState(true);
+    const loadAttachments = useCallback(async () => {
+        setAttachLoading(true);
         try {
             const rows = await api.listAttachments(profile.id);
             const map = {};
@@ -264,11 +270,21 @@ export default function Health({
             setAttachMap(map);
         } catch (e) {
             console.log("load attachments:", e.message);
+        } finally {
+            setAttachLoading(false);
         }
-    };
+    }, [profile.id]);
     useEffect(() => {
         loadAttachments();
-    }, [profile.id]);
+    }, [loadAttachments]);
+
+    const listLoading = vaxLoading || apptsLoading || histLoading || attachLoading;
+    const refreshControl = useRefreshControl(listLoading, () => {
+        loadVaccines();
+        loadAppts();
+        loadMedHistory();
+        loadAttachments();
+    });
 
     const resetAttach = () => {
         setAttachUri("");
@@ -343,7 +359,7 @@ export default function Health({
 
     const handleAddVaccine = async () => {
         if (!vaxName) {
-            Alert.alert("Error", "Please enter a vaccine name");
+            toast.error("Please enter a vaccine name");
             return;
         }
         if (!requireAttach()) return;
@@ -378,7 +394,7 @@ export default function Health({
                     .catch(() => {});
             }
         } catch (e) {
-            Alert.alert("Error", e.message || "Could not add vaccine");
+            toast.error(e.message || "Could not add vaccine");
         }
     };
 
@@ -400,7 +416,7 @@ export default function Health({
         } catch (e) {
             // revert on failure
             setVaccines((prev) => prev.map((v) => (v.id === vax.id ? vax : v)));
-            Alert.alert("Error", e.message || "Could not update vaccine");
+            toast.error(e.message || "Could not update vaccine");
         }
     };
 
@@ -473,7 +489,7 @@ export default function Health({
 
     const handleAddIllness = async () => {
         if (!illnessTitle) {
-            Alert.alert("Error", "Please enter illness name");
+            toast.error("Please enter illness name");
             return;
         }
         if (!requireAttach()) return;
@@ -492,15 +508,15 @@ export default function Health({
             });
             setIllnesses((prev) => [medHistoryToIllness(saved), ...prev]);
             await uploadAttachFor("illness", saved.id);
-            Alert.alert("Success", "Medical condition recorded successfully.");
+            toast.success("Medical condition recorded successfully.");
         } catch (e) {
-            Alert.alert("Error", e.message || "Could not save condition");
+            toast.error(e.message || "Could not save condition");
         }
     };
 
     const handleAddMedication = async () => {
         if (!medTitle) {
-            Alert.alert("Error", "Please enter medication name");
+            toast.error("Please enter medication name");
             return;
         }
         if (!requireAttach()) return;
@@ -518,15 +534,15 @@ export default function Health({
             });
             setMedications((prev) => [medHistoryToMed(saved), ...prev]);
             await uploadAttachFor("medication", saved.id);
-            Alert.alert("Success", "Prescribed medication logged successfully.");
+            toast.success("Prescribed medication logged successfully.");
         } catch (e) {
-            Alert.alert("Error", e.message || "Could not save medication");
+            toast.error(e.message || "Could not save medication");
         }
     };
 
     const handleAddHospitalization = async () => {
         if (!hospTitle) {
-            Alert.alert("Error", "Please enter a reason for hospitalization");
+            toast.error("Please enter a reason for hospitalization");
             return;
         }
         if (!requireAttach()) return;
@@ -545,15 +561,15 @@ export default function Health({
             });
             setHospitalizations((prev) => [medHistoryToIllness(saved), ...prev]);
             await uploadAttachFor("hospitalization", saved.id);
-            Alert.alert("Success", "Hospitalization recorded.");
+            toast.success("Hospitalization recorded.");
         } catch (e) {
-            Alert.alert("Error", e.message || "Could not save hospitalization");
+            toast.error(e.message || "Could not save hospitalization");
         }
     };
 
     const handleAddAppointment = async () => {
         if (!apptTitle || !apptDoctor || !apptDate) {
-            Alert.alert("Error", "Please fill out required fields");
+            toast.error("Please fill out required fields");
             return;
         }
         if (!requireAttach()) return;
@@ -584,12 +600,9 @@ export default function Health({
                     })
                     .catch(() => {});
             }
-            Alert.alert(
-                "Appointment Slotted",
-                `Pediatric session scheduled successfully.`,
-            );
+            toast.success("Pediatric session scheduled successfully.");
         } catch (e) {
-            Alert.alert("Error", e.message || "Could not save appointment");
+            toast.error(e.message || "Could not save appointment");
         }
     };
 
@@ -608,7 +621,12 @@ export default function Health({
     };
 
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView style={styles.container} refreshControl={refreshControl}>
+            <TipStrip tipKey="tip_health">
+                Every vaccine in the DOH schedule is already here, dated from your child's birthday. Tap one to
+                mark it given.
+            </TipStrip>
+
             {/* Care Team Banner Card */}
             <View style={styles.careTeamBox}>
                 <View style={styles.careTeamHeader}>
@@ -780,10 +798,10 @@ export default function Health({
                         )}
                         {vaxLoading && <ImmunizationsSkeleton count={4} />}
                         {!vaxLoading && vaccines.length === 0 && (
-                            <EmptyStateCard message="No vaccination records yet." />
+                            <EmptyStateCard message="No vaccination records yet." icon="shield-checkmark-outline" />
                         )}
                         {!vaxLoading && vaccines.length > 0 && filteredVaccines.length === 0 && (
-                            <EmptyStateCard message="No vaccines match this filter." />
+                            <EmptyStateCard message="No vaccines match this filter." icon="filter-outline" />
                         )}
                         {!vaxLoading && groupedVaccines.map(([visitName, group]) => (
                             <View key={visitName}>
@@ -922,10 +940,11 @@ export default function Health({
                             </TouchableOpacity>
                         }
                     >
-                        {medications.length === 0 && (
-                            <EmptyStateCard message="No medications logged yet." />
+                        {histLoading && <AppointmentsSkeleton count={3} />}
+                        {!histLoading && medications.length === 0 && (
+                            <EmptyStateCard message="No medications logged yet." icon="flask-outline" />
                         )}
-                        {medications.slice(0, medsVisible).map((med, idx) => (
+                        {!histLoading && medications.slice(0, medsVisible).map((med, idx) => (
                             <ListEntryCard
                                 key={med.id || idx}
                                 thumbnailUrl={attachUrlFor("medication", med.id)}
@@ -935,7 +954,7 @@ export default function Health({
                                 label={
                                     <Text
                                         style={{
-                                            fontSize: 11,
+                                            ...type.caption,
                                             color: colors.textMuted,
                                         }}
                                     >
@@ -946,18 +965,20 @@ export default function Health({
                                     <Ionicons
                                         name="flask-outline"
                                         size={18}
-                                        color={colors.primary}
+                                        color={colors.recMedication.on}
                                     />
                                 }
-                                iconBg={colors.tintGreen}
+                                iconBg={colors.recMedication.bg}
                             />
                         ))}
-                        <ShowMore
-                            total={medications.length}
-                            visible={medsVisible}
-                            onPress={() => setMedsVisible((c) => c + 10)}
-                            noun="medications"
-                        />
+                        {!histLoading && (
+                            <ShowMore
+                                total={medications.length}
+                                visible={medsVisible}
+                                onPress={() => setMedsVisible((c) => c + 10)}
+                                noun="medications"
+                            />
+                        )}
                     </SectionContainerCard>
                 </View>
             )}
@@ -1006,7 +1027,7 @@ export default function Health({
                                 </View>
                             ))}
                             {allergies.length === 0 && (
-                                <Text style={{ fontSize: 12, color: colors.textMuted }}>
+                                <Text style={{ ...type.caption, color: colors.textMuted }}>
                                     No allergies specified.
                                 </Text>
                             )}
@@ -1028,7 +1049,11 @@ export default function Health({
                             </TouchableOpacity>
                         }
                     >
-                        {illnesses.slice(0, illnessVisible).map((ill, idx) => (
+                        {histLoading && <AppointmentsSkeleton count={3} />}
+                        {!histLoading && illnesses.length === 0 && (
+                            <EmptyStateCard message="No conditions recorded yet." icon="pulse-outline" />
+                        )}
+                        {!histLoading && illnesses.slice(0, illnessVisible).map((ill, idx) => (
                             <ListEntryCard
                                 key={ill.id || idx}
                                 thumbnailUrl={attachUrlFor("illness", ill.id)}
@@ -1040,18 +1065,20 @@ export default function Health({
                                     <Ionicons
                                         name="pulse-outline"
                                         size={18}
-                                        color={colors.primary}
+                                        color={colors.recIllness.on}
                                     />
                                 }
-                                iconBg={colors.tintGreen}
+                                iconBg={colors.recIllness.bg}
                             />
                         ))}
-                        <ShowMore
-                            total={illnesses.length}
-                            visible={illnessVisible}
-                            onPress={() => setIllnessVisible((c) => c + 10)}
-                            noun="conditions"
-                        />
+                        {!histLoading && (
+                            <ShowMore
+                                total={illnesses.length}
+                                visible={illnessVisible}
+                                onPress={() => setIllnessVisible((c) => c + 10)}
+                                noun="conditions"
+                            />
+                        )}
                     </SectionContainerCard>
                 </View>
             )}
@@ -1075,7 +1102,7 @@ export default function Health({
                     >
                         {apptsLoading && <AppointmentsSkeleton count={3} />}
                         {!apptsLoading && appts.length === 0 && (
-                            <EmptyStateCard message="No appointments scheduled yet." />
+                            <EmptyStateCard message="No appointments scheduled yet." icon="calendar-outline" />
                         )}
                         {!apptsLoading && appts.slice(0, apptsVisible).map((appt, idx) => (
                             <ListEntryCard
@@ -1087,9 +1114,8 @@ export default function Health({
                                 label={
                                     <Text
                                         style={{
-                                            fontSize: 12,
+                                            ...type.caption,
                                             color: colors.primary,
-                                            fontWeight: "600",
                                         }}
                                     >
                                         Doctor: {appt.provider}
@@ -1100,10 +1126,10 @@ export default function Health({
                                     <Ionicons
                                         name="calendar-outline"
                                         size={18}
-                                        color={colors.primary}
+                                        color={colors.recCheckup.on}
                                     />
                                 }
-                                iconBg={colors.tintGreen}
+                                iconBg={colors.recCheckup.bg}
                             />
                         ))}
                         {!apptsLoading && (
@@ -1130,10 +1156,11 @@ export default function Health({
                             </TouchableOpacity>
                         }
                     >
-                        {hospitalizations.length === 0 && (
-                            <EmptyStateCard message="No hospitalizations recorded." />
+                        {histLoading && <AppointmentsSkeleton count={2} />}
+                        {!histLoading && hospitalizations.length === 0 && (
+                            <EmptyStateCard message="No hospitalizations recorded." icon="bandage-outline" />
                         )}
-                        {hospitalizations.slice(0, hospVisible).map((h, idx) => (
+                        {!histLoading && hospitalizations.slice(0, hospVisible).map((h, idx) => (
                             <ListEntryCard
                                 key={h.id || idx}
                                 thumbnailUrl={attachUrlFor("hospitalization", h.id)}
@@ -1142,23 +1169,26 @@ export default function Health({
                                 subtitle={h.date}
                                 notes={h.desc}
                                 icon={
-                                    <Ionicons name="bandage-outline" size={18} color={colors.primary} />
+                                    <Ionicons name="bandage-outline" size={18} color={colors.recHospitalization.on} />
                                 }
-                                iconBg={colors.tintGreen}
+                                iconBg={colors.recHospitalization.bg}
                             />
                         ))}
-                        <ShowMore
-                            total={hospitalizations.length}
-                            visible={hospVisible}
-                            onPress={() => setHospVisible((c) => c + 10)}
-                            noun="hospitalizations"
-                        />
+                        {!histLoading && (
+                            <ShowMore
+                                total={hospitalizations.length}
+                                visible={hospVisible}
+                                onPress={() => setHospVisible((c) => c + 10)}
+                                noun="hospitalizations"
+                            />
+                        )}
                     </SectionContainerCard>
                 </View>
             )}
 
             {/* Hospitalization Modal */}
             <Modal visible={showHospModal} transparent animationType="slide">
+                <KeyboardAvoider>
                 <View style={styles.modalBg}>
                     <View style={styles.modalCard}>
                         <Text style={styles.modalTitle}>Add Hospitalization</Text>
@@ -1201,10 +1231,12 @@ export default function Health({
                         </View>
                     </View>
                 </View>
+                </KeyboardAvoider>
             </Modal>
 
             {/* Illness Modal */}
             <Modal visible={showIllnessModal} transparent animationType="slide">
+                <KeyboardAvoider>
                 <View style={styles.modalBg}>
                     <View style={styles.modalCard}>
                         <Text style={styles.modalTitle}>
@@ -1255,10 +1287,12 @@ export default function Health({
                         </View>
                     </View>
                 </View>
+                </KeyboardAvoider>
             </Modal>
 
             {/* Medication Modal */}
             <Modal visible={showMedModal} transparent animationType="slide">
+                <KeyboardAvoider>
                 <View style={styles.modalBg}>
                     <View style={styles.modalCard}>
                         <Text style={styles.modalTitle}>
@@ -1307,10 +1341,12 @@ export default function Health({
                         </View>
                     </View>
                 </View>
+                </KeyboardAvoider>
             </Modal>
 
             {/* Add Vaccine Modal */}
             <Modal visible={showVaxModal} transparent animationType="slide">
+                <KeyboardAvoider>
                 <View style={styles.modalBg}>
                     <View style={styles.modalCard}>
                         <Text style={styles.modalTitle}>Add Vaccination</Text>
@@ -1361,11 +1397,14 @@ export default function Health({
                         </View>
                     </View>
                 </View>
+                </KeyboardAvoider>
             </Modal>
 
             {/* New Appointment Modal */}
             <Modal visible={showApptModal} transparent animationType="slide">
+                <KeyboardAvoider>
                 <View style={styles.modalBg}>
+                    <ScrollView contentContainerStyle={{ width: "100%", alignItems: "center" }}>
                     <View style={styles.modalCard}>
                         <Text style={styles.modalTitle}>New Appointment</Text>
 
@@ -1430,10 +1469,13 @@ export default function Health({
                             </TouchableOpacity>
                         </View>
                     </View>
+                    </ScrollView>
                 </View>
+                </KeyboardAvoider>
             </Modal>
 
             <Modal visible={!!completeVaxTarget} transparent animationType="slide">
+                <KeyboardAvoider>
                 <View style={styles.modalBg}>
                     <View style={styles.modalCard}>
                         <Text style={styles.modalTitle}>Mark Dose Given</Text>
@@ -1463,6 +1505,7 @@ export default function Health({
                         </View>
                     </View>
                 </View>
+                </KeyboardAvoider>
             </Modal>
 
             <ImageViewer
@@ -1483,10 +1526,11 @@ const makeStyles = (colors) => StyleSheet.create({
         padding: 16,
     },
     careTeamBox: {
-        backgroundColor: "#FFFFFF",
+        backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.border,
-        borderRadius: 16,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         padding: 12,
         marginBottom: 16,
     },
@@ -1496,47 +1540,43 @@ const makeStyles = (colors) => StyleSheet.create({
         marginBottom: 8,
     },
     careTeamTitle: {
-        fontSize: 13,
-        fontWeight: "750",
+        ...type.caption,
         color: colors.primary,
         marginLeft: 6,
     },
     careTeamText: {
-        fontSize: 11,
+        ...type.caption,
         color: colors.textSecondary,
         marginTop: 2,
     },
     tabContainer: {
         flexDirection: "row",
         backgroundColor: colors.surfaceAlt,
-        borderRadius: 24,
-        padding: 4,
-        marginBottom: 16,
+        borderRadius: radius.xl,
+        borderCurve: "continuous",
+        padding: space.xs,
+        marginBottom: space.lg,
         borderWidth: 1,
         borderColor: colors.border,
     },
     tabButton: {
         flex: 1,
-        paddingVertical: 10,
-        borderRadius: 20,
+        paddingVertical: space.sm + 2,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
         alignItems: "center",
     },
     tabButtonActive: {
-        backgroundColor: "#FFFFFF",
-        shadowColor: "#374151",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-        elevation: 1,
+        backgroundColor: colors.surface,
+        ...shadow.card,
     },
     tabButtonText: {
-        fontSize: 12,
-        fontWeight: "600",
+        ...type.caption,
         color: colors.textMuted,
     },
     tabButtonTextActive: {
-        color: colors.primary,
-        fontWeight: "750",
+        color: colors.primaryDark,
+        ...type.label,
     },
     vaxRow: {
         flexDirection: "row",
@@ -1548,31 +1588,32 @@ const makeStyles = (colors) => StyleSheet.create({
     vaxThumbWrap: {
         width: 42,
         height: 42,
-        borderRadius: 10,
+        borderRadius: radius.sm,
+        borderCurve: "continuous",
         overflow: "hidden",
         marginLeft: 8,
         borderWidth: 1,
-        borderColor: "#ECE9E4",
+        borderColor: colors.border,
         backgroundColor: colors.surfaceAlt,
     },
     vaxThumb: { width: "100%", height: "100%" },
     checkbox: {
         width: 20,
         height: 20,
-        borderRadius: 6,
+        borderRadius: radius.sm,
+        borderCurve: "continuous",
         borderWidth: 1.5,
         borderColor: colors.primary,
         justifyContent: "center",
         alignItems: "center",
-        backgroundColor: "#FFFFFF",
+        backgroundColor: colors.surface,
     },
     checkboxChecked: {
         backgroundColor: colors.primary,
         borderColor: colors.primary,
     },
     vaxTitle: {
-        fontSize: 13,
-        fontWeight: "700",
+        ...type.bodyStrong,
         color: colors.text,
     },
     vaxTitleCompleted: {
@@ -1580,12 +1621,12 @@ const makeStyles = (colors) => StyleSheet.create({
         color: colors.textMuted,
     },
     vaxSub: {
-        fontSize: 11,
+        ...type.caption,
         color: colors.textMuted,
         marginTop: 2,
     },
     vaxNotes: {
-        fontSize: 11,
+        ...type.caption,
         fontStyle: "italic",
         color: colors.primary,
         marginTop: 4,
@@ -1596,12 +1637,11 @@ const makeStyles = (colors) => StyleSheet.create({
         alignItems: "flex-start",
     },
     bulletTitle: {
-        fontSize: 12,
-        fontWeight: "700",
+        ...type.label,
         color: colors.text,
     },
     bulletDesc: {
-        fontSize: 11,
+        ...type.caption,
         color: colors.textMuted,
         marginTop: 2,
     },
@@ -1609,14 +1649,14 @@ const makeStyles = (colors) => StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         backgroundColor: colors.accentStrong,
-        borderRadius: 14,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         paddingHorizontal: 12,
         paddingVertical: 6,
     },
     actionBtnText: {
+        ...type.label,
         color: "#FFFFFF",
-        fontSize: 11,
-        fontWeight: "700",
     },
     exportPdfBtn: {
         flexDirection: "row",
@@ -1627,15 +1667,15 @@ const makeStyles = (colors) => StyleSheet.create({
         backgroundColor: colors.surfaceAlt,
         borderWidth: 1,
         borderColor: colors.border,
-        borderRadius: 14,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         paddingHorizontal: 12,
         paddingVertical: 8,
         marginBottom: 16,
     },
     exportPdfBtnText: {
+        ...type.label,
         color: colors.primary,
-        fontSize: 12,
-        fontWeight: "700",
     },
     actionBtnAlt: {
         backgroundColor: colors.softGreen,
@@ -1643,9 +1683,8 @@ const makeStyles = (colors) => StyleSheet.create({
         borderColor: colors.border,
     },
     actionBtnAltText: {
-        color: colors.primary,
-        fontSize: 11,
-        fontWeight: "700",
+        ...type.label,
+        color: colors.primaryDark,
         marginLeft: 4,
     },
     filterRow: {
@@ -1657,7 +1696,8 @@ const makeStyles = (colors) => StyleSheet.create({
     filterChip: {
         paddingHorizontal: 12,
         paddingVertical: 6,
-        borderRadius: 999,
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
         borderWidth: 1,
         borderColor: colors.border,
         backgroundColor: colors.surface,
@@ -1667,33 +1707,33 @@ const makeStyles = (colors) => StyleSheet.create({
         borderColor: colors.primary,
     },
     filterChipText: {
-        fontSize: 12,
-        fontWeight: "700",
+        ...type.label,
         color: colors.textMuted,
     },
     filterChipTextActive: {
-        color: colors.primary,
+        color: colors.primaryDark,
     },
     visitGroupHeader: {
-        fontSize: 10.5,
-        fontWeight: "800",
+        ...type.subheading,
         color: colors.textMuted,
-        textTransform: "uppercase",
-        letterSpacing: 0.6,
         marginTop: 12,
         marginBottom: 2,
     },
     epiChip: {
-        backgroundColor: colors.tintGreen,
-        borderRadius: 6,
+        backgroundColor: colors.recVaccine.bg,
+        borderRadius: radius.sm,
+        borderCurve: "continuous",
         paddingHorizontal: 6,
         paddingVertical: 1,
     },
+    // No type-scale role fits a badge this small — type.subheading (14px)
+    // overflows the chip's 1px vertical padding. Deliberate literal exception.
     epiChipText: {
+        fontFamily: "PublicSans_700Bold",
         fontSize: 9,
-        fontWeight: "800",
-        color: colors.primary,
-        letterSpacing: 0.4,
+        fontWeight: "700",
+        letterSpacing: 0.3,
+        color: colors.recVaccine.on,
     },
     allergyInputRow: {
         flexDirection: "row",
@@ -1705,23 +1745,25 @@ const makeStyles = (colors) => StyleSheet.create({
         backgroundColor: colors.surfaceAlt,
         borderWidth: 1,
         borderColor: colors.border,
-        borderRadius: 12,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         paddingHorizontal: 12,
-        height: 40,
-        fontSize: 12,
+        height: 44,
+        fontSize: type.body.fontSize,
+        fontFamily: type.body.fontFamily,
         color: colors.text,
     },
     addInlineBtn: {
         paddingHorizontal: 16,
         backgroundColor: colors.primary,
-        borderRadius: 12,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         justifyContent: "center",
         alignItems: "center",
     },
     addInlineBtnText: {
+        ...type.label,
         color: "#FFFFFF",
-        fontWeight: "700",
-        fontSize: 12,
     },
     allergyChips: {
         flexDirection: "row",
@@ -1731,16 +1773,16 @@ const makeStyles = (colors) => StyleSheet.create({
     chip: {
         flexDirection: "row",
         alignItems: "center",
-        backgroundColor: colors.softCoral,
+        backgroundColor: colors.dangerBg,
         borderWidth: 1,
-        borderColor: colors.borderStrong,
+        borderColor: colors.danger,
         paddingVertical: 4,
         paddingHorizontal: 8,
-        borderRadius: 8,
+        borderRadius: radius.sm,
+        borderCurve: "continuous",
     },
     chipText: {
-        fontSize: 11,
-        fontWeight: "600",
+        ...type.caption,
         color: colors.danger,
     },
     modalBg: {
@@ -1752,7 +1794,8 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     modalCard: {
         backgroundColor: colors.background,
-        borderRadius: 24,
+        borderRadius: radius.xl,
+        borderCurve: "continuous",
         padding: 20,
         width: "100%",
         maxWidth: 340,
@@ -1760,26 +1803,25 @@ const makeStyles = (colors) => StyleSheet.create({
         borderColor: colors.border,
     },
     modalTitle: {
-        fontSize: 18,
-        fontWeight: "800",
+        ...type.heading,
         color: colors.primary,
         marginBottom: 16,
     },
     modalLabel: {
-        fontSize: 11,
-        fontWeight: "700",
+        ...type.subheading,
         color: colors.textMuted,
-        textTransform: "uppercase",
         marginBottom: 6,
     },
     modalInput: {
         backgroundColor: colors.surfaceAlt,
         borderWidth: 1,
         borderColor: colors.border,
-        borderRadius: 12,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         paddingHorizontal: 12,
         height: 44,
-        fontSize: 14,
+        fontSize: type.body.fontSize,
+        fontFamily: type.body.fontFamily,
         color: colors.text,
         marginBottom: 16,
     },
@@ -1791,23 +1833,23 @@ const makeStyles = (colors) => StyleSheet.create({
     modalCancelBtn: {
         paddingVertical: 10,
         paddingHorizontal: 16,
-        borderRadius: 12,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         backgroundColor: colors.surfaceAlt,
     },
     modalCancelText: {
-        fontSize: 13,
-        fontWeight: "600",
+        ...type.caption,
         color: colors.textMuted,
     },
     modalSaveBtn: {
         paddingVertical: 10,
         paddingHorizontal: 16,
-        borderRadius: 12,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         backgroundColor: colors.accentStrong,
     },
     modalSaveText: {
-        fontSize: 13,
-        fontWeight: "700",
+        ...type.label,
         color: "#FFFFFF",
     },
 });

@@ -1,0 +1,241 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-10T00:00:00.000Z",
+  "title": "Design System: BabyBook+",
+  "extensions": {
+    "colorMeta": {
+      "rose-pink": {
+        "role": "primary",
+        "displayName": "Vivid Rose Pink",
+        "canonical": "#EC4F96",
+        "tonalRamp": ["#3A0F24", "#5C1738", "#84224E", "#AC2E66", "#D43D82", "#EC4F96", "#F686B6", "#FFC8DE"]
+      },
+      "azure-blue": {
+        "role": "primary",
+        "displayName": "Clear Azure Blue",
+        "canonical": "#2F7BF6",
+        "tonalRamp": ["#071B36", "#0C2C58", "#123F7E", "#1850A6", "#1F66DB", "#2F7BF6", "#79AEFF", "#C7DEFF"]
+      },
+      "periwinkle-indigo": {
+        "role": "primary",
+        "displayName": "Soft Periwinkle Indigo",
+        "canonical": "#5B6CFF",
+        "tonalRamp": ["#101438", "#1B2158", "#28327E", "#3843A8", "#4A5AE8", "#5B6CFF", "#95A2FF", "#D0D6FF"]
+      },
+      "navy-ink": {
+        "role": "neutral",
+        "displayName": "Deep Navy Ink",
+        "canonical": "#1B1F3B",
+        "tonalRamp": ["#0A0C18", "#11142A", "#1B1F3B", "#2A2F55", "#3A4066", "#5B618A", "#9AA0B4", "#E4E6EF"]
+      },
+      "surface-white": {
+        "role": "neutral",
+        "displayName": "Surface White",
+        "canonical": "#FFFFFF",
+        "tonalRamp": ["#1B1F3B", "#3A4066", "#5B618A", "#9AA0B4", "#D5D8EE", "#EFF1F7", "#FAFBFD", "#FFFFFF"]
+      },
+      "balanced-green": {
+        "role": "tertiary",
+        "displayName": "Balanced Green",
+        "canonical": "#2BB673",
+        "tonalRamp": ["#082E1C", "#0D4A2D", "#136741", "#1C8956", "#22A365", "#2BB673", "#7BD7A9", "#E3F6EC"]
+      },
+      "soft-red-coral": {
+        "role": "tertiary",
+        "displayName": "Soft Red-Coral",
+        "canonical": "#EF5D6A",
+        "tonalRamp": ["#3D0E13", "#5F171F", "#87232E", "#B02F3E", "#D6414F", "#EF5D6A", "#F79BA3", "#FDE8EA"]
+      },
+      "warm-amber": {
+        "role": "tertiary",
+        "displayName": "Warm Amber",
+        "canonical": "#FFB347",
+        "tonalRamp": ["#3D2705", "#5E3D0A", "#855611", "#AD711A", "#D68F26", "#FFB347", "#FFD08A", "#FFF1DE"]
+      },
+      "saturated-teal": {
+        "role": "tertiary",
+        "displayName": "Saturated Teal",
+        "canonical": "#16B8A6",
+        "tonalRamp": ["#03302C", "#054E46", "#086E63", "#0C8F81", "#10A695", "#16B8A6", "#69DCCF", "#E2FBF3"]
+      },
+      "tint-green": {
+        "role": "secondary",
+        "displayName": "Tint Green",
+        "canonical": "#E4EFE7",
+        "tonalRamp": ["#1B2A1F", "#2C4433", "#3F6148", "#557F5F", "#8FB39A", "#BDD6C5", "#E4EFE7", "#F4F9F5"]
+      },
+      "tint-blue": {
+        "role": "secondary",
+        "displayName": "Tint Blue",
+        "canonical": "#E3EEFB",
+        "tonalRamp": ["#131E2C", "#1F3149", "#2C4668", "#3B5D8A", "#7291BE", "#B0C8E4", "#E3EEFB", "#F3F8FE"]
+      },
+      "tint-amber": {
+        "role": "secondary",
+        "displayName": "Tint Amber",
+        "canonical": "#FFF1DE",
+        "tonalRamp": ["#2E220F", "#493718", "#674E22", "#89692F", "#BE9B5C", "#E4C89A", "#FFF1DE", "#FFF9F1"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Screen-defining numbers and the single largest headline moment. One per screen at most." },
+      "title": { "displayName": "Title", "purpose": "Screen titles and major section openers." },
+      "heading": { "displayName": "Heading", "purpose": "Card and section headers, including the SectionContainerCard title." },
+      "body": { "displayName": "Body", "purpose": "Default reading size and the hard minimum for any text input." },
+      "bodyStrong": { "displayName": "Body Strong", "purpose": "List row titles, record names, emphasized values inside body copy." },
+      "label": { "displayName": "Label", "purpose": "Field labels, button text, chip text, tab labels." },
+      "caption": { "displayName": "Caption", "purpose": "Timestamps, metadata, section subtitles, helper text. The absolute floor at 13px." }
+    },
+    "shadows": [
+      { "name": "card", "value": "0 2px 10px rgba(27,31,59,0.06)", "purpose": "Resting state of every content card. Rank 1 of 5 on the Lift Ladder." },
+      { "name": "soft", "value": "0 4px 14px rgba(27,31,59,0.07)", "purpose": "Photo and memory cards, so imagery reads as a physical print. Rank 2." },
+      { "name": "raised", "value": "0 10px 24px rgba(27,31,59,0.10)", "purpose": "Filled buttons at rest and modal sheets. Rank 3." },
+      { "name": "accent", "value": "0 10px 22px rgba(27,31,59,0.12)", "purpose": "The floating action button. Rank 4." },
+      { "name": "green", "value": "0 12px 26px rgba(27,31,59,0.12)", "purpose": "Highest step, reserved for the single most prominent surface on a screen. Rank 5." }
+    ],
+    "motion": [
+      { "name": "press-scale", "value": "scale(0.985)", "purpose": "Every filled or bordered control compresses slightly on press, paired with a haptic selection tick." },
+      { "name": "hover-dim", "value": "opacity: 0.94", "purpose": "Pointer hover state on all buttons." },
+      { "name": "focus-ring", "value": "0 0 0 3px <variant-color-at-35%>", "purpose": "Keyboard focus indicator. Never removed." },
+      { "name": "disabled-fade", "value": "opacity: 0.55", "purpose": "Disabled and loading control state." },
+      { "name": "sheet-enter", "value": "fade in, bottom-anchored", "purpose": "The FAB log sheet fades in over a scrim; record modals slide up." }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The default committing action. Pill, filled with the active palette primary, lifted at rest.",
+      "html": "<button class=\"ds-btn-primary\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\"><path d=\"M12 5v14M5 12h14\"/></svg>Save Record</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 16px; background: #EC4F96; color: #FFFFFF; font-size: 15px; font-weight: 800; border: none; border-radius: 999px; box-shadow: 0 10px 24px rgba(27,31,59,0.10); cursor: pointer; transition: opacity .15s ease, transform .12s ease, box-shadow .12s ease; } .ds-btn-primary svg { width: 18px; height: 18px; } .ds-btn-primary:hover { opacity: .94; } .ds-btn-primary:active { transform: scale(.985); box-shadow: none; } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(236,79,150,.35); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Supporting action beside a primary. Soft brand tint fill, primary-colored label, flat.",
+      "html": "<button class=\"ds-btn-secondary\">Add Photo</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 16px; background: #FFE3EE; color: #EC4F96; font-size: 15px; font-weight: 800; border: 1px solid #F7DBE9; border-radius: 999px; cursor: pointer; transition: opacity .15s ease, transform .12s ease; } .ds-btn-secondary:hover { opacity: .94; } .ds-btn-secondary:active { transform: scale(.985); } .ds-btn-secondary:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(236,79,150,.30); }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Lowest-emphasis action. Transparent with a hairline border.",
+      "html": "<button class=\"ds-btn-ghost\">Cancel</button>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 16px; background: transparent; color: #EC4F96; font-size: 15px; font-weight: 800; border: 1px solid #F7DBE9; border-radius: 999px; cursor: pointer; transition: opacity .15s ease, transform .12s ease; } .ds-btn-ghost:hover { opacity: .94; } .ds-btn-ghost:active { transform: scale(.985); } .ds-btn-ghost:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(236,79,150,.30); }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Labelled input with inline helper text. 16px type so mobile browsers never auto-zoom on focus.",
+      "html": "<div class=\"ds-field\"><label class=\"ds-field-label\" for=\"ds-vax\">Vaccine name</label><input class=\"ds-field-input\" id=\"ds-vax\" placeholder=\"e.g. Pentavalent\" /><span class=\"ds-field-helper\">As written on the immunization card.</span></div>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 4px; max-width: 340px; } .ds-field-label { font-size: 14px; font-weight: 700; color: #3A4066; } .ds-field-input { min-height: 52px; padding: 0 16px; background: #FFF7FB; border: 1px solid #F7DBE9; border-radius: 20px; font-size: 16px; color: #1B1F3B; transition: border-color .15s ease, box-shadow .15s ease; } .ds-field-input::placeholder { color: #9AA0B4; } .ds-field-input:focus { outline: none; border-color: #EC4F96; box-shadow: 0 0 0 3px rgba(236,79,150,.30); } .ds-field-helper { font-size: 13px; color: #5B618A; }"
+    },
+    {
+      "name": "Text Field (error)",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Error state. Coral border with an inline, selectable message replacing the helper text. Never an alert().",
+      "html": "<div class=\"ds-field-err\"><label class=\"ds-field-err-label\" for=\"ds-date\">Date given</label><input class=\"ds-field-err-input\" id=\"ds-date\" value=\"2026-13-45\" /><span class=\"ds-field-err-msg\">That date doesn't exist. Use YYYY-MM-DD.</span></div>",
+      "css": ".ds-field-err { display: flex; flex-direction: column; gap: 4px; max-width: 340px; } .ds-field-err-label { font-size: 14px; font-weight: 700; color: #3A4066; } .ds-field-err-input { min-height: 52px; padding: 0 16px; background: #FFF7FB; border: 1px solid #EF5D6A; border-radius: 20px; font-size: 16px; color: #1B1F3B; } .ds-field-err-input:focus { outline: none; box-shadow: 0 0 0 3px rgba(239,93,106,.30); } .ds-field-err-msg { font-size: 13px; font-weight: 600; color: #EF5D6A; }"
+    },
+    {
+      "name": "Section Container Card",
+      "kind": "card",
+      "refersTo": "card-section",
+      "description": "The primary content unit. White on a tinted ground, carrying both a hairline border and the lightest shadow step.",
+      "html": "<section class=\"ds-card-section\"><header class=\"ds-card-section-head\"><div><h3 class=\"ds-card-section-title\">Immunization Records</h3><p class=\"ds-card-section-sub\">12 of 15 doses complete</p></div><button class=\"ds-card-section-action\" aria-label=\"Add record\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\"><path d=\"M12 5v14M5 12h14\"/></svg></button></header><p class=\"ds-card-section-body\">Card content sits here.</p></section>",
+      "css": ".ds-card-section { background: #FFFFFF; border: 1px solid #FBE9F1; border-radius: 24px; padding: 18px; box-shadow: 0 2px 10px rgba(27,31,59,0.06); max-width: 380px; } .ds-card-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 16px; } .ds-card-section-title { margin: 0; font-size: 18px; font-weight: 800; color: #1B1F3B; letter-spacing: -0.1px; } .ds-card-section-sub { margin: 3px 0 0; font-size: 13px; color: #5B618A; line-height: 18px; } .ds-card-section-action { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; background: #FFE3EE; color: #EC4F96; border: none; border-radius: 14px; cursor: pointer; transition: opacity .15s ease; } .ds-card-section-action svg { width: 18px; height: 18px; } .ds-card-section-action:hover { opacity: .85; } .ds-card-section-action:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(236,79,150,.30); } .ds-card-section-body { margin: 0; font-size: 16px; font-weight: 500; line-height: 22px; color: #1B1F3B; }"
+    },
+    {
+      "name": "List Entry Card",
+      "kind": "card",
+      "refersTo": "card-list-entry",
+      "description": "The repeating record row. A tinted 40x40 icon square, a text column, and an optional action slot.",
+      "html": "<article class=\"ds-list-entry\"><div class=\"ds-list-entry-icon\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3l7 4v5c0 4.4-3 8.3-7 9-4-0.7-7-4.6-7-9V7z\"/><path d=\"M9 12l2 2 4-4\"/></svg></div><div class=\"ds-list-entry-text\"><p class=\"ds-list-entry-title\">Pentavalent — Dose 2</p><span class=\"ds-list-entry-badge\">Completed</span><p class=\"ds-list-entry-sub\">Given 14 Apr 2026 · Brgy. Health Center</p></div></article>",
+      "css": ".ds-list-entry { display: flex; align-items: center; gap: 12px; padding: 12px; background: #FFFFFF; border: 1px solid #FBE9F1; border-radius: 20px; max-width: 380px; } .ds-list-entry-icon { display: flex; align-items: center; justify-content: center; flex: none; width: 40px; height: 40px; background: #E4EFE7; color: #2BB673; border-radius: 14px; } .ds-list-entry-icon svg { width: 20px; height: 20px; } .ds-list-entry-text { flex: 1; min-width: 0; } .ds-list-entry-title { margin: 0; font-size: 16px; font-weight: 700; color: #1B1F3B; } .ds-list-entry-badge { display: inline-block; margin-top: 4px; padding: 2px 8px; background: #E3F6EC; color: #2BB673; font-size: 11px; font-weight: 800; border-radius: 999px; } .ds-list-entry-sub { margin: 3px 0 0; font-size: 13px; font-weight: 600; color: #5B618A; }"
+    },
+    {
+      "name": "Filter Chip",
+      "kind": "chip",
+      "refersTo": "chip-filter",
+      "description": "Status filter pills. Selection changes fill, border, and label color together — never hue alone.",
+      "html": "<div class=\"ds-chips\"><button class=\"ds-chip ds-chip-on\">All</button><button class=\"ds-chip\">Due</button><button class=\"ds-chip\">Done</button><button class=\"ds-chip\">Overdue</button></div>",
+      "css": ".ds-chips { display: flex; flex-wrap: wrap; gap: 8px; } .ds-chip { padding: 6px 12px; background: #FFFFFF; color: #5B618A; font-size: 14px; font-weight: 700; border: 1px solid #F7DBE9; border-radius: 999px; cursor: pointer; transition: background .15s ease, color .15s ease, border-color .15s ease; } .ds-chip:hover { background: #FFF7FB; } .ds-chip:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(236,79,150,.30); } .ds-chip-on { background: #FFE3EE; color: #EC4F96; border-color: #EC4F96; }"
+    },
+    {
+      "name": "Empty State Card",
+      "kind": "custom",
+      "refersTo": "card-section",
+      "description": "The only dashed surface in the system. A dashed edge anywhere else reads as a broken image.",
+      "html": "<div class=\"ds-empty\"><div class=\"ds-empty-badge\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z\"/></svg></div><p class=\"ds-empty-text\">No growth measurements yet. Add one to start tracking.</p></div>",
+      "css": ".ds-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 16px; background: #FFE3EE; border: 1px dashed #F0C4DB; border-radius: 20px; max-width: 380px; } .ds-empty-badge { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; margin-bottom: 8px; background: #FFFFFF; color: #EC4F96; border-radius: 999px; } .ds-empty-badge svg { width: 20px; height: 20px; } .ds-empty-text { margin: 0; font-size: 13px; font-weight: 600; line-height: 18px; color: #3A4066; text-align: center; }"
+    },
+    {
+      "name": "Bottom Navigation",
+      "kind": "nav",
+      "refersTo": "nav-tab-active",
+      "description": "Five equal destinations. The active state is a soft pill behind the icon plus an accent-colored, heavier label.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-item ds-nav-on\" href=\"#\"><span class=\"ds-nav-pill\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 10.5 12 3l9 7.5V21h-6v-7H9v7H3z\"/></svg></span><span class=\"ds-nav-label\">Home</span></a><a class=\"ds-nav-item\" href=\"#\"><span class=\"ds-nav-pill\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3l7 4v5c0 4.4-3 8.3-7 9-4-.7-7-4.6-7-9V7z\"/></svg></span><span class=\"ds-nav-label\">Health</span></a><a class=\"ds-nav-item\" href=\"#\"><span class=\"ds-nav-pill\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 17l5-5 3 3 7-7\"/><path d=\"M15 8h4v4\"/></svg></span><span class=\"ds-nav-label\">Growth</span></a><a class=\"ds-nav-item\" href=\"#\"><span class=\"ds-nav-pill\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"5\" width=\"18\" height=\"16\" rx=\"3\"/><path d=\"M3 10h18M8 3v4M16 3v4\"/></svg></span><span class=\"ds-nav-label\">Calendar</span></a></nav>",
+      "css": ".ds-nav { display: flex; justify-content: space-around; align-items: flex-start; padding: 8px 0 12px; background: #FFFFFF; border-top: 1px solid #FBE9F1; max-width: 380px; } .ds-nav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1; text-decoration: none; color: #5B618A; } .ds-nav-pill { display: flex; align-items: center; justify-content: center; width: 56px; height: 32px; border-radius: 999px; transition: background .15s ease; } .ds-nav-pill svg { width: 22px; height: 22px; } .ds-nav-label { font-size: 11px; font-weight: 600; } .ds-nav-item:hover .ds-nav-pill { background: #FFF7FB; } .ds-nav-on { color: #EC4F96; } .ds-nav-on .ds-nav-pill { background: #FFEAF3; } .ds-nav-on .ds-nav-label { font-weight: 800; }"
+    },
+    {
+      "name": "Floating Action Button",
+      "kind": "button",
+      "refersTo": "fab",
+      "description": "Signature component. Present on every screen, opens the log sheet. The app's highest-traffic control.",
+      "html": "<button class=\"ds-fab\" aria-label=\"Log something\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\"><path d=\"M12 5v14M5 12h14\"/></svg></button>",
+      "css": ".ds-fab { display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; background: #EC4F96; color: #FFFFFF; border: none; border-radius: 999px; box-shadow: 0 10px 22px rgba(27,31,59,0.12); cursor: pointer; transition: transform .12s ease, opacity .15s ease; } .ds-fab svg { width: 28px; height: 28px; } .ds-fab:hover { opacity: .94; } .ds-fab:active { transform: scale(.985); } .ds-fab:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(236,79,150,.35); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "A keepsake a nurse can trust",
+    "overview": "Two people look at these screens and need opposite things from them. A parent, at home on a Tuesday night, is adding a feed or a photo to something that will outlive the app — they need warmth, ease, and the sense that they are tending to something precious. A clinician, handed a phone across a consultation table with ninety seconds to spare, needs to believe what they are reading. The system refuses to choose between them. Every surface is soft enough to be a keepsake and exact enough to be a record.\n\nThat tension resolves through a strict division of labor. Color is expressive and changes constantly — the entire interface re-tints to the selected child, rose for a girl, azure for a boy, periwinkle before a child is chosen. Everything structural refuses to move: the ink stays the same deep navy in all three palettes, the shadows are always colorless, the status vocabulary (green, coral, amber, teal) is identical everywhere, and the eight module tints never shift a degree of hue. A parent switching between two children sees the app change clothes, not change shape. That constancy is what makes the record legible to a stranger who has never opened it before.\n\nThe register is warm but precise. Generous corner radii and pastel grounds do the warming; a heavy weight ladder, a disciplined four-point spacing grid, and unambiguous semantic color do the work. The explicit anti-reference is the cutesy baby app that trades legibility for decoration — pastel mush, script faces, sticker clutter, illustration where data belongs. Softness here is a surface treatment, never a substitute for structure. Nothing in this system should ever make a clinician squint, and nothing should ever make a parent feel they are reading a hospital chart about their own child.",
+    "keyCharacteristics": [
+      "Three runtime palettes over one unchanging chassis; the child selects the hue",
+      "Deep navy ink and colorless shadows anchor every palette identically",
+      "Squircle geometry throughout (borderCurve: \"continuous\"), never plain circular rounding",
+      "Hierarchy carried by font weight (800/700/500) more than by size",
+      "Semantic status color is shared, fixed, and never decorative",
+      "White cards floating on a tinted ground, each with both a hairline border and a shadow"
+    ],
+    "rules": [
+      { "name": "The Quiet Chassis Rule", "body": "Only primary, background, surfaceAlt, and the three border weights change between palettes. Ink, tints, statuses, and shadows are frozen. If a new token needs to differ per palette, it belongs in the palette blocks; if it doesn't, it belongs in SHARED — and the default is SHARED.", "section": "colors" },
+      { "name": "The Three Books Rule", "body": "Every screen must be checked in rose, azure, and periwinkle before it ships. A composition that only reads well against one hue is not finished. Never hard-code a brand hex in a component; read it from useTheme().", "section": "colors" },
+      { "name": "The Status Is Not Decoration Rule", "body": "Green, coral, amber, and teal carry meaning. Never reach for one because a card needed a color — a green chip that doesn't mean \"complete\" corrupts the only palette a clinician can scan without reading.", "section": "colors" },
+      { "name": "The 16px Floor Rule", "body": "No body text and no text input goes below 16px. Below that, mobile browsers auto-zoom on focus — which yanks the layout sideways mid-task — and small text fails the parents and grandparents this product is for. 13px is the absolute floor for any text on screen, reserved for captions and metadata.", "section": "typography" },
+      { "name": "The Weight Ladder Rule", "body": "Adjacent steps in this scale are close in size (16 → 18 → 22), so weight separates them, not size. Hierarchy runs 800 → 700 → 500. Never introduce a new level by inventing a size between two existing steps; change the weight instead.", "section": "typography" },
+      { "name": "The Four-Point Rule", "body": "Every margin, padding, and gap resolves to a step on the 4-point scale (4 / 8 / 12 / 16 / 24 / 32). An arbitrary marginTop: 7 is a bug, not a nudge.", "section": "layout" },
+      { "name": "The Lift Ladder Rule", "body": "The five shadow steps map to five levels of importance, in order: card → soft → raised → accent → green. A surface's shadow states its rank. Two surfaces at the same rank take the same step; never pick a shadow because it \"looked better.\"", "section": "elevation" },
+      { "name": "The Colorless Shadow Rule", "body": "Every shadow is Deep Navy Ink at low alpha (rgba(27,31,59,…)), never brand-tinted, in every palette. Depth is structural and color is expressive, and they never trade jobs. A pink shadow under a pink button is the single fastest way to make this system look cheap.", "section": "elevation" },
+      { "name": "The Continuous Corner Rule", "body": "Any element with a borderRadius also sets borderCurve: \"continuous\". No exceptions, including circles-by-radius like the FAB.", "section": "shapes" }
+    ],
+    "dos": [
+      "Do read every color from useTheme()'s colors object, and check new work in all three palettes before calling it done.",
+      "Do set borderCurve: \"continuous\" on every element that has a borderRadius.",
+      "Do keep shadows colorless — rgba(27,31,59,…) — and pick the step by importance using the Lift Ladder.",
+      "Do use 16px as the floor for body text and every text input, and 13px as the absolute floor for any text at all.",
+      "Do separate hierarchy levels by weight (800 / 700 / 500) before reaching for a larger size.",
+      "Do resolve every spacing value to the 4-point scale (4 / 8 / 12 / 16 / 24 / 32).",
+      "Do give every interactive control a visible hover, a press response, and a 3px focus ring.",
+      "Do pair color with a second signal — fill, icon, or text — so a state never depends on hue alone.",
+      "Do cap long lists at 10 entries with a \"Show more\" control.",
+      "Do reserve the dashed border for empty states exclusively."
+    ],
+    "donts": [
+      "Don't hard-code a brand hex in a component. White is permitted only for text and icons sitting on a filled colored surface.",
+      "Don't tint a shadow with the brand color, in any palette, ever.",
+      "Don't use a status color decoratively. Green means complete, coral means overdue or destructive, amber means due soon, teal means informational or actively shared.",
+      "Don't design a layout that only reads correctly in one of the three palettes.",
+      "Don't introduce a custom typeface. The system face is what makes this feel native on both iOS and Android.",
+      "Don't invent a font size between two scale steps, or ship body text below 16px in new work.",
+      "Don't add a control that gives no visual feedback on press.",
+      "Don't replace inline field errors with alert().",
+      "Don't let the FAB action sheet accumulate decoration or delay — it is the highest-traffic path in the app.",
+      "Don't soften legibility for charm. The anti-reference is the cutesy baby app: pastel mush, script faces, sticker clutter, illustration standing in for data."
+    ]
+  }
+}

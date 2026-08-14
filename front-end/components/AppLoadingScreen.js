@@ -124,7 +124,7 @@ const makeStyles = (colors) =>
             ...shadow.raised,
         },
         book: { fontSize: 40, lineHeight: 46 },
-        brand: { fontSize: 22, fontWeight: "800", color: colors.primary, letterSpacing: -0.3, marginBottom: 4 },
+        brand: { fontSize: 23, fontWeight: "800", color: colors.primary, letterSpacing: -0.3, marginBottom: 4 },
         status: { fontSize: 14, color: colors.textSecondary, opacity: 0.85, textAlign: "center", maxWidth: 260 },
         percent: { marginTop: space.xl, fontSize: 12, fontWeight: "700", color: colors.textMuted, letterSpacing: 2 },
         footer: { position: "absolute", bottom: space.xl, left: 0, right: 0, alignItems: "center" },

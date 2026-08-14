@@ -5,7 +5,8 @@ import { SectionContainerCard } from "../common/Cards";
 import { api } from "../../utils/api";
 import { useToast } from "../ui/Toast";
 import { useTheme } from "../../context/ThemeContext";
-import { space, radius } from "../../theme";
+import { SkeletonBlock } from "../ui/Skeleton";
+import { space, radius, type, shadow } from "../../theme";
 import { exportChildRecordsPdf, pdfExportAvailable } from "../../utils/exportPdf";
 import { CATEGORY_LABELS } from "../../utils/pdfTemplate";
 
@@ -17,6 +18,7 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
     const toast = useToast();
 
     const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(true);
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [renewing, setRenewing] = useState(false);
 
@@ -57,7 +59,11 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
     };
 
     useEffect(() => {
-        load();
+        (async () => {
+            setLoading(true);
+            await load();
+            setLoading(false);
+        })();
     }, []);
 
     const handleRenew = async () => {
@@ -87,28 +93,65 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
         : "—";
     const consentDate = user?.consentDate ? new Date(user.consentDate).toLocaleDateString() : "—";
 
+    // Consent-status banner — the one thing worth knowing at a glance before
+    // reading the detail rows below. Only two states are backed by real data
+    // (consentReviewDue is a plain yes/no from the API), so the banner uses
+    // the "overdue" ramp when review is due and "completed" otherwise rather
+    // than inventing a third "upcoming" bucket we have no date to drive.
+    const reviewDue = !!user?.consentReviewDue;
+    const bannerColor = reviewDue ? colors.overdue : colors.completed;
+    const bannerBg = reviewDue ? colors.overdueBg : colors.completedBg;
+
     return (
         <ScrollView style={styles.container}>
+            {loading ? (
+                <SkeletonBlock width="100%" height={52} radius={radius.lg} style={{ marginBottom: space.lg }} />
+            ) : (
+                <View style={[styles.consentBanner, { backgroundColor: bannerBg }, reviewDue && shadow.active(colors.warning)]}>
+                    <Ionicons
+                        name={reviewDue ? "alert-circle" : "checkmark-circle"}
+                        size={20}
+                        color={bannerColor}
+                    />
+                    <Text style={[styles.consentBannerText, { color: bannerColor }]}>
+                        {reviewDue
+                            ? "Annual consent review is due — renew below to keep your data active."
+                            : "Your consent is up to date."}
+                    </Text>
+                </View>
+            )}
+
             <SectionContainerCard
                 title="Data Privacy Act of 2012 (RA 10173)"
                 subtitle="Your consent and data-retention status"
             >
-                <View style={styles.row}>
-                    <Text style={styles.rowLabel}>Consent accepted on</Text>
-                    <Text style={styles.rowValue}>{consentDate}</Text>
-                </View>
-                <View style={styles.row}>
-                    <Text style={styles.rowLabel}>Data retained until</Text>
-                    <Text style={styles.rowValue}>{retentionDate}</Text>
-                </View>
-                <View style={styles.row}>
-                    <Text style={styles.rowLabel}>Annual review due</Text>
-                    <Text style={styles.rowValue}>{user?.consentReviewDue ? "Yes — review now" : "Not yet"}</Text>
-                </View>
+                {loading ? (
+                    [0, 1, 2].map((i) => (
+                        <View key={i} style={styles.row}>
+                            <SkeletonBlock width="44%" height={12} radius={6} />
+                            <SkeletonBlock width="28%" height={12} radius={6} />
+                        </View>
+                    ))
+                ) : (
+                    <>
+                        <View style={styles.row}>
+                            <Text style={styles.rowLabel}>Consent accepted on</Text>
+                            <Text style={styles.rowValue}>{consentDate}</Text>
+                        </View>
+                        <View style={styles.row}>
+                            <Text style={styles.rowLabel}>Data retained until</Text>
+                            <Text style={styles.rowValue}>{retentionDate}</Text>
+                        </View>
+                        <View style={styles.row}>
+                            <Text style={styles.rowLabel}>Annual review due</Text>
+                            <Text style={styles.rowValue}>{user?.consentReviewDue ? "Yes — review now" : "Not yet"}</Text>
+                        </View>
+                    </>
+                )}
                 <TouchableOpacity
                     onPress={handleRenew}
                     style={styles.renewBtn}
-                    disabled={renewing}
+                    disabled={renewing || loading}
                     accessibilityRole="button"
                     accessibilityLabel="Renew data retention for another year"
                 >
@@ -134,7 +177,7 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
                                         accessibilityState={{ checked: on }}
                                     >
                                         <View style={[styles.checkbox, on && styles.checkboxOn]}>
-                                            {on && <Ionicons name="checkmark" size={13} color="#FFFFFF" />}
+                                            {on && <Ionicons name="checkmark" size={13} color={colors.onPrimary} />}
                                         </View>
                                         <Text style={styles.exportLabel}>{CATEGORY_LABELS[key]}</Text>
                                     </TouchableOpacity>
@@ -213,6 +256,16 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
 const makeStyles = (colors) =>
     StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
+        consentBanner: {
+            flexDirection: "row",
+            alignItems: "center",
+            gap: space.sm,
+            borderRadius: radius.lg,
+            borderCurve: "continuous",
+            padding: space.md,
+            marginBottom: space.lg,
+        },
+        consentBannerText: { ...type.bodyStrong, flex: 1 },
         row: {
             flexDirection: "row",
             justifyContent: "space-between",
@@ -220,11 +273,11 @@ const makeStyles = (colors) =>
             borderBottomWidth: 1,
             borderBottomColor: colors.hairline,
         },
-        rowLabel: { fontSize: 13, fontWeight: "700", color: colors.textMuted },
-        rowValue: { fontSize: 13, fontWeight: "600", color: colors.text },
+        rowLabel: { ...type.label, color: colors.textMuted },
+        rowValue: { ...type.label, color: colors.text },
         exportGrid: { marginBottom: space.md },
         exportRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 7 },
-        exportLabel: { fontSize: 13, color: colors.text, fontWeight: "600" },
+        exportLabel: { ...type.label, color: colors.text },
         checkbox: {
             width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: colors.primary,
             alignItems: "center", justifyContent: "center", backgroundColor: colors.surface,
@@ -239,8 +292,8 @@ const makeStyles = (colors) =>
             alignItems: "center",
             marginTop: space.md,
         },
-        renewBtnText: { color: colors.onAccent, fontWeight: "700", fontSize: 13 },
-        warnText: { fontSize: 13, color: colors.textSecondary, lineHeight: 18, marginBottom: space.md },
+        renewBtnText: { ...type.label, color: colors.onAccent },
+        warnText: { ...type.caption, color: colors.textSecondary, marginBottom: space.md },
         deleteBtn: {
             height: 44,
             borderRadius: radius.md,
@@ -249,7 +302,7 @@ const makeStyles = (colors) =>
             justifyContent: "center",
             alignItems: "center",
         },
-        deleteBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 13 },
+        deleteBtnText: { ...type.label, color: colors.onPrimary },
         cancelBtn: { alignItems: "center", paddingVertical: 12, marginTop: space.xs },
-        cancelBtnText: { color: colors.textSecondary, fontWeight: "700", fontSize: 13 },
+        cancelBtnText: { ...type.label, color: colors.textSecondary },
     });

@@ -3,12 +3,12 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-nati
 import { SectionContainerCard } from "../common/Cards";
 import { useLanguage } from "../../context/LanguageContext";
 import { useTheme } from "../../context/ThemeContext";
-import { space } from "../../theme";
+import { space, radius, type } from "../../theme";
 
 const LANGUAGES = [
-    { key: "en", label: "English" },
-    { key: "fil", label: "Filipino" },
-    { key: "tag", label: "Taglish" },
+    { key: "en", label: "English", flag: "🇺🇸" },
+    { key: "fil", label: "Filipino", flag: "🇵🇭" },
+    { key: "tag", label: "Taglish", flag: "🇵🇭" },
 ];
 
 export default function LanguagePreferences() {
@@ -19,20 +19,22 @@ export default function LanguagePreferences() {
     return (
         <ScrollView style={styles.container}>
             <SectionContainerCard title={t("settingsLanguageLabel")} subtitle={t("settingsLanguageHelp")}>
-                <View style={styles.langRow}>
-                    {LANGUAGES.map((l) => (
-                        <TouchableOpacity
-                            key={l.key}
-                            style={[styles.langBtn, language === l.key && styles.langBtnActive]}
-                            onPress={() => setLanguage(l.key)}
-                            accessibilityRole="radio"
-                            accessibilityState={{ selected: language === l.key }}
-                        >
-                            <Text style={[styles.langBtnText, language === l.key && styles.langBtnTextActive]}>
-                                {l.label}
-                            </Text>
-                        </TouchableOpacity>
-                    ))}
+                <View style={styles.langGrid}>
+                    {LANGUAGES.map((l) => {
+                        const on = language === l.key;
+                        return (
+                            <TouchableOpacity
+                                key={l.key}
+                                style={[styles.langCard, on && styles.langCardActive]}
+                                onPress={() => setLanguage(l.key)}
+                                accessibilityRole="radio"
+                                accessibilityState={{ selected: on }}
+                            >
+                                <Text style={styles.langFlag}>{l.flag}</Text>
+                                <Text style={[styles.langLabel, on && styles.langLabelActive]}>{l.label}</Text>
+                            </TouchableOpacity>
+                        );
+                    })}
                 </View>
             </SectionContainerCard>
         </ScrollView>
@@ -42,18 +44,22 @@ export default function LanguagePreferences() {
 const makeStyles = (colors) =>
     StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
-        langRow: { flexDirection: "row", gap: 8 },
-        langBtn: {
-            flex: 1,
-            height: 44,
-            borderRadius: 12,
+        langGrid: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
+        langCard: {
+            flexBasis: "31%",
+            flexGrow: 1,
+            paddingVertical: space.lg,
+            borderRadius: radius.lg,
+            borderCurve: "continuous",
             borderWidth: 1,
             borderColor: colors.border,
-            justifyContent: "center",
-            alignItems: "center",
             backgroundColor: colors.surface,
+            alignItems: "center",
         },
-        langBtnActive: { borderColor: colors.primary, backgroundColor: colors.tintGreen },
-        langBtnText: { fontSize: 13, fontWeight: "600", color: colors.textMuted },
-        langBtnTextActive: { color: colors.primary, fontWeight: "800" },
+        langCardActive: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+        // Emoji glyph size — the type scale bundles fontFamily+weight+lineHeight,
+        // none of which apply to an emoji, so a bespoke literal is correct here.
+        langFlag: { fontSize: 34, marginBottom: space.xs },
+        langLabel: { ...type.label, color: colors.textMuted },
+        langLabelActive: { color: colors.primaryDark },
     });
