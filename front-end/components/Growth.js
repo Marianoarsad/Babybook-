@@ -21,7 +21,8 @@ import {
     MemoryVisualCard,
     EmptyStateCard,
 } from "./common/Cards";
-import { MemoriesSkeleton } from "./ui/Skeleton";
+import { MemoriesSkeleton, AppointmentsSkeleton, SkeletonBlock } from "./ui/Skeleton";
+import { useRefreshControl } from "./ui/useRefreshControl";
 import ShowMore from "./ui/ShowMore";
 import MemoryDetail from "./MemoryDetail";
 import PercentileChart from "./PercentileChart";
@@ -36,6 +37,7 @@ import {
 } from "../utils/whoGrowth";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import TipStrip from "./ui/TipStrip";
+import KeyboardAvoider from "./ui/KeyboardAvoider";
 
 const METRIC_TABS = [
     { key: "weight", label: "Weight", field: "weight" },
@@ -191,6 +193,8 @@ export default function Growth({
         };
     }, [profile.id, reloadTick]);
 
+    const refreshControl = useRefreshControl(growthLoading, () => setReloadTick((n) => n + 1));
+
     // WHO publishes separate curves per sex and none for an unrecorded sex.
     // adapters.js quietly defaults an unknown sex to girl for theming; that
     // default must not decide which growth curve a child is measured against,
@@ -317,7 +321,7 @@ export default function Growth({
     };
 
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView style={styles.container} refreshControl={refreshControl}>
             <TipStrip tipKey="tip_growth">
                 Measurements plot against WHO growth curves, so you can see where your child sits versus the
                 standard for their age.
@@ -533,6 +537,13 @@ export default function Growth({
                             </TouchableOpacity>
                         }
                     >
+                        {growthLoading ? (
+                            <>
+                                <SkeletonBlock width="100%" height={64} radius={radius.md} style={{ marginBottom: 16 }} />
+                                <SkeletonBlock width="100%" height={200} radius={radius.lg} />
+                            </>
+                        ) : (
+                            <>
                         <View style={styles.metricsHeaderBox}>
                             <View style={styles.metricsHeaderCol}>
                                 <Text style={styles.metricsHeaderLabel}>
@@ -617,6 +628,8 @@ export default function Growth({
                                 ? `Shaded bands are the WHO Child Growth Standards for ${sexKey}, birth to 5 years. This compares your child with a reference population — it is not a medical assessment.`
                                 : "Reference bands come from the WHO Child Growth Standards, birth to 5 years. They compare a child with a reference population and are not a medical assessment."}
                         </Text>
+                            </>
+                        )}
                     </SectionContainerCard>
 
                     <SectionContainerCard
@@ -627,7 +640,9 @@ export default function Growth({
                                 : "Every measurement you record appears here"
                         }
                     >
-                        {measurements.length === 0 ? (
+                        {growthLoading ? (
+                            <AppointmentsSkeleton count={3} />
+                        ) : measurements.length === 0 ? (
                             <EmptyStateCard
                                 message="No measurements recorded yet. Add one to start the chart."
                                 icon="analytics-outline"
@@ -674,6 +689,7 @@ export default function Growth({
 
             {/* Metrics Modal */}
             <Modal visible={showMetricsModal} transparent animationType="slide">
+                <KeyboardAvoider>
                 <View style={styles.modalBg}>
                     <View style={styles.modalCard}>
                         <Text style={styles.modalTitle}>
@@ -728,6 +744,7 @@ export default function Growth({
                         </View>
                     </View>
                 </View>
+                </KeyboardAvoider>
             </Modal>
 
             <MemoryDetail

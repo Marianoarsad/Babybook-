@@ -14,6 +14,7 @@ import { scheduleReminder } from "../utils/notifications";
 import { storage } from "../utils/storageAdapter";
 import { LEAD_TIME_KEY, LEAD_TIME_OPTIONS } from "./settings/GeneralSettings";
 import TipStrip from "./ui/TipStrip";
+import KeyboardAvoider from "./ui/KeyboardAvoider";
 
 // Category -> theme-derived dot/accent color. Kept to semantic status tones
 // (not brand hex) so it stays consistent across the girl/boy palette switch.
@@ -446,6 +447,7 @@ export default function CalendarView({ profile }) {
             </Modal>
 
             <Modal visible={showEventModal} transparent animationType="slide" onRequestClose={() => setShowEventModal(false)}>
+                <KeyboardAvoider>
                 <View style={styles.modalBg}>
                     <ScrollView contentContainerStyle={{ width: "100%", alignItems: "center" }}>
                         <View style={styles.modalCard}>
@@ -507,6 +509,7 @@ export default function CalendarView({ profile }) {
                         </View>
                     </ScrollView>
                 </View>
+                </KeyboardAvoider>
             </Modal>
         </View>
     );

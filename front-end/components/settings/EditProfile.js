@@ -4,6 +4,8 @@ import { SectionContainerCard } from "../common/Cards";
 import { storage } from "../../utils/storageAdapter";
 import { api } from "../../utils/api";
 import { useToast } from "../ui/Toast";
+import { SkeletonBlock } from "../ui/Skeleton";
+import KeyboardAvoider from "../ui/KeyboardAvoider";
 import { useTheme } from "../../context/ThemeContext";
 import { space, radius, type } from "../../theme";
 
@@ -30,9 +32,11 @@ export default function EditProfile({
     const [email, setEmail] = useState("");
     const [phone, setPhone] = useState("");
     const [city, setCity] = useState("Quezon City, NCR");
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         (async () => {
+            setLoading(true);
             try {
                 const savedCity = await storage.getItem("bb_parent_city");
                 if (savedCity) setCity(savedCity);
@@ -43,6 +47,8 @@ export default function EditProfile({
                 }
             } catch (e) {
                 console.log("load profile:", e.message);
+            } finally {
+                setLoading(false);
             }
         })();
     }, []);
@@ -67,6 +73,7 @@ export default function EditProfile({
     };
 
     return (
+        <KeyboardAvoider>
         <ScrollView style={styles.container}>
             {/* Prominent ringed avatar hero — the photo picker moved up here
                 (out of its old "Select Guardian Avatar" card slot) so the
@@ -90,38 +97,52 @@ export default function EditProfile({
             </View>
 
             <SectionContainerCard title="Guardian Information" subtitle="Keep your contact details up to date">
-                <View style={styles.formGroup}>
-                    <Text style={styles.label}>Full Name</Text>
-                    <TextInput style={styles.input} value={parentName} onChangeText={onUpdateParentName} />
-                </View>
-                <View style={styles.formGroup}>
-                    <Text style={styles.label}>Email Address</Text>
-                    <TextInput
-                        style={styles.input}
-                        keyboardType="email-address"
-                        autoCapitalize="none"
-                        value={email}
-                        onChangeText={setEmail}
-                    />
-                </View>
-                <View style={styles.formGroup}>
-                    <Text style={styles.label}>Phone Number</Text>
-                    <TextInput style={styles.input} keyboardType="phone-pad" value={phone} onChangeText={setPhone} />
-                </View>
-                <View style={styles.formGroup}>
-                    <Text style={styles.label}>Home City / Region</Text>
-                    <TextInput style={styles.input} value={city} onChangeText={setCity} />
-                </View>
-                <TouchableOpacity
-                    onPress={handleSaveInfo}
-                    style={styles.saveBtn}
-                    accessibilityRole="button"
-                    accessibilityLabel="Save Changes"
-                >
-                    <Text style={styles.saveBtnText}>Save Changes</Text>
-                </TouchableOpacity>
+                {loading ? (
+                    <>
+                        {[0, 1, 2, 3].map((i) => (
+                            <View key={i} style={styles.formGroup}>
+                                <SkeletonBlock width={i % 2 ? "38%" : "46%"} height={12} radius={6} />
+                                <SkeletonBlock width="100%" height={44} radius={radius.md} style={{ marginTop: space.xs }} />
+                            </View>
+                        ))}
+                    </>
+                ) : (
+                    <>
+                        <View style={styles.formGroup}>
+                            <Text style={styles.label}>Full Name</Text>
+                            <TextInput style={styles.input} value={parentName} onChangeText={onUpdateParentName} />
+                        </View>
+                        <View style={styles.formGroup}>
+                            <Text style={styles.label}>Email Address</Text>
+                            <TextInput
+                                style={styles.input}
+                                keyboardType="email-address"
+                                autoCapitalize="none"
+                                value={email}
+                                onChangeText={setEmail}
+                            />
+                        </View>
+                        <View style={styles.formGroup}>
+                            <Text style={styles.label}>Phone Number</Text>
+                            <TextInput style={styles.input} keyboardType="phone-pad" value={phone} onChangeText={setPhone} />
+                        </View>
+                        <View style={styles.formGroup}>
+                            <Text style={styles.label}>Home City / Region</Text>
+                            <TextInput style={styles.input} value={city} onChangeText={setCity} />
+                        </View>
+                        <TouchableOpacity
+                            onPress={handleSaveInfo}
+                            style={styles.saveBtn}
+                            accessibilityRole="button"
+                            accessibilityLabel="Save Changes"
+                        >
+                            <Text style={styles.saveBtnText}>Save Changes</Text>
+                        </TouchableOpacity>
+                    </>
+                )}
             </SectionContainerCard>
         </ScrollView>
+        </KeyboardAvoider>
     );
 }
 

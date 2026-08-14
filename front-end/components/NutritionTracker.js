@@ -10,6 +10,7 @@ import { DateField, TimeField } from "./ui/DateField";
 import { SectionContainerCard, ListEntryCard, EmptyStateCard } from "./common/Cards";
 import { AppointmentsSkeleton } from "./ui/Skeleton";
 import { useRefreshControl } from "./ui/useRefreshControl";
+import KeyboardAvoider from "./ui/KeyboardAvoider";
 import ShowMore from "./ui/ShowMore";
 
 const MILK_TYPES = ["Formula", "Breastmilk", "Mixed"];
@@ -334,6 +335,7 @@ export default function NutritionTracker({ childId, initialAction, navKey }) {
 
             {/* Add / Edit Modal */}
             <Modal visible={showModal} transparent animationType="slide">
+                <KeyboardAvoider>
                 <View style={styles.modalBg}>
                     <ScrollView contentContainerStyle={styles.modalScroll}>
                         <View style={styles.modalCard}>
@@ -487,6 +489,7 @@ export default function NutritionTracker({ childId, initialAction, navKey }) {
                         </View>
                     </ScrollView>
                 </View>
+                </KeyboardAvoider>
             </Modal>
         </ScrollView>
     );

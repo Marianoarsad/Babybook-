@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
     View,
     Text,
@@ -31,9 +31,11 @@ import {
 import PhotoAttach from "./ui/PhotoAttach";
 import ShowMore from "./ui/ShowMore";
 import { ImmunizationsSkeleton, AppointmentsSkeleton } from "./ui/Skeleton";
+import { useRefreshControl } from "./ui/useRefreshControl";
 import { DateField, TimeField } from "./ui/DateField";
 import ImageViewer from "./ui/ImageViewer";
 import TipStrip from "./ui/TipStrip";
+import KeyboardAvoider from "./ui/KeyboardAvoider";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
 export default function Health({
@@ -97,7 +99,7 @@ export default function Health({
     // Vaccinations now load from and persist to the backend.
     const [vaccines, setVaccines] = useState([]);
     const [vaxLoading, setVaxLoading] = useState(true);
-    useEffect(() => {
+    const loadVaccines = useCallback(() => {
         let active = true;
         setVaxLoading(true);
         (async () => {
@@ -114,12 +116,13 @@ export default function Health({
             active = false;
         };
     }, [profile.id]);
+    useEffect(() => loadVaccines(), [loadVaccines]);
 
     // Checkups now load from and persist to the backend.
     const [appts, setAppts] = useState([]);
     const [apptsLoading, setApptsLoading] = useState(true);
     const [apptsVisible, setApptsVisible] = useState(10);
-    useEffect(() => {
+    const loadAppts = useCallback(() => {
         let active = true;
         setApptsLoading(true);
         (async () => {
@@ -136,6 +139,7 @@ export default function Health({
             active = false;
         };
     }, [profile.id]);
+    useEffect(() => loadAppts(), [loadAppts]);
 
     // Vaccine status/search filter — the full EPI schedule runs to 25 doses,
     // so "what does my child still need?" otherwise means scrolling all of it.
@@ -228,8 +232,10 @@ export default function Health({
     const [apptNotes, setApptNotes] = useState("");
 
     // Medical history (illnesses + medications) loads from the backend.
-    useEffect(() => {
+    const [histLoading, setHistLoading] = useState(true);
+    const loadMedHistory = useCallback(() => {
         let active = true;
+        setHistLoading(true);
         (async () => {
             try {
                 const rows = await api.listRecords(profile.id, "medical-history");
@@ -239,19 +245,24 @@ export default function Health({
                 setHospitalizations(rows.filter((r) => r.category === "Hospitalization").map(medHistoryToIllness));
             } catch (e) {
                 console.log("load medical history:", e.message);
+            } finally {
+                if (active) setHistLoading(false);
             }
         })();
         return () => {
             active = false;
         };
     }, [profile.id]);
+    useEffect(() => loadMedHistory(), [loadMedHistory]);
 
     // ===== Mandatory supporting-photo attachments =====
     const [attachUri, setAttachUri] = useState("");
     const [attachMap, setAttachMap] = useState({}); // `${type}:${id}` -> attachment row
     const [viewer, setViewer] = useState(null); // { uri, type, recordId, attachId }
 
-    const loadAttachments = async () => {
+    const [attachLoading, setAttachLoading] = useState(true);
+    const loadAttachments = useCallback(async () => {
+        setAttachLoading(true);
         try {
             const rows = await api.listAttachments(profile.id);
             const map = {};
@@ -259,11 +270,21 @@ export default function Health({
             setAttachMap(map);
         } catch (e) {
             console.log("load attachments:", e.message);
+        } finally {
+            setAttachLoading(false);
         }
-    };
+    }, [profile.id]);
     useEffect(() => {
         loadAttachments();
-    }, [profile.id]);
+    }, [loadAttachments]);
+
+    const listLoading = vaxLoading || apptsLoading || histLoading || attachLoading;
+    const refreshControl = useRefreshControl(listLoading, () => {
+        loadVaccines();
+        loadAppts();
+        loadMedHistory();
+        loadAttachments();
+    });
 
     const resetAttach = () => {
         setAttachUri("");
@@ -600,7 +621,7 @@ export default function Health({
     };
 
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView style={styles.container} refreshControl={refreshControl}>
             <TipStrip tipKey="tip_health">
                 Every vaccine in the DOH schedule is already here, dated from your child's birthday. Tap one to
                 mark it given.
@@ -919,10 +940,11 @@ export default function Health({
                             </TouchableOpacity>
                         }
                     >
-                        {medications.length === 0 && (
+                        {histLoading && <AppointmentsSkeleton count={3} />}
+                        {!histLoading && medications.length === 0 && (
                             <EmptyStateCard message="No medications logged yet." icon="flask-outline" />
                         )}
-                        {medications.slice(0, medsVisible).map((med, idx) => (
+                        {!histLoading && medications.slice(0, medsVisible).map((med, idx) => (
                             <ListEntryCard
                                 key={med.id || idx}
                                 thumbnailUrl={attachUrlFor("medication", med.id)}
@@ -949,12 +971,14 @@ export default function Health({
                                 iconBg={colors.recMedication.bg}
                             />
                         ))}
-                        <ShowMore
-                            total={medications.length}
-                            visible={medsVisible}
-                            onPress={() => setMedsVisible((c) => c + 10)}
-                            noun="medications"
-                        />
+                        {!histLoading && (
+                            <ShowMore
+                                total={medications.length}
+                                visible={medsVisible}
+                                onPress={() => setMedsVisible((c) => c + 10)}
+                                noun="medications"
+                            />
+                        )}
                     </SectionContainerCard>
                 </View>
             )}
@@ -1025,7 +1049,11 @@ export default function Health({
                             </TouchableOpacity>
                         }
                     >
-                        {illnesses.slice(0, illnessVisible).map((ill, idx) => (
+                        {histLoading && <AppointmentsSkeleton count={3} />}
+                        {!histLoading && illnesses.length === 0 && (
+                            <EmptyStateCard message="No conditions recorded yet." icon="pulse-outline" />
+                        )}
+                        {!histLoading && illnesses.slice(0, illnessVisible).map((ill, idx) => (
                             <ListEntryCard
                                 key={ill.id || idx}
                                 thumbnailUrl={attachUrlFor("illness", ill.id)}
@@ -1043,12 +1071,14 @@ export default function Health({
                                 iconBg={colors.recIllness.bg}
                             />
                         ))}
-                        <ShowMore
-                            total={illnesses.length}
-                            visible={illnessVisible}
-                            onPress={() => setIllnessVisible((c) => c + 10)}
-                            noun="conditions"
-                        />
+                        {!histLoading && (
+                            <ShowMore
+                                total={illnesses.length}
+                                visible={illnessVisible}
+                                onPress={() => setIllnessVisible((c) => c + 10)}
+                                noun="conditions"
+                            />
+                        )}
                     </SectionContainerCard>
                 </View>
             )}
@@ -1126,10 +1156,11 @@ export default function Health({
                             </TouchableOpacity>
                         }
                     >
-                        {hospitalizations.length === 0 && (
+                        {histLoading && <AppointmentsSkeleton count={2} />}
+                        {!histLoading && hospitalizations.length === 0 && (
                             <EmptyStateCard message="No hospitalizations recorded." icon="bandage-outline" />
                         )}
-                        {hospitalizations.slice(0, hospVisible).map((h, idx) => (
+                        {!histLoading && hospitalizations.slice(0, hospVisible).map((h, idx) => (
                             <ListEntryCard
                                 key={h.id || idx}
                                 thumbnailUrl={attachUrlFor("hospitalization", h.id)}
@@ -1143,18 +1174,21 @@ export default function Health({
                                 iconBg={colors.recHospitalization.bg}
                             />
                         ))}
-                        <ShowMore
-                            total={hospitalizations.length}
-                            visible={hospVisible}
-                            onPress={() => setHospVisible((c) => c + 10)}
-                            noun="hospitalizations"
-                        />
+                        {!histLoading && (
+                            <ShowMore
+                                total={hospitalizations.length}
+                                visible={hospVisible}
+                                onPress={() => setHospVisible((c) => c + 10)}
+                                noun="hospitalizations"
+                            />
+                        )}
                     </SectionContainerCard>
                 </View>
             )}
 
             {/* Hospitalization Modal */}
             <Modal visible={showHospModal} transparent animationType="slide">
+                <KeyboardAvoider>
                 <View style={styles.modalBg}>
                     <View style={styles.modalCard}>
                         <Text style={styles.modalTitle}>Add Hospitalization</Text>
@@ -1197,10 +1231,12 @@ export default function Health({
                         </View>
                     </View>
                 </View>
+                </KeyboardAvoider>
             </Modal>
 
             {/* Illness Modal */}
             <Modal visible={showIllnessModal} transparent animationType="slide">
+                <KeyboardAvoider>
                 <View style={styles.modalBg}>
                     <View style={styles.modalCard}>
                         <Text style={styles.modalTitle}>
@@ -1251,10 +1287,12 @@ export default function Health({
                         </View>
                     </View>
                 </View>
+                </KeyboardAvoider>
             </Modal>
 
             {/* Medication Modal */}
             <Modal visible={showMedModal} transparent animationType="slide">
+                <KeyboardAvoider>
                 <View style={styles.modalBg}>
                     <View style={styles.modalCard}>
                         <Text style={styles.modalTitle}>
@@ -1303,10 +1341,12 @@ export default function Health({
                         </View>
                     </View>
                 </View>
+                </KeyboardAvoider>
             </Modal>
 
             {/* Add Vaccine Modal */}
             <Modal visible={showVaxModal} transparent animationType="slide">
+                <KeyboardAvoider>
                 <View style={styles.modalBg}>
                     <View style={styles.modalCard}>
                         <Text style={styles.modalTitle}>Add Vaccination</Text>
@@ -1357,11 +1397,14 @@ export default function Health({
                         </View>
                     </View>
                 </View>
+                </KeyboardAvoider>
             </Modal>
 
             {/* New Appointment Modal */}
             <Modal visible={showApptModal} transparent animationType="slide">
+                <KeyboardAvoider>
                 <View style={styles.modalBg}>
+                    <ScrollView contentContainerStyle={{ width: "100%", alignItems: "center" }}>
                     <View style={styles.modalCard}>
                         <Text style={styles.modalTitle}>New Appointment</Text>
 
@@ -1426,10 +1469,13 @@ export default function Health({
                             </TouchableOpacity>
                         </View>
                     </View>
+                    </ScrollView>
                 </View>
+                </KeyboardAvoider>
             </Modal>
 
             <Modal visible={!!completeVaxTarget} transparent animationType="slide">
+                <KeyboardAvoider>
                 <View style={styles.modalBg}>
                     <View style={styles.modalCard}>
                         <Text style={styles.modalTitle}>Mark Dose Given</Text>
@@ -1459,6 +1505,7 @@ export default function Health({
                         </View>
                     </View>
                 </View>
+                </KeyboardAvoider>
             </Modal>
 
             <ImageViewer

@@ -12,6 +12,8 @@ import {
     ScrollView,
     Platform,
     AppState,
+    Animated,
+    Easing,
 } from "react-native";
 import { LanguageProvider, useLanguage } from "./context/LanguageContext";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -22,7 +24,17 @@ import {
     PublicSans_600SemiBold,
     PublicSans_700Bold,
 } from "@expo-google-fonts/public-sans";
-import { colors, radius, space, shadow, type, MIN_TOUCH } from "./theme";
+import { radius, space, shadow, type, MIN_TOUCH, motion } from "./theme";
+
+// Guarded expo-haptics, same pattern as ui/Toast.js — a no-op if the module
+// isn't available rather than a crash.
+let Haptics = null;
+try {
+    // eslint-disable-next-line global-require
+    Haptics = require("expo-haptics");
+} catch (e) {
+    Haptics = null;
+}
 
 // Guarded expo-font so the app still runs if it isn't available.
 let ExpoFont = null;
@@ -76,10 +88,12 @@ import ToastProvider, { useToast } from "./components/ui/Toast";
 import SideMenu, { MENU_TITLES } from "./components/SideMenu";
 import CalendarView from "./components/CalendarView";
 import AllActivity from "./components/AllActivity";
+import Search from "./components/Search";
 import AllMemories from "./components/AllMemories";
 import OfflineSummaryView from "./components/OfflineSummaryView";
 import AppLoadingScreen from "./components/AppLoadingScreen";
 import { DateField, TimeField } from "./components/ui/DateField";
+import KeyboardAvoider from "./components/ui/KeyboardAvoider";
 import ViewProfile from "./components/settings/ViewProfile";
 import EditProfile from "./components/settings/EditProfile";
 import GeneralSettings from "./components/settings/GeneralSettings";
@@ -101,9 +115,15 @@ import { pickImage, pickerAvailable } from "./utils/imagePicker";
 // showing the baby's name instead.
 const SCREEN_TITLES = { ...MENU_TITLES, share: "Share Records", offlineSummary: "Offline Summary" };
 
-function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChange }) {
+function MainAppShell({
+    onThemeGenderChange,
+    themeOverride,
+    onThemeOverrideChange,
+    schemeOverride,
+    onSchemeOverrideChange,
+}) {
     const { language, t } = useLanguage();
-    const { colors } = useTheme();
+    const { colors, scheme } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
 
     // Preload the icon fonts (@expo/vector-icons) so buttons/icons never render
@@ -162,6 +182,31 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
 
     // Main navigation view
     const [currentView, setCurrentView] = useState("dashboard");
+    // Enter-only screen transition (fade + rise) — the outgoing screen is
+    // swapped synchronously by React, only the incoming one animates in.
+    // useNativeDriver follows the house style already used in Skeleton.js/
+    // SideMenu.js: off on web, since RNW's transform driver doesn't support it.
+    const contentOpacity = useRef(new Animated.Value(1)).current;
+    const contentTranslateY = useRef(new Animated.Value(0)).current;
+    useEffect(() => {
+        contentOpacity.setValue(0);
+        contentTranslateY.setValue(8);
+        Animated.parallel([
+            Animated.timing(contentOpacity, {
+                toValue: 1,
+                duration: motion.standard.duration,
+                easing: Easing.bezier(...motion.standard.bezier),
+                useNativeDriver: Platform.OS !== "web",
+            }),
+            Animated.timing(contentTranslateY, {
+                toValue: 0,
+                duration: motion.standard.duration,
+                easing: Easing.bezier(...motion.standard.bezier),
+                useNativeDriver: Platform.OS !== "web",
+            }),
+        ]).start();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentView]);
     // Optional deep-link sub-tab for Health/Growth (set by Dashboard quick actions).
     // navKey bumps on every request so repeated taps re-apply the tab.
     const [navTab, setNavTab] = useState(null);
@@ -663,7 +708,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
 
     return (
         <SafeAreaView style={styles.container}>
-            <StatusBar barStyle="dark-content" backgroundColor="#FFFDF9" />
+            <StatusBar barStyle={scheme === "dark" ? "light-content" : "dark-content"} backgroundColor={colors.background} />
 
             {/* Dynamic Header */}
             <View style={styles.header}>
@@ -687,6 +732,14 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                     )}
                 </View>
                 <View style={styles.headerRight}>
+                    <TouchableOpacity
+                        onPress={() => changeView("search")}
+                        style={[styles.menuBtn, { marginRight: space.md }]}
+                        accessibilityRole="button"
+                        accessibilityLabel="Search records"
+                    >
+                        <Ionicons name="search-outline" size={22} color={colors.primary} />
+                    </TouchableOpacity>
                     <TouchableOpacity
                         onPress={() => {
                             setUnseenCount(0);
@@ -715,7 +768,12 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
             </View>
 
             {/* Main Container View content */}
-            <View style={styles.content}>
+            <Animated.View
+                style={[
+                    styles.content,
+                    { opacity: contentOpacity, transform: [{ translateY: contentTranslateY }] },
+                ]}
+            >
                 {currentView === "dashboard" && (
                     <Dashboard
                         profile={activeProfile}
@@ -783,6 +841,9 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                 {currentView === "allMemories" && (
                     <AllMemories profile={activeProfile} onClose={goBack} />
                 )}
+                {currentView === "search" && (
+                    <Search profile={activeProfile} onClose={goBack} onNavigate={changeView} />
+                )}
                 {currentView === "share" && (
                     <ShareRecords
                         profile={activeProfile}
@@ -816,6 +877,8 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                         themeOverride={themeOverride}
                         onThemeOverrideChange={onThemeOverrideChange}
                         childGender={activeProfile ? activeProfile.gender : undefined}
+                        schemeOverride={schemeOverride}
+                        onSchemeOverrideChange={onSchemeOverrideChange}
                     />
                 )}
                 {currentView === "languagePreferences" && <LanguagePreferences />}
@@ -825,7 +888,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                 {currentView === "privacySettings" && (
                     <PrivacySettings profile={activeProfile} onAccountDeleted={handleLogOut} />
                 )}
-            </View>
+            </Animated.View>
 
             {/* Modern bottom navigation tabs */}
             <View style={styles.tabBar}>
@@ -841,7 +904,12 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                         <TouchableOpacity
                             key={tab.key}
                             style={styles.tabItem}
-                            onPress={() => changeView(tab.key)}
+                            onPress={() => {
+                                if (Haptics && Haptics.selectionAsync) {
+                                    Haptics.selectionAsync().catch(() => {});
+                                }
+                                changeView(tab.key);
+                            }}
                             accessibilityRole="button"
                             accessibilityLabel={tab.label}
                             accessibilityState={{ selected: active }}
@@ -924,6 +992,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                 transparent
                 animationType="slide"
             >
+                <KeyboardAvoider>
                 <View style={styles.modalBg}>
                     <ScrollView contentContainerStyle={styles.modalScroll}>
                         <View style={styles.modalCard}>
@@ -1102,6 +1171,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                         </View>
                     </ScrollView>
                 </View>
+                </KeyboardAvoider>
             </Modal>
 
             {/* Modal: EDIT BABY PROFILE */}
@@ -1110,6 +1180,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                 transparent
                 animationType="slide"
             >
+                <KeyboardAvoider>
                 <View style={styles.modalBg}>
                     <ScrollView contentContainerStyle={styles.modalScroll}>
                         <View style={styles.modalCard}>
@@ -1286,6 +1357,7 @@ function MainAppShell({ onThemeGenderChange, themeOverride, onThemeOverrideChang
                         </View>
                     </ScrollView>
                 </View>
+                </KeyboardAvoider>
             </Modal>
 
             {/* Annual data-retention re-consent (Data Privacy Act of 2012, RA 10173) */}
@@ -1357,12 +1429,18 @@ export default function App() {
     // ("auto" | "girl" | "boy") can force it. Default is "auto".
     const [themeGender, setThemeGender] = useState(undefined);
     const [themeOverride, setThemeOverride] = useState("auto");
+    // Independent light/dark axis — "system" follows the OS setting, or a
+    // manual "light"/"dark" override. Combines with themeOverride above
+    // (e.g. "girl" + "dark" = dark pink theme).
+    const [schemeOverride, setSchemeOverride] = useState("system");
 
     useEffect(() => {
         (async () => {
             try {
                 const saved = await storage.getItem("bb_theme_override");
                 if (saved) setThemeOverride(saved);
+                const savedScheme = await storage.getItem("bb_dark_mode");
+                if (savedScheme) setSchemeOverride(savedScheme);
             } catch (e) {
                 /* ignore */
             }
@@ -1378,14 +1456,25 @@ export default function App() {
         }
     };
 
+    const changeSchemeOverride = async (v) => {
+        setSchemeOverride(v);
+        try {
+            await storage.setItem("bb_dark_mode", v);
+        } catch (e) {
+            /* ignore */
+        }
+    };
+
     return (
         <LanguageProvider>
-            <ThemeProvider gender={themeGender} override={themeOverride}>
+            <ThemeProvider gender={themeGender} override={themeOverride} schemeOverride={schemeOverride}>
                 <ToastProvider>
                     <MainAppShell
                         onThemeGenderChange={setThemeGender}
                         themeOverride={themeOverride}
                         onThemeOverrideChange={changeThemeOverride}
+                        schemeOverride={schemeOverride}
+                        onSchemeOverrideChange={changeSchemeOverride}
                     />
                 </ToastProvider>
             </ThemeProvider>

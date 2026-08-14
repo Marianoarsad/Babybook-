@@ -1,7 +1,7 @@
 import React from "react";
 import { Modal, View, Image, TouchableOpacity, Text } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, space, radius } from "../../theme";
+import { space, radius } from "../../theme";
 
 // Full-screen image viewer for "View Full Image" on a record attachment.
 // Optional onReplace / onDelete render action buttons (used for saved records).

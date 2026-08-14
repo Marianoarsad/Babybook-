@@ -23,6 +23,7 @@ import { api } from "../utils/api";
 import { memoryToApp, toMilliliters } from "../utils/adapters";
 import { pickImage, pickerAvailable } from "../utils/imagePicker";
 import { useToast } from "./ui/Toast";
+import { useRefreshControl } from "./ui/useRefreshControl";
 import { cacheSummary } from "../utils/offlineSummary";
 import { seen, markSeen } from "../utils/firstRun";
 
@@ -429,6 +430,7 @@ export default function Dashboard({
         retryGrowth();
         retryMemories();
     };
+    const refreshControl = useRefreshControl(dashboardLoading, retryAll);
 
     // Arriving here from the floating log button's "Add Memory" choice opens
     // the form automatically, the same pattern NutritionTracker.js uses for
@@ -569,7 +571,11 @@ export default function Dashboard({
         : null;
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: space.xxl }}>
+        <ScrollView
+            style={styles.container}
+            contentContainerStyle={{ paddingBottom: space.xxl }}
+            refreshControl={refreshControl}
+        >
             {/* Baby switcher — only shown with more than one child. With a
                 single child there's nothing to switch between, so just the
                 Add button shows on its own (evaluation doc, Section 2). */}

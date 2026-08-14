@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
 import { View, StyleSheet, ScrollView } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { SectionContainerCard, RadioRow } from "../common/Cards";
 import { useTheme } from "../../context/ThemeContext";
 import { space, PALETTES, paletteFor } from "../../theme";
@@ -8,6 +9,12 @@ const OPTIONS = [
     { key: "auto", label: "Automatic" },
     { key: "girl", label: "Girl Theme", sub: "Always pink" },
     { key: "boy", label: "Boy Theme", sub: "Always blue" },
+];
+
+const SCHEME_OPTIONS = [
+    { key: "system", label: "System", sub: "Follows your phone's setting", icon: "phone-portrait-outline" },
+    { key: "light", label: "Light", sub: "Always light", icon: "sunny-outline" },
+    { key: "dark", label: "Dark", sub: "Always dark", icon: "moon-outline" },
 ];
 
 // 3 small dots per option, read live from theme.js's PALETTES export, so the
@@ -25,7 +32,13 @@ function PaletteDots({ palette }) {
     );
 }
 
-export default function ThemePreferences({ themeOverride = "auto", onThemeOverrideChange, childGender }) {
+export default function ThemePreferences({
+    themeOverride = "auto",
+    onThemeOverrideChange,
+    childGender,
+    schemeOverride = "system",
+    onSchemeOverrideChange,
+}) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
 
@@ -49,6 +62,22 @@ export default function ThemePreferences({ themeOverride = "auto", onThemeOverri
                             selected={on}
                             onPress={() => onThemeOverrideChange && onThemeOverrideChange(opt.key)}
                             trailing={<PaletteDots palette={palette} />}
+                        />
+                    );
+                })}
+            </SectionContainerCard>
+
+            <SectionContainerCard title="Dark Mode" subtitle="Easier on the eyes for night feeds">
+                {SCHEME_OPTIONS.map((opt) => {
+                    const on = (schemeOverride || "system") === opt.key;
+                    return (
+                        <RadioRow
+                            key={opt.key}
+                            label={opt.label}
+                            sublabel={opt.sub}
+                            selected={on}
+                            onPress={() => onSchemeOverrideChange && onSchemeOverrideChange(opt.key)}
+                            trailing={<Ionicons name={opt.icon} size={18} color={colors.textMuted} />}
                         />
                     );
                 })}

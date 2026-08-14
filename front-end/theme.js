@@ -132,14 +132,115 @@ export const PALETTES = {
     },
 };
 
-// Resolve a palette from a child's gender + optional manual override.
-export function paletteFor(gender, override) {
+// --- dark-mode tokens shared by every palette ---
+// Mirrors SHARED key-for-key. Status/record-type colors are brightened for
+// contrast against a dark background, with a dark-tinted *Bg instead of a
+// pale wash (a pale success/danger tint would glow against a near-black
+// page). Structural surfaces ramp from near-black (background) up through
+// two lighter steps (surface, surfaceAlt) the same way the light ramp goes
+// down from white.
+const SHARED_DARK = {
+    onPrimary: "#FFFFFF",
+    onAccent: "#FFFFFF",
+    text: "#EDF1F4",
+    textSecondary: "#B7C0C7",
+    textMuted: "#8A949C",
+    placeholder: "#77828A",
+    textOnDark: "#FFFFFF",
+    textOnDarkMuted: "rgba(255,255,255,0.85)",
+
+    background: "#12151A",
+    surface: "#1A1E24",
+    surfaceAlt: "#232830",
+    hairline: "#2E3540",
+    border: "#3A414C",
+    borderStrong: "#4B5561",
+
+    success: "#3DDBA0",
+    successBg: "#123527",
+    danger: "#F2677B",
+    dangerBg: "#3A1620",
+    warning: "#E8B34D",
+    warningBg: "#3A2A0C",
+    info: "#4FD6E8",
+    infoBg: "#0F2E33",
+
+    completed: "#3DDBA0",
+    completedBg: "#123527",
+    overdue: "#F2677B",
+    overdueBg: "#3A1620",
+    upcoming: "#E8B34D",
+    upcomingBg: "#3A2A0C",
+    shared: "#4FD6E8",
+    sharedBg: "#0F2E33",
+
+    recVaccine: { on: "#4FD9B8", bg: "#123328" },
+    recCheckup: { on: "#6FB3F0", bg: "#122A3D" },
+    recMedication: { on: "#B0A8F0", bg: "#231F3D" },
+    recIllness: { on: "#F0977D", bg: "#3A2015" },
+    recGrowth: { on: "#E8C36E", bg: "#332711" },
+    recNutrition: { on: "#9BD98A", bg: "#1E3016" },
+    recMemory: { on: "#E895C0", bg: "#3A1F2C" },
+    recHospitalization: { on: "#F0839A", bg: "#3A1620" },
+
+    tintGreen: "#123328",
+    tintBlue: "#0F2E33",
+    tintAmber: "#3A2A0C",
+    tintTeal: "#0F2E33",
+};
+
+// Dark-mode brand palettes, keyed identically to PALETTES. `primaryDark` is
+// semantically inverted here on purpose: in light mode it's a darker shade
+// of `primary` used as text on the very pale `primarySoft` chip background;
+// in dark mode `primarySoft` is a dark-tinted overlay instead, so the
+// accessible text color on it is a LIGHTER shade of primary. Consumers keep
+// reading `colors.primaryDark` unchanged — the token stays "the accessible
+// text color for a primarySoft chip," it just resolves to a different
+// direction depending on scheme.
+export const DARK_PALETTES = {
+    girl: {
+        ...SHARED_DARK,
+        primary: "#E8598C",
+        primaryDark: "#F5B8CE",
+        accent: "#F080A8",
+        accentStrong: "#E8598C",
+        primarySoft: "#33202A",
+        softGreen: "#33202A",
+        softCoral: "#33202A",
+    },
+    boy: {
+        ...SHARED_DARK,
+        primary: "#4B9FE0",
+        primaryDark: "#B8DCF5",
+        accent: "#7CBBED",
+        accentStrong: "#4B9FE0",
+        primarySoft: "#1A2833",
+        softGreen: "#1A2833",
+        softCoral: "#1A2833",
+    },
+    neutral: {
+        ...SHARED_DARK,
+        primary: "#8B7FE8",
+        primaryDark: "#D2CCF5",
+        accent: "#A89EF0",
+        accentStrong: "#8B7FE8",
+        primarySoft: "#241F38",
+        softGreen: "#241F38",
+        softCoral: "#241F38",
+    },
+};
+
+// Resolve a palette from a child's gender + optional manual override, plus
+// an optional color scheme ("light" | "dark", default "light" — every
+// existing call site that omits it keeps working unchanged).
+export function paletteFor(gender, override, scheme) {
+    const palettes = scheme === "dark" ? DARK_PALETTES : PALETTES;
     if (override === "boy" || override === "girl" || override === "neutral") {
-        return PALETTES[override];
+        return palettes[override];
     }
-    if (gender === "boy" || gender === "Male") return PALETTES.boy;
-    if (gender === "girl" || gender === "Female") return PALETTES.girl;
-    return PALETTES.neutral;
+    if (gender === "boy" || gender === "Male") return palettes.boy;
+    if (gender === "girl" || gender === "Female") return palettes.girl;
+    return palettes.neutral;
 }
 
 // Default (girl) palette — used by screens not yet migrated to useTheme().
@@ -211,4 +312,4 @@ export const motion = {
     pulse: { duration: 400, cycles: 2, scale: 1.04, bezier: [0.4, 0, 0.6, 1] },
 };
 
-export default { colors, PALETTES, paletteFor, space, radius, type, shadow, MIN_TOUCH, motion };
+export default { colors, PALETTES, DARK_PALETTES, paletteFor, space, radius, type, shadow, MIN_TOUCH, motion };

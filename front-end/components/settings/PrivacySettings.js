@@ -5,6 +5,7 @@ import { SectionContainerCard } from "../common/Cards";
 import { api } from "../../utils/api";
 import { useToast } from "../ui/Toast";
 import { useTheme } from "../../context/ThemeContext";
+import { SkeletonBlock } from "../ui/Skeleton";
 import { space, radius, type, shadow } from "../../theme";
 import { exportChildRecordsPdf, pdfExportAvailable } from "../../utils/exportPdf";
 import { CATEGORY_LABELS } from "../../utils/pdfTemplate";
@@ -17,6 +18,7 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
     const toast = useToast();
 
     const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(true);
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [renewing, setRenewing] = useState(false);
 
@@ -57,7 +59,11 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
     };
 
     useEffect(() => {
-        load();
+        (async () => {
+            setLoading(true);
+            await load();
+            setLoading(false);
+        })();
     }, []);
 
     const handleRenew = async () => {
@@ -98,39 +104,54 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
 
     return (
         <ScrollView style={styles.container}>
-            <View style={[styles.consentBanner, { backgroundColor: bannerBg }, reviewDue && shadow.active(colors.warning)]}>
-                <Ionicons
-                    name={reviewDue ? "alert-circle" : "checkmark-circle"}
-                    size={20}
-                    color={bannerColor}
-                />
-                <Text style={[styles.consentBannerText, { color: bannerColor }]}>
-                    {reviewDue
-                        ? "Annual consent review is due — renew below to keep your data active."
-                        : "Your consent is up to date."}
-                </Text>
-            </View>
+            {loading ? (
+                <SkeletonBlock width="100%" height={52} radius={radius.lg} style={{ marginBottom: space.lg }} />
+            ) : (
+                <View style={[styles.consentBanner, { backgroundColor: bannerBg }, reviewDue && shadow.active(colors.warning)]}>
+                    <Ionicons
+                        name={reviewDue ? "alert-circle" : "checkmark-circle"}
+                        size={20}
+                        color={bannerColor}
+                    />
+                    <Text style={[styles.consentBannerText, { color: bannerColor }]}>
+                        {reviewDue
+                            ? "Annual consent review is due — renew below to keep your data active."
+                            : "Your consent is up to date."}
+                    </Text>
+                </View>
+            )}
 
             <SectionContainerCard
                 title="Data Privacy Act of 2012 (RA 10173)"
                 subtitle="Your consent and data-retention status"
             >
-                <View style={styles.row}>
-                    <Text style={styles.rowLabel}>Consent accepted on</Text>
-                    <Text style={styles.rowValue}>{consentDate}</Text>
-                </View>
-                <View style={styles.row}>
-                    <Text style={styles.rowLabel}>Data retained until</Text>
-                    <Text style={styles.rowValue}>{retentionDate}</Text>
-                </View>
-                <View style={styles.row}>
-                    <Text style={styles.rowLabel}>Annual review due</Text>
-                    <Text style={styles.rowValue}>{user?.consentReviewDue ? "Yes — review now" : "Not yet"}</Text>
-                </View>
+                {loading ? (
+                    [0, 1, 2].map((i) => (
+                        <View key={i} style={styles.row}>
+                            <SkeletonBlock width="44%" height={12} radius={6} />
+                            <SkeletonBlock width="28%" height={12} radius={6} />
+                        </View>
+                    ))
+                ) : (
+                    <>
+                        <View style={styles.row}>
+                            <Text style={styles.rowLabel}>Consent accepted on</Text>
+                            <Text style={styles.rowValue}>{consentDate}</Text>
+                        </View>
+                        <View style={styles.row}>
+                            <Text style={styles.rowLabel}>Data retained until</Text>
+                            <Text style={styles.rowValue}>{retentionDate}</Text>
+                        </View>
+                        <View style={styles.row}>
+                            <Text style={styles.rowLabel}>Annual review due</Text>
+                            <Text style={styles.rowValue}>{user?.consentReviewDue ? "Yes — review now" : "Not yet"}</Text>
+                        </View>
+                    </>
+                )}
                 <TouchableOpacity
                     onPress={handleRenew}
                     style={styles.renewBtn}
-                    disabled={renewing}
+                    disabled={renewing || loading}
                     accessibilityRole="button"
                     accessibilityLabel="Renew data retention for another year"
                 >

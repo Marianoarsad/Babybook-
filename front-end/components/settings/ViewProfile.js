@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../context/ThemeContext";
 import { space, radius, type, shadow } from "../../theme";
 import { api } from "../../utils/api";
+import { SkeletonBlock } from "../ui/Skeleton";
 
 // Read-only account summary. "Edit Profile" (a separate menu destination)
 // is where the guardian actually changes these fields.
@@ -18,9 +19,11 @@ export default function ViewProfile({ parentName, parentAvatar, parentGender, on
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const [email, setEmail] = useState("");
     const [phone, setPhone] = useState("");
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         (async () => {
+            setLoading(true);
             try {
                 const { user } = await api.me();
                 if (user) {
@@ -29,6 +32,8 @@ export default function ViewProfile({ parentName, parentAvatar, parentGender, on
                 }
             } catch (e) {
                 console.log("view profile:", e.message);
+            } finally {
+                setLoading(false);
             }
         })();
     }, []);
@@ -50,12 +55,22 @@ export default function ViewProfile({ parentName, parentAvatar, parentGender, on
                     </View>
                 </View>
                 <View style={styles.metaGrid}>
-                    {facts.map((f, idx) => (
-                        <View key={idx} style={styles.metaItem}>
-                            <Ionicons name={f.icon} size={14} color={colors.primary} />
-                            <Text style={styles.metaText} numberOfLines={1}>{f.text}</Text>
-                        </View>
-                    ))}
+                    {loading
+                        ? [0, 1, 2].map((i) => (
+                              <SkeletonBlock
+                                  key={i}
+                                  width={i % 2 ? "52%" : "64%"}
+                                  height={12}
+                                  radius={6}
+                                  style={{ marginBottom: space.sm }}
+                              />
+                          ))
+                        : facts.map((f, idx) => (
+                              <View key={idx} style={styles.metaItem}>
+                                  <Ionicons name={f.icon} size={14} color={colors.primary} />
+                                  <Text style={styles.metaText} numberOfLines={1}>{f.text}</Text>
+                              </View>
+                          ))}
                 </View>
             </View>
 

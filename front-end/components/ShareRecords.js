@@ -186,12 +186,7 @@ export default function ShareRecords({ profile }) {
                     </Text>
 
                     <Animated.View style={[styles.qrWrap, { transform: [{ scale: pulseAnim }] }]}>
-                        <QrCodeView
-                            value={qrPayloadForCode(activeShare.code)}
-                            size={230}
-                            dark={colors.text}
-                            light={colors.surface}
-                        />
+                        <QrCodeView value={qrPayloadForCode(activeShare.code)} size={230} />
                     </Animated.View>
 
                     <Text style={styles.codeLabel}>OR ENTER CODE</Text>

@@ -5,6 +5,7 @@ import { api } from "../../utils/api";
 import { useToast } from "../ui/Toast";
 import { useTheme } from "../../context/ThemeContext";
 import { space, radius, type } from "../../theme";
+import KeyboardAvoider from "../ui/KeyboardAvoider";
 
 // Cosmetic-only heuristic (length + character variety) driving the 4-segment
 // meter below. Not a security gate — the actual submit validation is
@@ -64,6 +65,7 @@ export default function ChangePassword() {
     };
 
     return (
+        <KeyboardAvoider>
         <ScrollView style={styles.container}>
             <SectionContainerCard title="Change Password" subtitle="Use your current password to set a new one">
                 <View style={styles.formGroup}>
@@ -121,6 +123,7 @@ export default function ChangePassword() {
                 </TouchableOpacity>
             </SectionContainerCard>
         </ScrollView>
+        </KeyboardAvoider>
     );
 }
 
