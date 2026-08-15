@@ -36,6 +36,7 @@ import { DateField, TimeField } from "./ui/DateField";
 import ImageViewer from "./ui/ImageViewer";
 import TipStrip from "./ui/TipStrip";
 import KeyboardAvoider from "./ui/KeyboardAvoider";
+import { shortDate, shortTime, overdueBy, todayLocal } from "../utils/dates";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
 export default function Health({
@@ -52,14 +53,20 @@ export default function Health({
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const [activeTab, setActiveTab] = useState("immunizations");
     // Apply a deep-link tab request from the floating log button, and — for
-    // "Add Medication" — open the Add Rx form directly instead of just
-    // switching tabs, matching the pattern used for Growth's own shortcuts.
-    // "vaccine"/"illness"/"hospitalization" are distinct from the plain tab
-    // names ("immunizations"/"illnesses") on purpose: the Dashboard's Needs
-    // Attention card already deep-links here with the plain tab names just to
-    // switch tabs (e.g. tapping an overdue vaccine), so those two must keep
-    // meaning "switch tabs only" — the new FAB shortcuts need their own keys
-    // to additionally pop open an add-record form.
+    // Deep links into this screen. THE RULE, and it is absolute:
+    //
+    //   a PLAIN TAB NAME only switches tabs. Only an ALIAS opens a form.
+    //
+    // Plain: immunizations, medications, illnesses, appointments.
+    // Aliases: vaccine, medication, illness, checkup, hospitalization.
+    //
+    // "appointments" and "medications" used to break this rule by opening a
+    // form themselves, which is how tapping a hospitalization on the
+    // Dashboard's Needs Attention card — a plain tab switch, deep-linking to
+    // "appointments" because hospitalizations live under Checkups — started
+    // popping a blank Add Appointment form on top of it. Any new deep link
+    // that should only navigate must use a plain name; give it an alias if it
+    // should also open something.
     useEffect(() => {
         const tabFor = {
             immunizations: "immunizations",
@@ -67,30 +74,24 @@ export default function Health({
             illnesses: "illnesses",
             appointments: "appointments",
             vaccine: "immunizations",
+            medication: "medications",
             illness: "illnesses",
+            checkup: "appointments",
             hospitalization: "appointments",
+        };
+        const modalFor = {
+            vaccine: setShowVaxModal,
+            medication: setShowMedModal,
+            illness: setShowIllnessModal,
+            checkup: setShowApptModal,
+            hospitalization: setShowHospModal,
         };
         if (initialTab && tabFor[initialTab]) {
             setActiveTab(tabFor[initialTab]);
-            if (initialTab === "medications") {
+            const open = modalFor[initialTab];
+            if (open) {
                 resetAttach();
-                setShowMedModal(true);
-            }
-            if (initialTab === "appointments") {
-                resetAttach();
-                setShowApptModal(true);
-            }
-            if (initialTab === "vaccine") {
-                resetAttach();
-                setShowVaxModal(true);
-            }
-            if (initialTab === "illness") {
-                resetAttach();
-                setShowIllnessModal(true);
-            }
-            if (initialTab === "hospitalization") {
-                resetAttach();
-                setShowHospModal(true);
+                open(true);
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -152,7 +153,7 @@ export default function Health({
 
     const vaxStatusOf = (v) => {
         if (v.isCompleted) return "done";
-        const today = new Date().toISOString().split("T")[0];
+        const today = todayLocal();
         if (v.dueDate && v.dueDate < today) return "overdue";
         return "due";
     };
@@ -182,13 +183,18 @@ export default function Health({
         return Array.from(groups.entries());
     }, [filteredVaccines, vaxVisibleCount]);
 
-    // Care Team state
-    const [pediatrician, setPediatrician] = useState(
-        profile.pediatricianName || "Dr. Sarah Chen",
-    );
-    const [hospital, setHospital] = useState(
-        profile.hospital || "St. Jude Medical Center",
-    );
+    // Care Team state. No invented fallbacks: these used to default to
+    // "Dr. Sarah Chen" and "St. Jude Medical Center", which presented made-up
+    // names as though they were this child's actual providers whenever the
+    // real fields were blank. PRODUCT.md is explicit that the app must never
+    // fabricate a clinic or provider — and a parent in a consultation could
+    // reasonably read that as a record.
+    const [pediatrician, setPediatrician] = useState(profile.pediatricianName || "");
+    const [hospital, setHospital] = useState(profile.hospital || "");
+
+    // Vaccination rows whose attachment photo is present in the record but
+    // fails to actually load — see the comment at the thumbnail below.
+    const [brokenThumbs, setBrokenThumbs] = useState(() => new Set());
 
     // Medical conditions states
     const [allergies, setAllergies] = useState(profile.allergies || []);
@@ -225,10 +231,15 @@ export default function Health({
 
     // Appointment (checkup) adding state
     const [showApptModal, setShowApptModal] = useState(false);
-    const [apptTitle, setApptTitle] = useState("Developmental Assessment");
-    const [apptDoctor, setApptDoctor] = useState("Dr. Sarah Chen");
-    const [apptDate, setApptDate] = useState("2026-06-30");
-    const [apptTime, setApptTime] = useState("10:00");
+    // Blank, except the date, which sensibly starts at today. These carried
+    // prototype placeholders — "Developmental Assessment", "Dr. Sarah Chen",
+    // and a hardcoded 2026-06-30 that is now in the past — so opening the form
+    // and tapping Schedule saved an invented appointment with an invented
+    // doctor on a date nobody chose.
+    const [apptTitle, setApptTitle] = useState("");
+    const [apptDoctor, setApptDoctor] = useState("");
+    const [apptDate, setApptDate] = useState(todayLocal());
+    const [apptTime, setApptTime] = useState("");
     const [apptNotes, setApptNotes] = useState("");
 
     // Medical history (illnesses + medications) loads from the backend.
@@ -399,7 +410,7 @@ export default function Health({
     };
 
     const applyVaccineToggle = async (vax, nowCompleted) => {
-        const today = new Date().toISOString().split("T")[0];
+        const today = todayLocal();
         // optimistic update
         setVaccines((prev) =>
             prev.map((v) =>
@@ -503,7 +514,7 @@ export default function Health({
                 category: "Illness",
                 title,
                 description: desc || null,
-                date_recorded: new Date().toISOString().split("T")[0],
+                date_recorded: todayLocal(),
                 resolved: false,
             });
             setIllnesses((prev) => [medHistoryToIllness(saved), ...prev]);
@@ -530,7 +541,7 @@ export default function Health({
                 category: "Medication",
                 title,
                 description: dosage || null,
-                date_recorded: new Date().toISOString().split("T")[0],
+                date_recorded: todayLocal(),
             });
             setMedications((prev) => [medHistoryToMed(saved), ...prev]);
             await uploadAttachFor("medication", saved.id);
@@ -556,7 +567,7 @@ export default function Health({
                 category: "Hospitalization",
                 title,
                 description: desc || null,
-                date_recorded: new Date().toISOString().split("T")[0],
+                date_recorded: todayLocal(),
                 resolved: false,
             });
             setHospitalizations((prev) => [medHistoryToIllness(saved), ...prev]);
@@ -640,9 +651,16 @@ export default function Health({
                     </Text>
                 </View>
                 <Text style={styles.careTeamText}>
-                    Pediatrician: {pediatrician}
+                    Pediatrician: {pediatrician || "Not recorded"}
                 </Text>
-                <Text style={styles.careTeamText}>Hospital: {hospital}</Text>
+                <Text style={styles.careTeamText}>
+                    Hospital: {hospital || "Not recorded"}
+                </Text>
+                {!pediatrician && !hospital ? (
+                    <Text style={styles.careTeamHint}>
+                        Add these in your child's profile so they're on hand at a consultation.
+                    </Text>
+                ) : null}
             </View>
 
             {pdfExportAvailable() && (
@@ -844,16 +862,42 @@ export default function Health({
                                                     </View>
                                                 )}
                                             </View>
+                                            {/* A given dose used to still read
+                                                "Due: 2025-07-19", which
+                                                contradicts the tick beside it,
+                                                and an overdue one said nothing
+                                                at all — the Dashboard knew it
+                                                was 11 months late while this
+                                                screen, where you act on it,
+                                                stayed silent. */}
                                             <Text style={styles.vaxSub}>
-                                                {vax.visitName} | Due: {vax.dueDate}
+                                                {vax.visitName}
+                                                {vax.visitName ? " · " : ""}
+                                                {vax.isCompleted
+                                                    ? `Given ${shortDate(vax.completedDate || vax.dueDate)}`
+                                                    : `Due ${shortDate(vax.dueDate)}`}
                                             </Text>
+                                            {!vax.isCompleted && overdueBy(vax.dueDate) ? (
+                                                <Text style={styles.vaxOverdue}>
+                                                    {overdueBy(vax.dueDate)}
+                                                </Text>
+                                            ) : null}
                                             {vax.notes && (
                                                 <Text style={styles.vaxNotes}>
                                                     "{vax.notes}"
                                                 </Text>
                                             )}
                                         </View>
-                                        {attachUrlFor("vaccination", vax.id) ? (
+                                        {/* Uploads sit on an ephemeral filesystem
+                                            (PRODUCT.md, known gaps), so a row can
+                                            hold an attachment URL whose image is
+                                            gone. Without the onError below that
+                                            rendered as an empty grey square on
+                                            every row — the same truthy-but-dead
+                                            URL problem the Dashboard's avatars
+                                            have. */}
+                                        {attachUrlFor("vaccination", vax.id) &&
+                                        !brokenThumbs.has(vax.id) ? (
                                             <TouchableOpacity
                                                 onPress={() => openViewer("vaccination", vax.id)}
                                                 style={styles.vaxThumbWrap}
@@ -861,6 +905,11 @@ export default function Health({
                                                 <Image
                                                     source={{ uri: attachUrlFor("vaccination", vax.id) }}
                                                     style={styles.vaxThumb}
+                                                    onError={() =>
+                                                        setBrokenThumbs((prev) =>
+                                                            new Set(prev).add(vax.id),
+                                                        )
+                                                    }
                                                 />
                                             </TouchableOpacity>
                                         ) : null}
@@ -878,11 +927,27 @@ export default function Health({
                         )}
                     </SectionContainerCard>
 
-                    {/* Barangay / NCR vaccine stock alert */}
+                    {/* Barangay / NCR vaccine stock bulletin.
+                        This content is INVENTED. There is no DOH, barangay or
+                        health-centre feed behind it, and PRODUCT.md lists such
+                        a partnership under "absences that must never be
+                        fabricated". It is kept deliberately, as a placeholder
+                        showing where a real integration would sit — so it must
+                        stay unmistakably labelled as a sample. Do not remove
+                        the badge, and do not reintroduce a specific date: the
+                        original said "replenishment by July 5th", which was
+                        over a year stale and read as live reporting. */}
                     <SectionContainerCard
                         title={t("healthVaccineNCRStock")}
                         subtitle={t("healthVaccineNCRStockSub")}
                     >
+                        <View style={styles.sampleBanner}>
+                            <Ionicons name="information-circle" size={16} color={colors.info} />
+                            <Text style={styles.sampleBannerText}>
+                                Sample data — not a live feed. BabyBook+ is not connected to any DOH
+                                or barangay system.
+                            </Text>
+                        </View>
                         <View style={styles.bulletRow}>
                             <Ionicons
                                 name="alert-circle-outline"
@@ -896,8 +961,7 @@ export default function Health({
                                     District III
                                 </Text>
                                 <Text style={styles.bulletDesc}>
-                                    Local municipal clinics reporting
-                                    replenishment by July 5th.
+                                    Example of a supply notice a health centre might publish.
                                 </Text>
                             </View>
                         </View>
@@ -914,8 +978,7 @@ export default function Health({
                                     Quezon City
                                 </Text>
                                 <Text style={styles.bulletDesc}>
-                                    Barangay centers hosting mass immunization
-                                    weekend.
+                                    Example of a restocking notice.
                                 </Text>
                             </View>
                         </View>
@@ -1059,7 +1122,7 @@ export default function Health({
                                 thumbnailUrl={attachUrlFor("illness", ill.id)}
                                 onThumbnailPress={() => openViewer("illness", ill.id)}
                                 title={ill.title}
-                                subtitle={`${ill.date}  |  ${ill.resolved ? "Resolved" : "Active"}`}
+                                subtitle={`${shortDate(ill.date)}  ·  ${ill.resolved ? "Resolved" : "Ongoing"}`}
                                 notes={ill.desc}
                                 icon={
                                     <Ionicons
@@ -1110,7 +1173,11 @@ export default function Health({
                                 thumbnailUrl={attachUrlFor("checkup", appt.id)}
                                 onThumbnailPress={() => openViewer("checkup", appt.id)}
                                 title={appt.title}
-                                subtitle={`${appt.date} @ ${appt.time}`}
+                                // Was `2027-02-06 @ 09:00:00` — an ISO date
+                                // and a time with seconds on it.
+                                subtitle={[shortDate(appt.date), shortTime(appt.time)]
+                                    .filter(Boolean)
+                                    .join(" · ")}
                                 label={
                                     <Text
                                         style={{
@@ -1166,7 +1233,7 @@ export default function Health({
                                 thumbnailUrl={attachUrlFor("hospitalization", h.id)}
                                 onThumbnailPress={() => openViewer("hospitalization", h.id)}
                                 title={h.title}
-                                subtitle={h.date}
+                                subtitle={shortDate(h.date)}
                                 notes={h.desc}
                                 icon={
                                     <Ionicons name="bandage-outline" size={18} color={colors.recHospitalization.on} />
@@ -1549,6 +1616,11 @@ const makeStyles = (colors) => StyleSheet.create({
         color: colors.textSecondary,
         marginTop: 2,
     },
+    careTeamHint: {
+        ...type.caption,
+        color: colors.textMuted,
+        marginTop: space.sm,
+    },
     tabContainer: {
         flexDirection: "row",
         backgroundColor: colors.surfaceAlt,
@@ -1561,22 +1633,36 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     tabButton: {
         flex: 1,
+        minWidth: 0,
         paddingVertical: space.sm + 2,
+        // Zero, so the longest label ("Conditions") gets the button's full
+        // share of the row. With 2px each side it was clipped by 2px at a
+        // 326px viewport; the pill still has the container's padding outside.
+        paddingHorizontal: 0,
         borderRadius: radius.lg,
         borderCurve: "continuous",
         alignItems: "center",
+        justifyContent: "center",
     },
     tabButtonActive: {
         backgroundColor: colors.surface,
         ...shadow.card,
     },
+    // Both states are the SAME size, differing only in weight and colour —
+    // DESIGN.md's Weight Ladder Rule. The active style used to spread
+    // type.label (14px) over an inactive type.caption (13px), so selecting a
+    // tab grew its text, overflowed the flex:1 box, and clipped "Checkups".
+    //
+    // 13px rather than 14px because four labels have to share the row down to
+    // a 320px screen, which PRODUCT.md treats as a real target ("assume the
+    // worst device"). At 14px, "Conditions" truncates below ~360px wide.
     tabButtonText: {
         ...type.caption,
         color: colors.textMuted,
     },
     tabButtonTextActive: {
         color: colors.primaryDark,
-        ...type.label,
+        fontWeight: "700",
     },
     vaxRow: {
         flexDirection: "row",
@@ -1624,6 +1710,13 @@ const makeStyles = (colors) => StyleSheet.create({
         ...type.caption,
         color: colors.textMuted,
         marginTop: 2,
+    },
+    // Coral, matching the Dashboard's Needs Attention rows — an overdue dose
+    // reads the same wherever the parent meets it.
+    vaxOverdue: {
+        ...type.label,
+        color: colors.danger,
+        marginTop: 1,
     },
     vaxNotes: {
         ...type.caption,
@@ -1687,14 +1780,32 @@ const makeStyles = (colors) => StyleSheet.create({
         color: colors.primaryDark,
         marginLeft: 4,
     },
+    // Sample-data banner for the stock bulletin. Teal (colors.info) rather
+    // than amber: it is informational, not a warning about the child.
+    sampleBanner: {
+        flexDirection: "row",
+        alignItems: "flex-start",
+        gap: space.sm,
+        backgroundColor: colors.infoBg,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
+        padding: space.sm,
+        marginBottom: space.md,
+    },
+    sampleBannerText: { ...type.caption, color: colors.text, flex: 1 },
+
+    // One row, four chips. They used to wrap, leaving "Overdue" stranded on a
+    // line of its own — the labels are short enough to share a row once the
+    // horizontal padding stops fighting them for space.
     filterRow: {
         flexDirection: "row",
-        flexWrap: "wrap",
-        gap: 8,
+        gap: space.sm,
         marginBottom: 10,
     },
     filterChip: {
-        paddingHorizontal: 12,
+        flex: 1,
+        alignItems: "center",
+        paddingHorizontal: space.sm,
         paddingVertical: 6,
         borderRadius: radius.pill,
         borderCurve: "continuous",

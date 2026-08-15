@@ -15,6 +15,7 @@ import { storage } from "../utils/storageAdapter";
 import { LEAD_TIME_KEY, LEAD_TIME_OPTIONS } from "./settings/GeneralSettings";
 import TipStrip from "./ui/TipStrip";
 import KeyboardAvoider from "./ui/KeyboardAvoider";
+import { todayLocal, toLocalISO } from "../utils/dates";
 
 // Category -> theme-derived dot/accent color. Kept to semantic status tones
 // (not brand hex) so it stays consistent across the girl/boy palette switch.
@@ -45,7 +46,7 @@ function categoryColor(colors, category) {
 }
 
 function todayISO() {
-    return new Date().toISOString().slice(0, 10);
+    return todayLocal();
 }
 
 // Calendar tab: Month/Week/Day views over aggregated records (vaccinations,
@@ -207,7 +208,9 @@ export default function CalendarView({ profile }) {
     const shiftDay = (deltaDays) => {
         const d = new Date(`${selectedDate}T00:00:00`);
         d.setDate(d.getDate() + deltaDays);
-        setSelectedDate(d.toISOString().slice(0, 10));
+        // toISOString() here converted local midnight to UTC, so stepping a
+        // day in UTC+8 landed on the previous date.
+        setSelectedDate(toLocalISO(d));
     };
 
     const openCreateModal = () => {

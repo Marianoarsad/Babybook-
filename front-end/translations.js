@@ -64,7 +64,7 @@ export const translations = {
             "List of complete and pending pediatric vaccine doses",
         healthVaccineNCRStock: "NCR Vaccine Stocks Bulletin",
         healthVaccineNCRStockSub:
-            "Real-time updates of local health center stocks",
+            "Example of how local health centre stock notices would appear",
         healthCheckupReminders: "Pediatric Checkup Reminders",
         healthCheckupRemindersSub: "Upcoming schedules and clinic guidelines",
         healthMedicationReminders: "Medication Reminders",
@@ -223,7 +223,7 @@ export const translations = {
             "Listahan ng mga nakumpleto at darating na bakuna ng sanggol",
         healthVaccineNCRStock: "Balita sa Stock ng Bakuna sa NCR",
         healthVaccineNCRStockSub:
-            "Kasalukuyang ulat ng mga stock sa lokal na health center",
+            "Halimbawa kung paano lalabas ang mga ulat ng stock sa health center",
         healthCheckupReminders: "Paalala sa Checkup ni Baby",
         healthCheckupRemindersSub:
             "Mga darating na iskedyul at gabay mula sa klinika",
@@ -385,7 +385,7 @@ export const translations = {
         healthVaccinesSub: "List ng complete at pending vaccine doses ni baby",
         healthVaccineNCRStock: "NCR Vaccine Stock Alerts",
         healthVaccineNCRStockSub:
-            "Real-time updates sa mga local health centers",
+            "Halimbawa ng stock notice mula sa local health center",
         healthCheckupReminders: "Checkup Reminders",
         healthCheckupRemindersSub:
             "Upcoming schedules at guidelines sa klinika",

@@ -10,11 +10,11 @@ import {
     Image,
 } from "react-native";
 import { api } from "../utils/api";
-import { milestoneToApp } from "../utils/adapters";
+import { milestoneToApp, memoryToApp } from "../utils/adapters";
 import { useToast } from "./ui/Toast";
 import { useLanguage } from "../context/LanguageContext";
 import { useTheme } from "../context/ThemeContext";
-import { radius, space, type, shadow } from "../theme";
+import { radius, space, type, shadow, MIN_TOUCH } from "../theme";
 import {
     SectionContainerCard,
     ListEntryCard,
@@ -29,6 +29,7 @@ import PercentileChart from "./PercentileChart";
 import {
     WHO_MAX_DAY,
     ageInDays,
+    describeZ,
     formatPercentile,
     normalizeSex,
     percentileFromZ,
@@ -38,30 +39,14 @@ import {
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import TipStrip from "./ui/TipStrip";
 import KeyboardAvoider from "./ui/KeyboardAvoider";
+import { todayLocal, shortDate, monthLabel } from "../utils/dates";
+import AddMemoryModal from "./ui/AddMemoryModal";
 
 const METRIC_TABS = [
     { key: "weight", label: "Weight", field: "weight" },
     { key: "height", label: "Height", field: "height" },
     { key: "head", label: "Head", field: "head_circumference" },
 ];
-
-// Plain description of where a measurement sits. Deliberately positional, never
-// diagnostic: WHO's own cut-offs carry clinical labels ("underweight") that this
-// product is not entitled to apply — see PRODUCT.md, "Never imply clinical
-// authority". We say where the point is and let a health worker judge it.
-function describeZ(z) {
-    const a = Math.abs(z);
-    if (a <= 2) return { text: "Within the range WHO reports for most children this age", flag: false };
-    if (a <= 3)
-        return {
-            text: `${z > 0 ? "Above" : "Below"} the range WHO reports for most children this age`,
-            flag: true,
-        };
-    return {
-        text: `Well ${z > 0 ? "above" : "below"} the range WHO reports for most children this age`,
-        flag: true,
-    };
-}
 
 function ageLabel(days) {
     if (days == null) return "";
@@ -148,11 +133,20 @@ export default function Growth({
     // "Log Growth"/"Schedule Checkup" — open the matching form directly
     // instead of just switching tabs, the same way NutritionTracker.js
     // already does for "Log Milk"/"Log Food".
+    // Same rule Health.js follows: a plain tab name only switches tabs, an
+    // alias switches and opens a form. "metrics" is the one legacy exception,
+    // kept because the FAB's Log Growth shortcut has always used it.
     useEffect(() => {
-        const valid = ["milestones", "metrics", "gallery"];
-        if (initialTab && valid.includes(initialTab)) {
-            setGrowthTab(initialTab);
+        const tabFor = {
+            milestones: "milestones",
+            metrics: "metrics",
+            gallery: "gallery",
+            memory: "gallery",
+        };
+        if (initialTab && tabFor[initialTab]) {
+            setGrowthTab(tabFor[initialTab]);
             if (initialTab === "metrics") setShowMetricsModal(true);
+            if (initialTab === "memory") setShowAddMemory(true);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [navKey]);
@@ -161,7 +155,11 @@ export default function Growth({
     // own top-level screen (App.js) — see NutritionTracker.js. Checkups moved
     // to the Health screen — see Health.js.
     const [mstones, setMstones] = useState([]);
+    const [memories, setMemories] = useState([]);
     const [memoriesVisible, setMemoriesVisible] = useState(10);
+    // Gallery filter: "all" | "memory" | "milestone".
+    const [galleryFilter, setGalleryFilter] = useState("all");
+    const [showAddMemory, setShowAddMemory] = useState(false);
     const [growthLoading, setGrowthLoading] = useState(true);
     const [detailMemory, setDetailMemory] = useState(null);
     // Raw growth_records rows. The Metrics tab used to show only the two values
@@ -175,13 +173,19 @@ export default function Growth({
         setGrowthLoading(true);
         (async () => {
             try {
-                const [mRows, gRows] = await Promise.all([
+                const [mRows, gRows, memRows] = await Promise.all([
                     api.listRecords(profile.id, "milestones"),
                     api.listRecords(profile.id, "growth").catch(() => []),
+                    // The Gallery tab's photo memories. This screen never
+                    // fetched them, which is why that tab was showing
+                    // completed milestones under a "Memories" heading while
+                    // the Dashboard's "See all photo memories" pointed here.
+                    api.listRecords(profile.id, "memories").catch(() => []),
                 ]);
                 if (!active) return;
                 setMstones(mRows.map(milestoneToApp));
                 setGrowthRows(Array.isArray(gRows) ? gRows : []);
+                setMemories((Array.isArray(memRows) ? memRows : []).map(memoryToApp));
             } catch (e) {
                 console.log("load growth records:", e.message);
             } finally {
@@ -253,7 +257,51 @@ export default function Growth({
 
     const completedMilestones = useMemo(() => mstones.filter((m) => m.isCompleted), [mstones]);
 
-    const todayStr = () => new Date().toISOString().split("T")[0];
+    // One chronological history of everything worth keeping: photo memories
+    // and achieved milestones together, newest first.
+    //
+    // Milestones belong here because nothing else shows them. The Development
+    // Checklist renders six hardcoded ageChecklists entries with stock photos
+    // and only matches real records by title string to draw a tick — so a
+    // milestone like "First Steps", which is not one of those six, is invisible
+    // everywhere else in the app.
+    const galleryItems = useMemo(() => {
+        const items = [
+            ...memories.map((m) => ({ ...m, kind: "memory" })),
+            ...completedMilestones.map((m) => ({ ...m, kind: "milestone" })),
+        ];
+        return items.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+    }, [memories, completedMilestones]);
+
+    const filteredGallery = useMemo(
+        () =>
+            galleryFilter === "all"
+                ? galleryItems
+                : galleryItems.filter((i) => i.kind === galleryFilter),
+        [galleryItems, galleryFilter],
+    );
+
+    // Group the visible slice into month buckets. Grouping after the cap, not
+    // before, so "Show more" reveals the next ten items rather than the next
+    // whole month.
+    const galleryMonths = useMemo(() => {
+        const buckets = [];
+        for (const item of filteredGallery.slice(0, memoriesVisible)) {
+            const label = monthLabel(item.date) || "Undated";
+            const last = buckets[buckets.length - 1];
+            if (last && last.label === label) last.items.push(item);
+            else buckets.push({ label, items: [item] });
+        }
+        return buckets;
+    }, [filteredGallery, memoriesVisible]);
+
+    const GALLERY_FILTERS = [
+        { key: "all", label: "All", noun: "items" },
+        { key: "memory", label: "Photos", noun: "photos" },
+        { key: "milestone", label: "Milestones", noun: "milestones" },
+    ];
+
+    const todayStr = () => todayLocal();
     const handleToggleMilestone = async (title) => {
         const existing = mstones.find((m) => m.title === title);
         if (existing) {
@@ -286,8 +334,13 @@ export default function Growth({
 
     // Metric adding state
     const [showMetricsModal, setShowMetricsModal] = useState(false);
-    const [metricHeight, setMetricHeight] = useState("68.2");
-    const [metricWeight, setMetricWeight] = useState("7.4");
+    // Empty, not pre-filled. These used to default to "68.2" and "7.4" —
+    // prototype placeholders that a parent tapping Log Growth → Save without
+    // editing would have written to the record as their child's real
+    // measurements. handleSaveMetrics already rejects a blank value with
+    // "Please enter valid parameters", which is the correct behaviour.
+    const [metricHeight, setMetricHeight] = useState("");
+    const [metricWeight, setMetricWeight] = useState("");
     const [metricHead, setMetricHead] = useState("");
 
     const handleSaveMetrics = async () => {
@@ -309,7 +362,7 @@ export default function Growth({
                 height: h,
                 weight: w,
                 head_circumference: parseFloat(metricHead) || null,
-                date_recorded: new Date().toISOString().split("T")[0],
+                date_recorded: todayLocal(),
             });
             // Pull the list again so the chart and history include what was
             // just saved instead of going stale until the screen remounts.
@@ -478,36 +531,123 @@ export default function Growth({
                 </View>
             )}
 
-            {/* GROWTH TAB: GALLERY */}
+            {/* GROWTH TAB: GALLERY — one photo timeline, memories and
+                achieved milestones together, newest first, grouped by month.
+                Two-up: the same MemoryVisualCard was rendered full width here
+                while the Dashboard showed it at 48%, so this tab fitted about
+                one and a half items per screen. */}
             {growthTab === "gallery" && (
                 <View>
                     <SectionContainerCard
-                        title={t("dashMemoriesTitle")}
-                        subtitle={t("dashMemoriesSub")}
+                        title="Gallery"
+                        subtitle="Photos and milestones, newest first"
+                        action={
+                            <TouchableOpacity
+                                onPress={() => setShowAddMemory(true)}
+                                style={styles.addBtn}
+                                accessibilityRole="button"
+                                accessibilityLabel="Add photo memory"
+                            >
+                                <Ionicons name="add" size={16} color={colors.onPrimary} />
+                            </TouchableOpacity>
+                        }
                     >
-                        {growthLoading && <MemoriesSkeleton count={2} />}
-                        {!growthLoading &&
-                            completedMilestones
-                                .slice(0, memoriesVisible)
-                                .map((m, idx) => (
-                                    <MemoryVisualCard
-                                        key={m.id || idx}
-                                        title={m.title}
-                                        description={m.description}
-                                        date={m.date}
-                                        photoUrl={m.photoUrl}
-                                        onClick={() => setDetailMemory(m)}
-                                    />
-                                ))}
-                        {!growthLoading && completedMilestones.length === 0 && (
-                            <EmptyStateCard message="No milestones reached yet." icon="trophy-outline" />
+                        {!growthLoading && galleryItems.length > 0 && (
+                            <View style={styles.galleryFilters}>
+                                {GALLERY_FILTERS.map((f) => {
+                                    const on = galleryFilter === f.key;
+                                    const n =
+                                        f.key === "all"
+                                            ? galleryItems.length
+                                            : galleryItems.filter((i) => i.kind === f.key).length;
+                                    return (
+                                        <TouchableOpacity
+                                            key={f.key}
+                                            onPress={() => {
+                                                setGalleryFilter(f.key);
+                                                setMemoriesVisible(10);
+                                            }}
+                                            style={[styles.galleryChip, on && styles.galleryChipOn]}
+                                            accessibilityRole="button"
+                                            accessibilityState={{ selected: on }}
+                                            accessibilityLabel={`${f.label}, ${n} item${n === 1 ? "" : "s"}`}
+                                        >
+                                            <Text
+                                                style={[
+                                                    styles.galleryChipText,
+                                                    on && styles.galleryChipTextOn,
+                                                ]}
+                                            >
+                                                {f.label} {n}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </View>
                         )}
+
+                        {growthLoading && <MemoriesSkeleton count={2} />}
+
+                        {!growthLoading && galleryItems.length === 0 && (
+                            <EmptyStateCard
+                                message="Nothing here yet. Tap + to save a photo, or tick a milestone in the Milestones tab."
+                                icon="image-outline"
+                            />
+                        )}
+                        {!growthLoading && galleryItems.length > 0 && filteredGallery.length === 0 && (
+                            <EmptyStateCard
+                                message="No entries of this kind yet."
+                                icon="filter-outline"
+                            />
+                        )}
+
+                        {!growthLoading &&
+                            galleryMonths.map((bucket) => (
+                                <View key={bucket.label}>
+                                    <Text style={styles.galleryMonth}>{bucket.label}</Text>
+                                    <View style={styles.galleryGrid}>
+                                        {bucket.items.map((item, idx) => (
+                                            <MemoryVisualCard
+                                                key={`${item.kind}-${item.id || idx}`}
+                                                style={styles.galleryTile}
+                                                title={item.title}
+                                                description={item.description}
+                                                // The month header already
+                                                // states the year, so the tile
+                                                // drops it. The kind is spelled
+                                                // out here too — the trophy
+                                                // badge alone would leave the
+                                                // distinction resting on one
+                                                // small glyph.
+                                                date={[
+                                                    shortDate(item.date).replace(/\s\d{4}$/, ""),
+                                                    item.kind === "milestone" ? "Milestone" : null,
+                                                ]
+                                                    .filter(Boolean)
+                                                    .join(" · ")}
+                                                photoUrl={item.photoUrl}
+                                                badge={item.kind === "milestone" ? "trophy" : null}
+                                                placeholderIcon={
+                                                    item.kind === "milestone"
+                                                        ? "trophy-outline"
+                                                        : "image-outline"
+                                                }
+                                                onClick={() => setDetailMemory(item)}
+                                            />
+                                        ))}
+                                    </View>
+                                </View>
+                            ))}
+
                         {!growthLoading && (
                             <ShowMore
-                                total={completedMilestones.length}
+                                total={filteredGallery.length}
                                 visible={memoriesVisible}
                                 onPress={() => setMemoriesVisible((c) => c + 10)}
-                                noun="memories"
+                                noun={
+                                    (GALLERY_FILTERS.find((f) => f.key === galleryFilter) || {})
+                                        .noun || "items"
+                                }
                             />
                         )}
                     </SectionContainerCard>
@@ -751,8 +891,17 @@ export default function Growth({
                 visible={!!detailMemory}
                 memory={detailMemory}
                 dob={profile.dateOfBirth}
-                typeLabel="Milestone"
+                // The Gallery now opens both kinds, so the label follows the
+                // entry instead of always claiming "Milestone".
+                typeLabel={detailMemory?.kind === "memory" ? "Photo Memory" : "Milestone"}
                 onClose={() => setDetailMemory(null)}
+            />
+
+            <AddMemoryModal
+                visible={showAddMemory}
+                profile={profile}
+                onClose={() => setShowAddMemory(false)}
+                onSaved={(m) => setMemories((prev) => [m, ...prev])}
             />
         </ScrollView>
     );
@@ -920,6 +1069,36 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     metricChipText: { ...type.label, color: colors.textMuted },
     metricChipTextOn: { color: colors.primaryDark },
+
+    // Gallery tab
+    addBtn: {
+        width: 32,
+        height: 32,
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
+        backgroundColor: colors.primary,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    galleryFilters: { flexDirection: "row", gap: space.sm, marginBottom: space.md },
+    galleryChip: {
+        flex: 1,
+        minHeight: MIN_TOUCH,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: space.sm,
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+    },
+    galleryChipOn: { backgroundColor: colors.softGreen, borderColor: colors.primary },
+    galleryChipText: { ...type.caption, color: colors.textMuted },
+    galleryChipTextOn: { color: colors.primaryDark, fontWeight: "700" },
+    galleryMonth: { ...type.subheading, color: colors.textMuted, marginTop: space.sm, marginBottom: space.sm },
+    galleryGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
+    galleryTile: { width: "48%" },
     readingBox: {
         marginTop: 14,
         padding: 14,

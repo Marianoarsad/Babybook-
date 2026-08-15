@@ -193,8 +193,10 @@ CREATE TRIGGER trg_milestones_updated BEFORE UPDATE ON milestones
 
 -- =========================================================
 -- NUTRITION RECORDS — unified milk + solid-food tracker.
---   entry_type 'milk'  -> milk_type / formula_brand / quantity / unit
---   entry_type 'solid' -> food_introduced / reaction
+--   entry_type 'milk'  -> milk_type / feed_method, then either
+--                         duration_minutes + breast_side ('breast')
+--                         or quantity + unit + formula_brand ('bottle')
+--   entry_type 'solid' -> food_introduced / reaction_severity / reaction
 -- Stored per day (entry_date); edits overwrite in place (updated_at moves).
 -- =========================================================
 CREATE TABLE nutrition_records (
@@ -204,11 +206,27 @@ CREATE TABLE nutrition_records (
                     CHECK (entry_type IN ('milk', 'solid')),
     -- milk fields
     milk_type       VARCHAR(20) CHECK (milk_type IN ('Formula', 'Breastmilk', 'Mixed')),
+    -- How the milk was given. A breastfeed has no measurable volume, so
+    -- requiring quantity for every milk row made the most common feeding
+    -- pattern unrecordable. NULL means a pre-migration row.
+    feed_method     VARCHAR(10) CHECK (feed_method IN ('breast', 'bottle')),
     formula_brand   TEXT,          -- encrypted at rest
-    quantity        DECIMAL(7,2),
+    quantity        DECIMAL(7,2),  -- bottle feeds only
     unit            VARCHAR(5) CHECK (unit IN ('oz', 'mL', 'L')),
+    -- Breastfeeds only, and optional: a parent logging a night feed hours
+    -- later does not know the minutes, and requiring them would only swap an
+    -- invented volume for an invented duration.
+    duration_minutes INTEGER
+                    CHECK (duration_minutes IS NULL OR (duration_minutes > 0 AND duration_minutes <= 240)),
+    -- Not collected by the app — cut from the form as a breastfeeding-tracker
+    -- feature rather than a health-record one. Kept so it is reversible
+    -- without a migration; expect NULL on every row.
+    breast_side     VARCHAR(5) CHECK (breast_side IN ('left', 'right', 'both')),
     -- solid fields
     food_introduced TEXT,          -- encrypted at rest
+    -- Whether there WAS a reaction, so it can be counted and filtered.
+    -- `reaction` below is the free-text description of one.
+    reaction_severity VARCHAR(10) CHECK (reaction_severity IN ('none', 'mild', 'severe')),
     reaction        TEXT,          -- encrypted at rest
     -- shared
     entry_date      DATE NOT NULL DEFAULT CURRENT_DATE,

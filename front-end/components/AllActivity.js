@@ -8,6 +8,8 @@ import { EmptyStateCard } from "./common/Cards";
 import { AppointmentsSkeleton } from "./ui/Skeleton";
 import { useRefreshControl } from "./ui/useRefreshControl";
 import ShowMore from "./ui/ShowMore";
+import { feedRowSummary } from "../utils/adapters";
+import { todayLocal } from "../utils/dates";
 
 // "See all" destination for Dashboard's Recent Activity section. Dashboard
 // only ever loads its 5 most recent items to begin with, so this screen does
@@ -33,7 +35,7 @@ export default function AllActivity({ profile, onClose }) {
                     api.listRecords(profile.id, "milestones").catch(() => []),
                 ]);
                 if (!active) return;
-                const todayStr = new Date().toISOString().slice(0, 10);
+                const todayStr = todayLocal();
                 const items = [];
                 (vax || [])
                     .filter((v) => v.status === "completed" && v.date_given)
@@ -60,15 +62,10 @@ export default function AllActivity({ profile, onClose }) {
                         }),
                     );
                 (nutrition || []).forEach((n) => {
-                    const isMilk = (n.entry_type || "milk") === "milk";
-                    const qty = n.quantity != null && n.quantity !== "" ? Number(n.quantity) : null;
-                    const subtitle = isMilk
-                        ? `${n.milk_type || "Milk"}${qty != null ? ` • ${qty} ${n.unit || "mL"}` : ""}`
-                        : `Solid Food${n.food_introduced ? ` • ${n.food_introduced}` : ""}`;
                     items.push({
                         key: `nut-${n.id}`,
                         title: "Feeding Logged",
-                        subtitle,
+                        subtitle: feedRowSummary(n),
                         date: String(n.entry_date).slice(0, 10),
                         icon: "restaurant",
                         tone: "success",

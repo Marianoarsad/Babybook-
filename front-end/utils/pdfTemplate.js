@@ -6,6 +6,21 @@
 // app's lighter pink theme tones don't reliably survive black-and-white
 // printing at a health center, so this deliberately does not pull from
 // theme.js.
+import { feedRowSummary } from "./adapters";
+
+// A reaction column that reads the structured severity first and only falls
+// back to free text. Pre-migration rows carry a description with no severity;
+// rows with neither are blank rather than reading as "no reaction".
+function reactionText(f) {
+    const sev = f.reaction_severity;
+    if (sev === "none") return "No reaction";
+    if (sev === "mild" || sev === "severe") {
+        const label = sev === "severe" ? "Severe reaction" : "Mild reaction";
+        return f.reaction ? `${label}: ${f.reaction}` : label;
+    }
+    return f.reaction ? `Reaction: ${f.reaction}` : "";
+}
+
 const INK = "#1B1F3B";
 const MUTED = "#5B618A";
 const ACCENT = "#B0356B"; // dark enough to read as a solid gray in B&W print
@@ -136,12 +151,8 @@ export function buildRecordHtml(profile, records = {}, options = {}) {
     if (scope.has("nutrition") && records.nutrition) {
         const rows = records.nutrition.map((f) =>
             row([
-                esc(
-                    f.entry_type === "milk"
-                        ? `${f.milk_type || "Milk"}${f.quantity != null ? ` — ${f.quantity} ${f.unit || ""}` : ""}`
-                        : f.food_introduced || "Solid food"
-                ),
-                esc(f.reaction ? `Reaction: ${f.reaction}` : ""),
+                esc(feedRowSummary(f)),
+                esc(reactionText(f)),
                 esc(fmtDate(f.entry_date)),
             ])
         );

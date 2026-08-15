@@ -7,25 +7,23 @@ import {
     TouchableOpacity,
     Pressable,
     ScrollView,
-    TextInput,
-    Modal,
 } from "react-native";
 import { useLanguage } from "../context/LanguageContext";
 import { EmptyStateCard, SectionContainerCard, MemoryVisualCard } from "./common/Cards";
 import MemoryDetail from "./MemoryDetail";
 import GrowthChart from "./GrowthChart";
 import { DashboardSkeleton } from "./ui/Skeleton";
-import Button from "./ui/Button";
 import { Ionicons } from "@expo/vector-icons";
 import { radius, space, shadow, type, MIN_TOUCH } from "../theme";
 import { useTheme } from "../context/ThemeContext";
 import { api } from "../utils/api";
-import { memoryToApp, toMilliliters } from "../utils/adapters";
-import { pickImage, pickerAvailable } from "../utils/imagePicker";
+import { memoryToApp, toMilliliters, feedRowSummary } from "../utils/adapters";
 import { useToast } from "./ui/Toast";
 import { useRefreshControl } from "./ui/useRefreshControl";
+import AddMemoryModal from "./ui/AddMemoryModal";
 import { cacheSummary } from "../utils/offlineSummary";
 import { seen, markSeen } from "../utils/firstRun";
+import { todayLocal, durationText } from "../utils/dates";
 
 // Age in a friendly form ("15 months", "2y 3m") from a YYYY-MM-DD DOB.
 export function ageText(dob) {
@@ -39,7 +37,18 @@ export function ageText(dob) {
     if (months < 24) return `${months} month${months === 1 ? "" : "s"}`;
     const years = Math.floor(months / 12);
     const rem = months % 12;
-    return rem ? `${years}y ${rem}m` : `${years} year${years === 1 ? "" : "s"}`;
+    const y = `${years} year${years === 1 ? "" : "s"}`;
+    return rem ? `${y} ${rem} month${rem === 1 ? "" : "s"}` : y;
+}
+
+// "12 Mar 2025" from a YYYY-MM-DD date. Same call MemoryDetail.js uses — kept
+// local rather than shared, since consolidating the three near-identical
+// formatters in this app is its own cleanup.
+function shortDate(dateStr) {
+    if (!dateStr) return "";
+    const d = new Date(`${String(dateStr).slice(0, 10)}T00:00:00`);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
 // Compact "time ago" for the Recent Activity feed.
@@ -60,8 +69,27 @@ function relativeTime(dateStr) {
     return `${Math.floor(days / 365)}y ago`;
 }
 
-function dayDiff(a, b) {
-    return Math.round((new Date(b) - new Date(a)) / 86400000);
+// "3 days overdue" / "5 months overdue" from a due date. The card used to
+// print the raw due date ("was due 2025-09-27") and leave the parent to work
+// out how late that is — which is the only part of it that drives a decision.
+function overdueText(dueDate) {
+    const due = new Date(`${String(dueDate).slice(0, 10)}T00:00:00`);
+    if (isNaN(due.getTime())) return "";
+    const days = Math.floor((Date.now() - due.getTime()) / 86400000);
+    if (days < 0) return "";
+    if (days === 0) return "Due today";
+    if (days === 1) return "1 day overdue";
+    if (days < 14) return `${days} days overdue`;
+    if (days < 60) {
+        const w = Math.round(days / 7);
+        return `${w} week${w === 1 ? "" : "s"} overdue`;
+    }
+    if (days < 365) {
+        const mo = Math.round(days / 30.4375);
+        return `${mo} month${mo === 1 ? "" : "s"} overdue`;
+    }
+    const y = Math.floor(days / 365.25);
+    return `${y} year${y === 1 ? "" : "s"} overdue`;
 }
 
 // "in N min" / "in N h" for a share code's expiration_date — mirrors
@@ -75,15 +103,16 @@ function shareExpiryText(iso) {
     return `in ${Math.round(mins / 60)} h`;
 }
 
-// Compares the child's growth-measurement history to answer "is the baby
-// growing faster or slower than before" (Documents/plans/BabyBook+_Dashboard_
-// Redesign_Evaluation.md, Section 5). Weight gets a faster/slower verdict,
-// which needs at least 3 measurements to compare two periods of change;
-// height only gets a plain amount-changed, to keep this first version simple.
-// Deliberate simplification: rate differences smaller than ~1 gram/day are
-// treated as "steady" so rounding noise doesn't flip the verdict back and
-// forth — a bigger measurement history could replace this with a real curve.
-function growthTrend(rows) {
+// The child's most recent growth measurement, plus the date it was taken, for
+// the Health ID card's measurement strip.
+//
+// This deliberately reports and does not interpret. It used to also compute a
+// "growing faster/slower than before" verdict from the last three weights; that
+// was removed because PRODUCT.md Principle 5 forbids the app from reading as a
+// clinical judgment, and because GrowthChart — directly below this card —
+// already plots the same measurements against the WHO reference bands, which is
+// a real comparison rather than a guess derived from home scales.
+function latestGrowth(rows) {
     const sorted = (rows || [])
         .filter((r) => r.date_recorded)
         .slice()
@@ -91,35 +120,11 @@ function growthTrend(rows) {
     if (sorted.length === 0) return null;
 
     const latest = sorted[sorted.length - 1];
-    const result = {
+    return {
         weight: latest.weight != null ? Number(latest.weight) : null,
         height: latest.height != null ? Number(latest.height) : null,
-        weightDelta: null,
-        heightDelta: null,
-        pace: null, // "faster" | "slower" | "steady" | null
+        date: latest.date_recorded,
     };
-
-    if (sorted.length >= 2) {
-        const prev = sorted[sorted.length - 2];
-        if (latest.weight != null && prev.weight != null) {
-            result.weightDelta = Number(latest.weight) - Number(prev.weight);
-        }
-        if (latest.height != null && prev.height != null) {
-            result.heightDelta = Number(latest.height) - Number(prev.height);
-        }
-        if (sorted.length >= 3 && latest.weight != null && prev.weight != null) {
-            const prev2 = sorted[sorted.length - 3];
-            const days1 = dayDiff(prev.date_recorded, latest.date_recorded);
-            const days2 = dayDiff(prev2.date_recorded, prev.date_recorded);
-            if (days1 > 0 && days2 > 0 && prev2.weight != null) {
-                const rate1 = (Number(latest.weight) - Number(prev.weight)) / days1;
-                const rate2 = (Number(prev.weight) - Number(prev2.weight)) / days2;
-                const diff = rate1 - rate2;
-                result.pace = Math.abs(diff) < 0.001 ? "steady" : diff > 0 ? "faster" : "slower";
-            }
-        }
-    }
-    return result;
 }
 
 // Local, minimal — theme colors are 6-digit hex today. Guards against a
@@ -188,7 +193,10 @@ export default function Dashboard({
     const [ongoingConcern, setOngoingConcern] = useState([]);
     const [todayFeeding, setTodayFeeding] = useState(null);
     const [activeShares, setActiveShares] = useState([]);
-    const [summaryExpanded, setSummaryExpanded] = useState(false);
+    const [detailsExpanded, setDetailsExpanded] = useState(false);
+    // { [childId]: boolean } — drives the switcher's alert dot. See the effect
+    // below the fetch bundle for how siblings get filled in.
+    const [childAlerts, setChildAlerts] = useState({});
     // Tracks profile IDs whose avatar URL is present but failed to actually
     // load — e.g. an upload that's since been wiped (see PRODUCT.md's known
     // gap: uploads sit on an ephemeral filesystem). A truthy-but-dead URL
@@ -223,7 +231,7 @@ export default function Dashboard({
         // fresh copy on the device, ready for the next time they don't have one.
         cacheSummary(profile, { vaccinations: vax, checkups, medicalHistory: medHistory }).catch(() => {});
 
-        const todayStr = new Date().toISOString().slice(0, 10);
+        const todayStr = todayLocal();
                 const items = [];
                 (vax || [])
                     .filter((v) => v.status === "completed" && v.date_given)
@@ -250,15 +258,10 @@ export default function Dashboard({
                         }),
                     );
                 (nutrition || []).forEach((n) => {
-                    const isMilk = (n.entry_type || "milk") === "milk";
-                    const qty = n.quantity != null && n.quantity !== "" ? Number(n.quantity) : null;
-                    const subtitle = isMilk
-                        ? `${n.milk_type || "Milk"}${qty != null ? ` • ${qty} ${n.unit || "mL"}` : ""}`
-                        : `Solid Food${n.food_introduced ? ` • ${n.food_introduced}` : ""}`;
                     items.push({
                         key: `nut-${n.id}`,
                         title: "Feeding Logged",
-                        subtitle,
+                        subtitle: feedRowSummary(n),
                         date: String(n.entry_date).slice(0, 10),
                         icon: "restaurant",
                         tone: "success",
@@ -342,11 +345,18 @@ export default function Dashboard({
                         .filter((v) => v.status !== "completed" && v.due_date && v.due_date < todayStr)
                         .sort((a, b) => a.due_date.localeCompare(b.due_date)),
                 );
-                setOngoingConcern(
-                    (medHistory || []).filter(
-                        (m) => (m.category === "Illness" || m.category === "Hospitalization") && !m.resolved,
-                    ),
+                const ongoing = (medHistory || []).filter(
+                    (m) => (m.category === "Illness" || m.category === "Hospitalization") && !m.resolved,
                 );
+                setOngoingConcern(ongoing);
+
+                // Feed the switcher's alert dot for the child we just loaded,
+                // so the selected child never costs an extra request — and so
+                // its verdict is still there after switching away.
+                const selectedHasAlert =
+                    ongoing.length > 0 ||
+                    (vax || []).some((v) => v.status !== "completed" && v.due_date && v.due_date < todayStr);
+                setChildAlerts((prev) => ({ ...prev, [profile.id]: selectedHasAlert }));
 
                 // Active share codes — reuses the same shares list Share
                 // Records shows, just narrowed to ones still open right now.
@@ -361,15 +371,28 @@ export default function Dashboard({
                     (n) => String(n.entry_date).slice(0, 10) === todayStr,
                 );
                 if (todayEntries.length) {
-                    const totalMl = todayEntries
-                        .filter((n) => (n.entry_type || "milk") === "milk")
+                    const milkToday = todayEntries.filter((n) => (n.entry_type || "milk") === "milk");
+                    // A breastfeed has no volume, so millilitres alone can't
+                    // describe the day — a breastfed baby totalled 0 mL and
+                    // the card fell through to claiming solid food was logged.
+                    const totalMl = milkToday
+                        .filter((n) => n.feed_method !== "breast")
                         .reduce((sum, n) => sum + toMilliliters(Number(n.quantity) || 0, n.unit), 0);
+                    const breastMinutes = milkToday
+                        .filter((n) => n.feed_method === "breast")
+                        .reduce((sum, n) => sum + (Number(n.duration_minutes) || 0), 0);
                     const lastTime = todayEntries
                         .map((n) => n.entry_time)
                         .filter(Boolean)
                         .sort()
                         .pop();
-                    setTodayFeeding({ count: todayEntries.length, totalMl: Math.round(totalMl), lastTime });
+                    setTodayFeeding({
+                        count: todayEntries.length,
+                        totalMl: Math.round(totalMl),
+                        breastMinutes: Math.round(breastMinutes),
+                        solidCount: todayEntries.length - milkToday.length,
+                        lastTime,
+                    });
                 } else {
                     setTodayFeeding(null);
                 }
@@ -387,15 +410,75 @@ export default function Dashboard({
         retry: retryActivity,
     } = useDashboardFetch(loadActivityBundle, [profile.id]);
 
+    // Alert dots for the OTHER children in the switcher. Without this a parent
+    // with two children has to switch back and forth to find out whether the
+    // other one has anything overdue, since Needs Attention is per-child.
+    //
+    // Kept as cheap as the signal allows: only children we have no verdict for
+    // yet (the selected one is filled in by the bundle above and stays cached
+    // after switching), only the two record types that can raise a dot, and a
+    // silent failure — a dot that can't load simply doesn't appear rather than
+    // showing an error for a child you aren't even looking at. This is a real
+    // cost on a slow connection (PRODUCT.md Principle 3), so it stays strictly
+    // additive to the screen and never blocks it.
+    // ponytail: 2 requests per unknown sibling. If a parent ever has enough
+    // children for that to bite, replace with one /children/alerts endpoint.
+    //
+    // requestedAlertsRef, not childAlerts, is what gates a fetch. childAlerts
+    // is in this effect's deps (the bundle writes the selected child into it),
+    // so keying off the map alone re-ran the effect while a sibling's request
+    // was still in flight and fetched that child a second time.
+    const profileIdKey = profiles.map((p) => p.id).join(",");
+    const requestedAlertsRef = useRef(new Set());
+    useEffect(() => {
+        const unknown = profiles.filter(
+            (p) => p.id !== profile.id && !requestedAlertsRef.current.has(p.id),
+        );
+        if (!unknown.length) return;
+        for (const p of unknown) requestedAlertsRef.current.add(p.id);
+        let active = true;
+        const todayStr = todayLocal();
+        Promise.all(
+            unknown.map(async (p) => {
+                try {
+                    const [vax, med] = await Promise.all([
+                        api.listRecords(p.id, "vaccinations"),
+                        api.listRecords(p.id, "medical-history"),
+                    ]);
+                    const overdue = (vax || []).some(
+                        (v) => v.status !== "completed" && v.due_date && v.due_date < todayStr,
+                    );
+                    const ongoing = (med || []).some(
+                        (m) => (m.category === "Illness" || m.category === "Hospitalization") && !m.resolved,
+                    );
+                    return [p.id, overdue || ongoing];
+                } catch {
+                    return null;
+                }
+            }),
+        ).then((results) => {
+            if (!active) return;
+            const next = {};
+            for (const r of results) if (r) next[r[0]] = r[1];
+            // Only set when something actually resolved, or this re-runs
+            // forever on a child whose fetch keeps failing.
+            if (Object.keys(next).length) setChildAlerts((prev) => ({ ...prev, ...next }));
+        });
+        return () => {
+            active = false;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [profileIdKey, profile.id, childAlerts]);
+
     // Growth history — separate fetch, since nothing else on this screen
     // needs the measurement history. Kept raw (growthRows) for the chart, on
-    // top of the computed faster/slower verdict (trend) the summary card uses.
-    const [trend, setTrend] = useState(null);
+    // top of the latest measurement (growth) the Health ID card shows.
+    const [growth, setGrowth] = useState(null);
     const [growthRows, setGrowthRows] = useState([]);
     const loadGrowth = useCallback(async (isActive) => {
         const rows = await api.listRecords(profile.id, "growth");
         if (!isActive()) return;
-        setTrend(growthTrend(rows));
+        setGrowth(latestGrowth(rows));
         setGrowthRows(rows || []);
     }, [profile.id]);
     const {
@@ -408,10 +491,6 @@ export default function Dashboard({
     const [memories, setMemories] = useState([]);
     const [detailMemory, setDetailMemory] = useState(null);
     const [showMemoryModal, setShowMemoryModal] = useState(false);
-    const [memCaption, setMemCaption] = useState("");
-    const [memNotes, setMemNotes] = useState("");
-    const [memPhotoUri, setMemPhotoUri] = useState("");
-    const [savingMemory, setSavingMemory] = useState(false);
     const loadMemories = useCallback(async (isActive) => {
         const rows = await api.listRecords(profile.id, "memories");
         if (!isActive()) return;
@@ -426,6 +505,12 @@ export default function Dashboard({
     const dashboardLoading = activityLoading || growthLoading || memoriesLoading;
     const dashboardError = activityError || growthError || memoriesError;
     const retryAll = () => {
+        // Let the switcher's sibling dots refetch too — otherwise a parent who
+        // just resolved the other child's overdue vaccine would keep seeing
+        // its dot for the rest of the session, since the ref above only ever
+        // lets each child be requested once.
+        requestedAlertsRef.current = new Set();
+        setChildAlerts({});
         retryActivity();
         retryGrowth();
         retryMemories();
@@ -439,42 +524,7 @@ export default function Dashboard({
         if (initialAction === "memory") setShowMemoryModal(true);
     }, [navKey]);
 
-    const handleAddMemory = async () => {
-        if (!memCaption.trim()) {
-            toast.error("Please enter a caption");
-            return;
-        }
-        const caption = memCaption;
-        const notes = memNotes;
-        const photoUri = memPhotoUri;
-        const date_recorded = new Date().toISOString().split("T")[0];
-        setSavingMemory(true);
-        try {
-            const saved = photoUri
-                ? await api.uploadMemory(profile.id, { photoUri, caption, notes, date_recorded })
-                : await api.createRecord(profile.id, "memories", {
-                      caption,
-                      notes: notes || null,
-                      photo_url: null,
-                      date_recorded,
-                  });
-            setMemories((prev) => [memoryToApp(saved), ...prev]);
-            toast.success("Memory saved");
-            // Only clear the form and close on success — on failure the user's
-            // typed caption/notes/photo stay in place instead of vanishing.
-            setShowMemoryModal(false);
-            setMemCaption("");
-            setMemNotes("");
-            setMemPhotoUri("");
-        } catch (e) {
-            toast.error(e.message || "Could not save memory");
-        } finally {
-            setSavingMemory(false);
-        }
-    };
 
-    const weight = (trend && trend.weight != null ? trend.weight : null) ?? profile.currentWeight ?? profile.birthWeight;
-    const height = (trend && trend.height != null ? trend.height : null) ?? profile.currentHeight ?? profile.birthHeight;
     const headCirc = growthRows.length
         ? growthRows
               .filter((r) => r.head_circumference != null && r.date_recorded)
@@ -519,53 +569,109 @@ export default function Dashboard({
     };
     const showSetupCard = setupDismissed === false && !setupComplete;
 
-    // Gender is icon-only now — the word next to it used to repeat exactly
-    // what the icon already showed (evaluation doc, Section 2). The
-    // accessibility label keeps the information available to screen readers.
-    const sexLabel = profile.gender === "boy" ? "Male" : "Female";
-    const fmt = (n, delta) =>
-        delta != null ? `${n} (${delta >= 0 ? "+" : ""}${delta.toFixed(1)})` : `${n}`;
-    const babyMeta = [
-        { icon: profile.gender === "boy" ? "male" : "female", text: null, a11y: sexLabel },
-        { icon: "time-outline", text: ageText(profile.dateOfBirth) || "—", a11y: null },
-        {
-            icon: "scale-outline",
-            text: weight != null ? `${fmt(weight, trend ? trend.weightDelta : null)} kg` : "No weight recorded",
-            a11y: null,
-        },
-        {
-            icon: "resize-outline",
-            text: height != null ? `${fmt(height, trend ? trend.heightDelta : null)} cm` : "No height recorded",
-            a11y: null,
-        },
+    // Health ID card — identity line, then the standing facts. "Girl"/"Boy"
+    // rather than "Female"/"Male": this card is the parent's, and it matches
+    // the vocabulary the app already uses for its own palettes. The clinical
+    // wording stays in ProfessionalView and the offline summary.
+    const sexWord = profile.gender === "boy" ? "Boy" : "Girl";
+
+    // Empty means "nobody has entered this", which is NOT the same as "this
+    // child has none" — a doctor reading a blank allergy line has to be able
+    // to tell those apart. "None recorded" is the phrasing OfflineSummaryView
+    // and ProfessionalView already use for exactly this reason.
+    const NONE_RECORDED = "None recorded";
+    const listValue = (arr) => (Array.isArray(arr) && arr.length ? arr.join(", ") : "");
+    const vitalFacts = [
+        { key: "allergies", icon: "alert-circle-outline", label: "Allergies", value: listValue(profile.allergies), flag: true },
+        { key: "blood", icon: "water-outline", label: "Blood type", value: profile.bloodType || "" },
+        { key: "hereditary", icon: "pulse-outline", label: "Hereditary", value: listValue(profile.hereditaryConditions), flag: true },
     ];
-    if (headCirc != null) {
-        babyMeta.push({ icon: "ellipse-outline", text: `${Number(headCirc)} cm head`, a11y: null });
-    }
+    // Rows with nothing in them are dropped rather than padded with
+    // "None recorded" — unlike the vitals above, an unlisted pediatrician is
+    // not a fact a clinician needs stated, it's just an empty field.
+    const careFacts = [
+        { key: "ped", icon: "medkit-outline", label: "Pediatrician", value: profile.pediatricianName || "" },
+        { key: "center", icon: "business-outline", label: "Health center", value: profile.preferredHealthCenter || "" },
+        { key: "emergency", icon: "call-outline", label: "Emergency", value: profile.emergencyContact || "" },
+        { key: "born", icon: "location-outline", label: "Born at", value: profile.hospital || profile.placeOfBirth || "" },
+    ].filter((f) => f.value);
+
+    // Birth weight/length are deliberately not used as a fallback here. They're
+    // a different fact from "how big is the baby now", and pairing them with
+    // the growth record's "Measured …" date would misreport them.
+    const measurements = growth
+        ? [
+              { key: "w", label: "Weight", value: growth.weight, unit: "kg" },
+              { key: "h", label: "Height", value: growth.height, unit: "cm" },
+              { key: "c", label: "Head", value: headCirc != null ? Number(headCirc) : null, unit: "cm" },
+          ]
+        : [];
 
     const toneColor = { primary: colors.primary, danger: colors.danger, success: colors.success, info: colors.info };
     const vaxPct = vaxProgress && vaxProgress.total > 0 ? Math.round((vaxProgress.completed / vaxProgress.total) * 100) : 0;
-    const hasAllergies = Array.isArray(profile.allergies) && profile.allergies.length > 0;
-    // Capped at 1 — only the most urgent item shows, to keep this strip as
-    // small as possible; a demo/seeded account can rack up a dozen overdue
-    // doses, and a wall of rows here would recreate the crowding this
-    // redesign was meant to fix.
+    // Ordered by how urgent the thing actually is, not by which array it came
+    // from. This list used to be overdueVax.concat(ongoingConcern) rendered
+    // slice(0, 1) — so while a child had ANY overdue vaccine, a current
+    // hospital stay could never be the visible row. The one slot went to
+    // whatever sorted first, which was always the oldest overdue dose.
+    //
+    // Rank: a child in hospital right now, then an unresolved illness, then
+    // overdue doses (most overdue first — overdueVax already arrives sorted
+    // by due_date ascending).
+    const hospitalizations = ongoingConcern.filter((m) => m.category === "Hospitalization");
+    const illnesses = ongoingConcern
+        .filter((m) => m.category !== "Hospitalization")
+        .slice()
+        .sort((a, b) => String(a.date_recorded || "").localeCompare(String(b.date_recorded || "")));
     const attentionItems = [
+        ...hospitalizations.map((m) => ({
+            key: `hosp-${m.id}`,
+            // Verified against @expo/vector-icons' Ionicons glyphmap, per
+            // CLAUDE.md Section 3. Note Ionicons "medical" is an asterisk-like
+            // mark that reads as a footnote marker, not a vaccine — hence
+            // medkit/bed/thermometer, which are distinguishable at 18px.
+            icon: "bed",
+            tint: colors.recHospitalization,
+            tone: colors.danger,
+            title: `Hospitalized: ${m.title || "Hospitalization"}`,
+            // Hospitalizations live under Health's Checkups tab, not
+            // Conditions (Health.js maps "hospitalization" -> "appointments").
+            // This card used to send them to "illnesses", where they aren't
+            // listed at all.
+            sub: m.date_recorded ? `Since ${shortDate(m.date_recorded)} · not yet resolved` : "Not yet resolved",
+            tab: "appointments",
+        })),
+        ...illnesses.map((m) => ({
+            key: `ill-${m.id}`,
+            icon: "thermometer",
+            tint: colors.recIllness,
+            // Amber, not coral: DESIGN.md reserves coral for overdue, error,
+            // and destructive. An illness someone is still getting over is
+            // "needs attention, caution", which is amber's job.
+            tone: colors.warning,
+            title: m.title || "Illness",
+            sub: m.date_recorded ? `Ongoing since ${shortDate(m.date_recorded)}` : "Ongoing",
+            tab: "illnesses",
+        })),
         ...overdueVax.map((v) => ({
             key: `ovax-${v.id}`,
-            text: `${v.vaccine_name || "Vaccination"} was due ${v.due_date}`,
+            icon: "medkit",
+            tint: colors.recVaccine,
+            tone: colors.danger,
+            title: v.vaccine_name || "Vaccination",
+            sub: overdueText(v.due_date) || `Was due ${shortDate(v.due_date)}`,
             tab: "immunizations",
-        })),
-        ...ongoingConcern.map((m) => ({
-            key: `concern-${m.id}`,
-            text:
-                m.category === "Hospitalization"
-                    ? `Hospitalized: ${m.title || "Hospitalization"}`
-                    : `Ongoing: ${m.title || "Illness"}`,
-            tab: "illnesses",
         })),
     ];
     const hasNeedsAttention = attentionItems.length > 0;
+    // "See all" lands on whichever tab holds the most of these, rather than
+    // Health's default — the old "+N more" dropped you on an arbitrary tab.
+    const attentionTab = useMemo(() => {
+        const counts = {};
+        for (const i of attentionItems) counts[i.tab] = (counts[i.tab] || 0) + 1;
+        return Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0] || "immunizations";
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [attentionItems.length, attentionItems[0]?.tab]);
     const soonestShare = activeShares.length
         ? activeShares.slice().sort((a, b) => a.expiration_date.localeCompare(b.expiration_date))[0]
         : null;
@@ -578,7 +684,19 @@ export default function Dashboard({
         >
             {/* Baby switcher — only shown with more than one child. With a
                 single child there's nothing to switch between, so just the
-                Add button shows on its own (evaluation doc, Section 2). */}
+                Add button shows on its own (evaluation doc, Section 2).
+
+                Each child is a named pill, not a bare photo. Photos alone
+                failed at the one job this control has: a child with no avatar
+                rendered as a generic grey person icon, so a two-child account
+                offered "this one, or… someone". Multiple children are a
+                first-class case in PRODUCT.md, and this is the control that
+                serves it.
+
+                The coral dot means that child has an overdue vaccine or an
+                unresolved illness/hospitalization — the same test the Needs
+                Attention card runs, so a parent can see the other child needs
+                something without switching to find out. */}
             {profiles.length > 1 ? (
                 <View style={styles.profileBar}>
                     <ScrollView
@@ -586,39 +704,60 @@ export default function Dashboard({
                         showsHorizontalScrollIndicator={false}
                         contentContainerStyle={styles.profilesScroll}
                     >
-                        {profiles.map((p) => (
-                            <Pressable
-                                key={p.id}
-                                onPress={() => onSelectProfile(p.id)}
-                                style={({ pressed, hovered, focused }) => [
-                                    styles.profileTab,
-                                    profile.id === p.id && styles.profileTabActive,
-                                    { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
-                                    focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.accent, "59")}` } : null,
-                                ]}
-                                accessibilityRole="button"
-                                accessibilityLabel={`Switch to ${p.name}`}
-                            >
-                                {p.avatarUrl && !brokenAvatars.has(p.id) ? (
-                                    <Image
-                                        source={{ uri: p.avatarUrl }}
-                                        style={styles.avatarMini}
-                                        onError={() => setBrokenAvatars((prev) => new Set(prev).add(p.id))}
-                                    />
-                                ) : (
-                                    <View style={[styles.avatarMini, styles.avatarFallback]}>
-                                        <Ionicons name="person" size={16} color={colors.primary} />
+                        {profiles.map((p) => {
+                            const selected = profile.id === p.id;
+                            // The selected child's verdict is live from the
+                            // bundle; siblings come from the cached map.
+                            const alert = selected ? hasNeedsAttention : childAlerts[p.id];
+                            return (
+                                <Pressable
+                                    key={p.id}
+                                    onPress={() => onSelectProfile(p.id)}
+                                    style={({ pressed, hovered, focused }) => [
+                                        styles.childPill,
+                                        selected && styles.childPillOn,
+                                        { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
+                                        focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.primary, "59")}` } : null,
+                                    ]}
+                                    accessibilityRole="button"
+                                    accessibilityState={{ selected }}
+                                    accessibilityLabel={`${
+                                        selected ? "Currently viewing" : "Switch to"
+                                    } ${p.name}${alert ? ", needs attention" : ""}`}
+                                >
+                                    <View>
+                                        {p.avatarUrl && !brokenAvatars.has(p.id) ? (
+                                            <Image
+                                                source={{ uri: p.avatarUrl }}
+                                                style={styles.avatarMini}
+                                                onError={() =>
+                                                    setBrokenAvatars((prev) => new Set(prev).add(p.id))
+                                                }
+                                            />
+                                        ) : (
+                                            <View style={[styles.avatarMini, styles.avatarFallback]}>
+                                                <Ionicons name="person" size={16} color={colors.primary} />
+                                            </View>
+                                        )}
+                                        {alert ? <View style={styles.childDot} /> : null}
                                     </View>
-                                )}
-                            </Pressable>
-                        ))}
+                                    <Text
+                                        style={[styles.childName, selected && styles.childNameOn]}
+                                        numberOfLines={1}
+                                    >
+                                        {p.nickname || String(p.name).split(" ")[0]}
+                                    </Text>
+                                </Pressable>
+                            );
+                        })}
                         <TouchableOpacity
                             onPress={onOpenAddModal}
-                            style={styles.addProfileIconButton}
+                            style={styles.addChildPill}
                             accessibilityRole="button"
                             accessibilityLabel="Add another child"
                         >
-                            <Ionicons name="add" size={20} color={colors.primary} />
+                            <Ionicons name="add" size={18} color={colors.primary} />
+                            <Text style={styles.addChildText}>Add</Text>
                         </TouchableOpacity>
                     </ScrollView>
                 </View>
@@ -733,40 +872,64 @@ export default function Dashboard({
                 <Ionicons name="chevron-forward" size={18} color={colors.primary} />
             </Pressable>
 
+            {/* Needs attention. Shows the three most urgent things rather than
+                one, because a seeded or long-neglected account can hold a
+                dozen and "one item + a number" can't be triaged.
+
+                Each row carries two independent signals: the icon tile says
+                WHAT the record is (the shared colors.rec* type tints, same as
+                every list row in the app), and the subtitle colour says HOW
+                urgent it is — coral for overdue and for a current hospital
+                stay, amber for an illness still being got over. The card no
+                longer paints everything in one flat red, which made a lingering
+                cold shout exactly as loudly as a hospitalization. */}
             {hasNeedsAttention ? (
                 <View style={styles.attentionCard}>
                     <View style={styles.attentionHeader}>
-                        <Ionicons name="warning" size={16} color={colors.danger} />
-                        <Text style={styles.attentionTitle}>Needs Attention</Text>
+                        <Ionicons name="warning" size={17} color={colors.danger} />
+                        <Text style={styles.attentionTitle}>Needs attention</Text>
+                        <View style={styles.attentionCount}>
+                            <Text style={styles.attentionCountText}>{attentionItems.length}</Text>
+                        </View>
                     </View>
-                    {attentionItems.slice(0, 1).map((item) => (
+                    {attentionItems.slice(0, 3).map((item) => (
                         <Pressable
                             key={item.key}
                             style={({ pressed, hovered, focused }) => [
                                 styles.attentionRow,
-                                { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
+                                { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.99 : 1 }] },
                                 focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.danger, "59")}` } : null,
                             ]}
                             onPress={() => nav("health", item.tab)}
                             accessibilityRole="button"
-                            accessibilityLabel={item.text}
+                            accessibilityLabel={`${item.title}. ${item.sub}.`}
                         >
-                            <Text style={styles.attentionText}>{item.text}</Text>
+                            <View style={[styles.attentionIcon, { backgroundColor: item.tint.bg }]}>
+                                <Ionicons name={item.icon} size={18} color={item.tint.on} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.attentionText} numberOfLines={2}>
+                                    {item.title}
+                                </Text>
+                                <Text style={[styles.attentionSub, { color: item.tone }]}>{item.sub}</Text>
+                            </View>
                             <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
                         </Pressable>
                     ))}
-                    {attentionItems.length > 1 ? (
+                    {attentionItems.length > 3 ? (
                         <Pressable
                             style={({ pressed, hovered, focused }) => [
-                                styles.attentionRow,
-                                { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
+                                styles.attentionMore,
+                                { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.99 : 1 }] },
                                 focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.danger, "59")}` } : null,
                             ]}
-                            onPress={() => nav("health")}
+                            onPress={() => nav("health", attentionTab)}
                             accessibilityRole="button"
-                            accessibilityLabel={`${attentionItems.length - 1} more items need attention`}
+                            accessibilityLabel={`See all ${attentionItems.length} items needing attention`}
                         >
-                            <Text style={styles.attentionMoreText}>+{attentionItems.length - 1} more</Text>
+                            <Text style={styles.attentionMoreText}>
+                                See all {attentionItems.length}
+                            </Text>
                             <Ionicons name="chevron-forward" size={16} color={colors.danger} />
                         </Pressable>
                     ) : null}
@@ -805,115 +968,239 @@ export default function Dashboard({
                 </Pressable>
             ) : null}
 
-            {/* Baby Summary Card — 2-column meta grid. The photo and name
-                already show in the header and (with more than one child)
-                the switcher above, so this card doesn't repeat them.
-                Collapsed by default to just gender/age/weight/height; tap
-                anywhere on the card to reveal head circumference, the
-                growth-pace line, and the allergy/blood-type chips. */}
-            <View style={styles.summaryCard}>
-                <View style={styles.summaryTopRow}>
-                    <Pressable
-                        onPress={() => setSummaryExpanded((v) => !v)}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${summaryExpanded ? "Collapse" : "Expand"} ${profile.name}'s summary`}
-                        accessibilityState={{ expanded: summaryExpanded }}
-                    >
-                        <Ionicons
-                            name={summaryExpanded ? "chevron-up" : "chevron-down"}
-                            size={16}
-                            color={colors.textMuted}
+            {/* Child Health ID — who this child is and the standing facts a
+                parent or a doctor asks for first. This is the app's only
+                always-on surface for them: there is no child-profile screen
+                (settings/ViewProfile.js is the *parent's* account), and the
+                only other place they appear is OfflineSummaryView, behind its
+                own nav destination. So the order here matches what the
+                clinician sees there — identity, allergies/blood/hereditary,
+                then care contacts.
+
+                Nothing safety-critical is collapsed. Allergies and blood type
+                used to sit behind the expander, which is backwards for the
+                clinic scene this product is built around. Only the care
+                contacts — real, but not glance-level — are behind the
+                disclosure now.
+
+                Growth numbers here are the latest measurement and its date,
+                nothing more. The faster/slower verdict that used to live in
+                this card is gone: PRODUCT.md Principle 5 forbids the app from
+                reading as clinical judgment, and GrowthChart directly below
+                already plots these against the WHO bands. */}
+            <View style={styles.idCard}>
+                {/* Identity. The header (App.js) shows the name as text with no
+                    avatar, and the switcher's 32px pills are for switching, not
+                    identification — so the photo isn't a repeat, it was just
+                    missing. brokenAvatars is shared with the switcher above:
+                    uploads sit on an ephemeral filesystem, so a truthy-but-dead
+                    URL has to fall back rather than render a blank circle. */}
+                <View style={styles.idHeader}>
+                    {profile.avatarUrl && !brokenAvatars.has(profile.id) ? (
+                        <Image
+                            source={{ uri: profile.avatarUrl }}
+                            style={styles.idAvatar}
+                            onError={() => setBrokenAvatars((prev) => new Set(prev).add(profile.id))}
                         />
-                    </Pressable>
+                    ) : (
+                        <View style={[styles.idAvatar, styles.idAvatarFallback]}>
+                            <Ionicons name="person" size={26} color={colors.primary} />
+                        </View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                        {/* Two lines, not one: a full Filipino name is often
+                            longer than the column left after the avatar and
+                            the edit button, and "Hanna Bas…" is the one thing
+                            an identity card must never render. */}
+                        <Text style={styles.idName} numberOfLines={2}>
+                            {profile.name}
+                        </Text>
+                        {profile.nickname ? (
+                            <Text style={styles.idNickname} numberOfLines={1}>
+                                “{profile.nickname}”
+                            </Text>
+                        ) : null}
+                        <Text style={styles.idSub}>
+                            {sexWord}
+                            {ageText(profile.dateOfBirth) ? ` · ${ageText(profile.dateOfBirth)}` : ""}
+                        </Text>
+                        {profile.dateOfBirth ? (
+                            <Text style={styles.idSub}>Born {shortDate(profile.dateOfBirth)}</Text>
+                        ) : null}
+                    </View>
                     <TouchableOpacity
                         onPress={onOpenEditModal}
-                        style={styles.summaryEdit}
+                        style={styles.idEdit}
                         accessibilityRole="button"
-                        accessibilityLabel="Edit child profile"
+                        accessibilityLabel={`Edit ${profile.name}'s profile`}
                     >
-                        <Ionicons name="pencil" size={15} color={colors.primary} />
+                        <Ionicons name="pencil" size={17} color={colors.primary} />
                     </TouchableOpacity>
                 </View>
-                {/* A separate touchable from the chevron above — not nested
-                    inside it — so no button ever contains another button
-                    (React Native Web renders TouchableOpacity as <button>,
-                    and a nested <button> is invalid HTML and threw a
-                    hydration error). Tapping the chevron OR this body both
-                    toggle the same summaryExpanded state. */}
-                <TouchableOpacity
-                    activeOpacity={0.85}
-                    onPress={() => setSummaryExpanded((v) => !v)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${summaryExpanded ? "Collapse" : "Expand"} ${profile.name}'s summary details`}
-                    accessibilityState={{ expanded: summaryExpanded }}
-                >
-                    <View style={styles.metaGrid}>
-                        {(summaryExpanded ? babyMeta : babyMeta.slice(0, 4)).map((m, idx) => (
-                            <View
-                                key={idx}
-                                style={styles.metaItem}
-                                accessible={!!m.a11y}
-                                accessibilityLabel={m.a11y || undefined}
-                            >
-                                <Ionicons name={m.icon} size={14} color={colors.primary} />
-                                {m.text ? <Text style={styles.metaText}>{m.text}</Text> : null}
-                            </View>
-                        ))}
-                    </View>
-                    {summaryExpanded && trend && trend.pace ? (
-                        <View style={styles.trendRow}>
+
+                {/* Standing health facts — always visible, never collapsed.
+                    A recorded allergy or hereditary condition tints amber, not
+                    coral: DESIGN.md reserves coral for overdue/error/destructive
+                    and defines amber as "needs attention, caution", which is the
+                    honest read for a flag whose severity this app never records.
+                    Each row opens the edit form, so an unfilled row doubles as
+                    the prompt to fill it. */}
+                <View style={styles.idDivider} />
+                {vitalFacts.map((f) => {
+                    const filled = !!f.value;
+                    const flagged = filled && f.flag;
+                    return (
+                        <Pressable
+                            key={f.key}
+                            onPress={onOpenEditModal}
+                            style={({ pressed, hovered, focused }) => [
+                                styles.factRow,
+                                flagged && styles.factRowFlagged,
+                                { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.99 : 1 }] },
+                                focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.primary, "59")}` } : null,
+                            ]}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${f.label}: ${f.value || NONE_RECORDED}. Tap to edit.`}
+                        >
                             <Ionicons
-                                name={
-                                    trend.pace === "faster"
-                                        ? "trending-up"
-                                        : trend.pace === "slower"
-                                          ? "trending-down"
-                                          : "remove-outline"
-                                }
-                                size={14}
-                                color={
-                                    trend.pace === "faster"
-                                        ? colors.success
-                                        : trend.pace === "slower"
-                                          ? colors.warning
-                                          : colors.textMuted
-                                }
+                                name={f.icon}
+                                size={17}
+                                color={flagged ? colors.warning : colors.textMuted}
+                                style={{ marginTop: 2 }}
                             />
-                            <Text style={styles.trendText}>
-                                {trend.pace === "faster"
-                                    ? "Growing faster than before"
-                                    : trend.pace === "slower"
-                                      ? "Growing slower than before"
-                                      : "Growing at a steady pace"}
+                            <View style={styles.factBody}>
+                                <Text style={styles.factLabel}>{f.label}</Text>
+                                <Text
+                                    style={[
+                                        styles.factValue,
+                                        !filled && styles.factValueEmpty,
+                                        flagged && styles.factValueFlagged,
+                                    ]}
+                                >
+                                    {f.value || NONE_RECORDED}
+                                </Text>
+                            </View>
+                        </Pressable>
+                    );
+                })}
+
+                {/* Latest measurements. Value over label so the number is what
+                    the eye lands on, with the date underneath — "7.8 kg" means
+                    nothing without knowing when it was taken. */}
+                <View style={styles.idDivider} />
+                {measurements.length ? (
+                    <View>
+                        <View style={styles.statRow}>
+                            {measurements.map((m) => (
+                                <View
+                                    key={m.key}
+                                    style={styles.statCell}
+                                    accessible
+                                    accessibilityLabel={
+                                        m.value != null
+                                            ? `${m.label}: ${m.value} ${m.unit}`
+                                            : `${m.label}: not recorded`
+                                    }
+                                >
+                                    <Text style={styles.statValue}>
+                                        {m.value != null ? `${m.value} ${m.unit}` : "—"}
+                                    </Text>
+                                    <Text style={styles.statLabel}>{m.label}</Text>
+                                </View>
+                            ))}
+                        </View>
+                        {growth.date ? (
+                            <Text style={styles.statCaption}>Measured {shortDate(growth.date)}</Text>
+                        ) : null}
+                    </View>
+                ) : (
+                    <Pressable
+                        onPress={() => nav("growth", "metrics")}
+                        style={({ pressed, hovered, focused }) => [
+                            styles.factRow,
+                            { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.99 : 1 }] },
+                            focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.primary, "59")}` } : null,
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityLabel="No measurements yet. Tap to record one."
+                    >
+                        <Ionicons
+                            name="scale-outline"
+                            size={17}
+                            color={colors.textMuted}
+                            style={{ marginTop: 2 }}
+                        />
+                        <View style={styles.factBody}>
+                            <Text style={styles.factLabel}>Measurements</Text>
+                            <Text style={[styles.factValue, styles.factValueLink]}>
+                                Record the first one
                             </Text>
                         </View>
-                    ) : null}
-                    {summaryExpanded && (hasAllergies || profile.bloodType) ? (
-                        <View style={styles.healthRow}>
-                            {hasAllergies ? (
-                                <View style={[styles.healthChip, styles.healthChipWarning]}>
-                                    <Ionicons name="alert-circle-outline" size={12} color={colors.danger} />
-                                    <Text style={styles.healthChipTextWarning} numberOfLines={1}>
-                                        {profile.allergies.join(", ")}
-                                    </Text>
-                                </View>
-                            ) : null}
-                            {profile.bloodType ? (
-                                <View style={styles.healthChip}>
-                                    <Ionicons name="water-outline" size={12} color={colors.textSecondary} />
-                                    <Text style={styles.healthChipText}>{profile.bloodType}</Text>
-                                </View>
-                            ) : null}
-                        </View>
-                    ) : null}
-                </TouchableOpacity>
+                        <Ionicons
+                            name="chevron-forward"
+                            size={16}
+                            color={colors.primary}
+                            style={{ marginTop: 2 }}
+                        />
+                    </Pressable>
+                )}
+
+                {/* Care contacts — the one thing worth hiding. Skipped entirely
+                    when the parent hasn't filled in any of them, rather than
+                    offering a disclosure that opens onto nothing. */}
+                {careFacts.length ? (
+                    <>
+                        <View style={styles.idDivider} />
+                        <Pressable
+                            onPress={() => setDetailsExpanded((v) => !v)}
+                            style={({ pressed, hovered, focused }) => [
+                                styles.moreRow,
+                                { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.99 : 1 }] },
+                                focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.primary, "59")}` } : null,
+                            ]}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${detailsExpanded ? "Hide" : "Show"} care contacts`}
+                            accessibilityState={{ expanded: detailsExpanded }}
+                        >
+                            <Text style={styles.moreText}>
+                                {detailsExpanded ? "Hide details" : "More details"}
+                            </Text>
+                            <Ionicons
+                                name={detailsExpanded ? "chevron-up" : "chevron-down"}
+                                size={18}
+                                color={colors.primary}
+                            />
+                        </Pressable>
+                        {detailsExpanded
+                            ? careFacts.map((f) => (
+                                  <View
+                                      key={f.key}
+                                      style={styles.factRow}
+                                      accessible
+                                      accessibilityLabel={`${f.label}: ${f.value}`}
+                                  >
+                                      <Ionicons
+                                          name={f.icon}
+                                          size={17}
+                                          color={colors.textMuted}
+                                          style={{ marginTop: 2 }}
+                                      />
+                                      <View style={styles.factBody}>
+                                          <Text style={styles.factLabel}>{f.label}</Text>
+                                          <Text style={styles.factValue}>{f.value}</Text>
+                                      </View>
+                                  </View>
+                              ))
+                            : null}
+                    </>
+                ) : null}
             </View>
 
-            {/* Growth chart — reuses the same growth history already fetched
-                for the faster/slower verdict above. Sex and date of birth are
+            {/* Growth chart — reuses the same growth history the Health ID
+                card's measurement strip reads from. Sex and date of birth are
                 what let it draw the WHO reference bands; without them it still
-                plots the child's own line. */}
+                plots the child's own line. This card owns growth *over time*;
+                the strip above only states the latest numbers. */}
             <GrowthChart
                 rows={growthRows}
                 sex={profile?.sex || profile?.gender}
@@ -1010,8 +1297,18 @@ export default function Dashboard({
                             Fed {todayFeeding.count} time{todayFeeding.count === 1 ? "" : "s"} today
                         </Text>
                         <Text style={styles.feedingSub}>
-                            {todayFeeding.totalMl > 0 ? `${todayFeeding.totalMl} mL total` : "Solid food logged"}
-                            {todayFeeding.lastTime ? ` · last at ${todayFeeding.lastTime.slice(0, 5)}` : ""}
+                            {[
+                                todayFeeding.totalMl > 0 ? `${todayFeeding.totalMl} mL` : null,
+                                todayFeeding.breastMinutes > 0
+                                    ? `${durationText(todayFeeding.breastMinutes)} at the breast`
+                                    : null,
+                                todayFeeding.solidCount > 0
+                                    ? `${todayFeeding.solidCount} solid${todayFeeding.solidCount === 1 ? "" : "s"}`
+                                    : null,
+                                todayFeeding.lastTime ? `last at ${todayFeeding.lastTime.slice(0, 5)}` : null,
+                            ]
+                                .filter(Boolean)
+                                .join(" · ")}
                         </Text>
                     </View>
                 ) : (
@@ -1109,62 +1406,15 @@ export default function Dashboard({
                 onClose={() => setDetailMemory(null)}
             />
 
-            {/* Add Memory Modal */}
-            <Modal visible={showMemoryModal} transparent animationType="slide">
-                <View style={styles.modalBg}>
-                    <View style={styles.modalCard}>
-                        <Text style={styles.modalTitle}>Add Photo Memory</Text>
-
-                        <Text style={styles.modalLabel}>Caption</Text>
-                        <TextInput
-                            style={styles.modalInput}
-                            placeholder="First steps!"
-                            placeholderTextColor={colors.placeholder}
-                            value={memCaption}
-                            onChangeText={setMemCaption}
-                        />
-
-                        <Text style={styles.modalLabel}>Notes (optional)</Text>
-                        <TextInput
-                            style={styles.modalInput}
-                            value={memNotes}
-                            onChangeText={setMemNotes}
-                        />
-
-                        {pickerAvailable() && (
-                            <TouchableOpacity
-                                style={styles.choosePhotoBtn}
-                                onPress={async () => {
-                                    const uri = await pickImage();
-                                    if (uri) setMemPhotoUri(uri);
-                                }}
-                            >
-                                <Ionicons name="image-outline" size={16} color={colors.primary} />
-                                <Text style={styles.choosePhotoText}>
-                                    {memPhotoUri ? "Photo selected ✓ (tap to change)" : "Choose Photo from Device"}
-                                </Text>
-                            </TouchableOpacity>
-                        )}
-
-                        <View style={styles.modalButtons}>
-                            <Button
-                                title={t("cancel")}
-                                variant="secondary"
-                                fullWidth={false}
-                                disabled={savingMemory}
-                                onPress={() => setShowMemoryModal(false)}
-                            />
-                            <Button
-                                title={t("save")}
-                                variant="accent"
-                                fullWidth={false}
-                                loading={savingMemory}
-                                onPress={handleAddMemory}
-                            />
-                        </View>
-                    </View>
-                </View>
-            </Modal>
+            {/* Shared with the Growth screen's Gallery tab — see
+                ui/AddMemoryModal.js. It used to live inline here, which is why
+                the gallery had no way to add to itself. */}
+            <AddMemoryModal
+                visible={showMemoryModal}
+                profile={profile}
+                onClose={() => setShowMemoryModal(false)}
+                onSaved={(m) => setMemories((prev) => [m, ...prev])}
+            />
         </ScrollView>
     );
 }
@@ -1180,19 +1430,56 @@ const makeStyles = (colors) => StyleSheet.create({
     profileBar: { marginBottom: space.md },
     profileBarSingle: { marginBottom: space.md, alignItems: "flex-start" },
     profilesScroll: { alignItems: "center", paddingRight: space.xs },
-    profileTab: {
+    // Named child pill. minHeight is the real 44 floor — the old photo-only
+    // version was 32px of avatar plus 4px of padding, i.e. 40.
+    childPill: {
+        flexDirection: "row",
         alignItems: "center",
-        justifyContent: "center",
+        gap: space.sm,
         backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.border,
         borderRadius: radius.pill,
         borderCurve: "continuous",
-        padding: space.xs,
+        paddingLeft: space.xs + 2,
+        paddingRight: space.md,
+        paddingVertical: space.xs + 2,
+        minHeight: MIN_TOUCH,
         marginRight: space.sm,
+        maxWidth: 190,
         ...shadow.card,
     },
-    profileTabActive: { borderColor: colors.accent, backgroundColor: colors.primarySoft },
+    // Selected reads as a filled pill, not a 1px border-colour change on a
+    // 32px circle, which was effectively invisible.
+    childPillOn: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+    childName: { ...type.label, color: colors.textSecondary, flexShrink: 1 },
+    childNameOn: { color: colors.primaryDark },
+    // Coral = overdue, matching the Needs Attention card it mirrors.
+    childDot: {
+        position: "absolute",
+        top: -1,
+        right: -1,
+        width: 11,
+        height: 11,
+        borderRadius: 6,
+        borderCurve: "continuous",
+        backgroundColor: colors.danger,
+        borderWidth: 2,
+        borderColor: colors.surface,
+    },
+    addChildPill: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.xs,
+        backgroundColor: colors.softGreen,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
+        paddingHorizontal: space.md,
+        minHeight: MIN_TOUCH,
+    },
+    addChildText: { ...type.label, color: colors.primaryDark },
     avatarMini: { width: 32, height: 32, borderRadius: 16, borderCurve: "continuous" },
     avatarFallback: { backgroundColor: colors.softGreen, alignItems: "center", justifyContent: "center" },
     addProfileButton: {
@@ -1207,67 +1494,83 @@ const makeStyles = (colors) => StyleSheet.create({
         paddingVertical: space.sm,
         minHeight: 44,
     },
-    // Icon-only version, used in the multi-child switcher row where photos
-    // already fill that role and a text label would just repeat "add".
-    addProfileIconButton: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        borderCurve: "continuous",
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: colors.softGreen,
-        borderWidth: 1,
-        borderColor: colors.border,
-    },
     addProfileText: { ...type.label, color: colors.primaryDark, marginLeft: 3 },
 
-    // Baby Summary Card
-    summaryCard: {
+    // Child Health ID card. Matches the house section-card shell from
+    // common/Cards.js (radius.xl, 18px padding, hairline + shadow.card) so it
+    // sits in the same visual family as every other section on this screen.
+    idCard: {
         backgroundColor: colors.surface,
         borderRadius: radius.xl,
         borderCurve: "continuous",
         borderWidth: 1,
         borderColor: colors.hairline,
-        padding: space.md,
+        padding: space.lg + 2,
         marginBottom: space.lg,
         ...shadow.card,
     },
-    summaryTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-    summaryEdit: {
-        width: 30,
-        height: 30,
+    idHeader: { flexDirection: "row", alignItems: "center", gap: space.md },
+    idAvatar: { width: 56, height: 56, borderRadius: 28, borderCurve: "continuous" },
+    idAvatarFallback: { backgroundColor: colors.softGreen, alignItems: "center", justifyContent: "center" },
+    idName: { ...type.heading, color: colors.text },
+    idNickname: { ...type.caption, color: colors.textMuted, marginTop: 1 },
+    idSub: { ...type.caption, color: colors.textSecondary, marginTop: 2 },
+    idEdit: {
+        width: MIN_TOUCH,
+        height: MIN_TOUCH,
         borderRadius: radius.pill,
         borderCurve: "continuous",
         alignItems: "center",
         justifyContent: "center",
         backgroundColor: colors.softGreen,
     },
-    metaGrid: {
+    idDivider: { height: 1, backgroundColor: colors.hairline, marginVertical: space.md },
+
+    // Fact rows — fixed-width label so every value starts on the same x, which
+    // is what makes the block scannable rather than a paragraph of pairs.
+    // Label above value, not beside it. A fixed label column left roughly
+    // 130px for the value at phone width, which truncated real entries
+    // ("Mild egg sensitivit…"). Allergy and hereditary text is arbitrary
+    // length and is exactly the content that must not be cut off.
+    factRow: {
         flexDirection: "row",
-        flexWrap: "wrap",
-        justifyContent: "space-between",
-        marginTop: space.sm,
+        alignItems: "flex-start",
+        gap: space.sm,
+        minHeight: MIN_TOUCH,
+        paddingHorizontal: space.sm,
+        paddingVertical: space.sm,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
     },
-    metaItem: { width: "48%", flexDirection: "row", alignItems: "center", gap: space.sm, marginBottom: space.sm },
-    metaText: { ...type.caption, color: colors.textSecondary },
-    trendRow: { flexDirection: "row", alignItems: "center", gap: space.sm, marginTop: 4 },
-    trendText: { ...type.caption, color: colors.textSecondary },
-    healthRow: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginTop: 8 },
-    healthChip: {
+    factRowFlagged: { backgroundColor: colors.warningBg },
+    factBody: { flex: 1 },
+    factLabel: { ...type.caption, color: colors.textMuted },
+    factValue: { ...type.body, color: colors.text },
+    factValueEmpty: { color: colors.textMuted },
+    // Weight, not just hue — the amber fill and amber icon are two signals, the
+    // heavier value is the third, so a flagged row still reads as flagged
+    // without color (DESIGN.md: never let a state depend on hue alone).
+    factValueFlagged: { ...type.bodyStrong },
+    factValueLink: { color: colors.primary },
+
+    // Measurement strip — value above label, so the number reads first.
+    statRow: { flexDirection: "row" },
+    statCell: { flex: 1, alignItems: "flex-start" },
+    statValue: { ...type.bodyStrong, color: colors.text },
+    statLabel: { ...type.caption, color: colors.textMuted, marginTop: 1 },
+    statCaption: { ...type.caption, color: colors.textMuted, marginTop: space.sm },
+
+    // Care-contacts disclosure
+    moreRow: {
         flexDirection: "row",
         alignItems: "center",
-        gap: 4,
-        backgroundColor: colors.surfaceAlt,
-        borderRadius: radius.pill,
-        borderCurve: "continuous",
+        justifyContent: "space-between",
+        minHeight: MIN_TOUCH,
         paddingHorizontal: space.sm,
-        paddingVertical: 4,
-        maxWidth: "100%",
+        borderRadius: radius.md,
+        borderCurve: "continuous",
     },
-    healthChipWarning: { backgroundColor: colors.dangerBg },
-    healthChipText: { ...type.caption, color: colors.textSecondary },
-    healthChipTextWarning: { ...type.caption, color: colors.danger, flexShrink: 1 },
+    moreText: { ...type.label, color: colors.primary },
 
     // Error banner — shown when a fetch genuinely failed, so a network outage
     // never looks identical to "this child has no records yet".
@@ -1286,27 +1589,70 @@ const makeStyles = (colors) => StyleSheet.create({
     errorBannerText: { ...type.caption, color: colors.text, flex: 1 },
     errorBannerRetry: { ...type.caption, color: colors.danger },
 
-    // Needs Attention
+    // Needs Attention. A white surface with a coral border and coral header,
+    // rather than a wholly coral-tinted card — the alarm is carried by the
+    // frame, which leaves each row free to state its own urgency in its own
+    // colour. A flat red ground made every row look equally dire and left
+    // nowhere for amber to read.
     attentionCard: {
-        backgroundColor: colors.dangerBg,
-        borderRadius: radius.lg,
+        backgroundColor: colors.surface,
+        borderRadius: radius.xl,
         borderCurve: "continuous",
         borderWidth: 1,
         borderColor: colors.danger,
-        padding: space.md,
+        padding: space.lg + 2,
         marginBottom: space.lg,
         ...shadow.card,
     },
-    attentionHeader: { flexDirection: "row", alignItems: "center", gap: space.sm, marginBottom: space.xs },
-    attentionTitle: { ...type.label, color: colors.danger },
+    attentionHeader: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.sm,
+        marginBottom: space.xs,
+    },
+    attentionTitle: { ...type.heading, color: colors.danger, flex: 1 },
+    // The total, stated instead of inferred from "1 + 8 more".
+    attentionCount: {
+        minWidth: 24,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
+        backgroundColor: colors.danger,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    attentionCountText: { ...type.label, color: colors.onPrimary },
     attentionRow: {
         flexDirection: "row",
         alignItems: "center",
-        justifyContent: "space-between",
+        gap: space.md,
+        minHeight: MIN_TOUCH,
         paddingVertical: space.sm,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
     },
-    attentionText: { ...type.caption, color: colors.text, flex: 1 },
-    attentionMoreText: { ...type.label, color: colors.danger, flex: 1 },
+    attentionIcon: {
+        width: 40,
+        height: 40,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    attentionText: { ...type.bodyStrong, color: colors.text },
+    attentionSub: { ...type.caption, marginTop: 1 },
+    attentionMore: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        minHeight: MIN_TOUCH,
+        marginTop: space.xs,
+        paddingTop: space.sm,
+        borderTopWidth: 1,
+        borderTopColor: colors.hairline,
+    },
+    attentionMoreText: { ...type.label, color: colors.danger },
 
     // Today's feeding summary
     feedingCard: {
@@ -1516,58 +1862,4 @@ const makeStyles = (colors) => StyleSheet.create({
     activityTitle: { ...type.bodyStrong, color: colors.text },
     activitySubtitle: { ...type.caption, color: colors.textMuted, marginTop: space.xs },
     activityTime: { ...type.caption, color: colors.textMuted, marginLeft: space.sm },
-
-    // Add Memory modal
-    choosePhotoBtn: {
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 8,
-        height: 48,
-        borderRadius: radius.md,
-        borderCurve: "continuous",
-        borderWidth: 1,
-        borderColor: colors.border,
-        backgroundColor: colors.softGreen,
-        marginBottom: space.sm,
-    },
-    choosePhotoText: { ...type.label, color: colors.primaryDark },
-    modalBg: {
-        flex: 1,
-        backgroundColor: "rgba(28,25,23,0.55)",
-        justifyContent: "center",
-        alignItems: "center",
-        padding: space.xl,
-    },
-    modalCard: {
-        backgroundColor: colors.background,
-        borderRadius: radius.xl,
-        borderCurve: "continuous",
-        padding: space.xl,
-        width: "100%",
-        maxWidth: 360,
-        borderWidth: 1,
-        borderColor: colors.hairline,
-        ...shadow.raised,
-    },
-    modalTitle: { ...type.title, color: colors.text, marginBottom: space.lg },
-    modalLabel: {
-        ...type.subheading,
-        color: colors.textMuted,
-        marginBottom: space.sm,
-    },
-    modalInput: {
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: radius.md,
-        borderCurve: "continuous",
-        paddingHorizontal: space.md,
-        height: 48,
-        fontSize: type.body.fontSize,
-        fontFamily: type.body.fontFamily,
-        color: colors.text,
-        marginBottom: space.lg,
-    },
-    modalButtons: { flexDirection: "row", justifyContent: "flex-end", gap: space.md },
 });

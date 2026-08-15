@@ -77,17 +77,26 @@ export function profileFormToChild(form, { includeBirth = true } = {}) {
     return body;
 }
 
-// Backend nutrition_records row -> app nutrition shape.
 // Backend nutrition_records row -> app nutrition entry (unified milk + solid).
+//
+// `feedMethod` falls back to "bottle" when the row records a volume, which is
+// what every pre-migration milk row is. It stays "" when there's nothing to
+// infer from, so "not recorded" never masquerades as a real answer.
 export function nutritionToApp(n) {
+    const quantity = n.quantity != null && n.quantity !== "" ? Number(n.quantity) : null;
     return {
         id: String(n.id),
         entryType: n.entry_type || "milk",
         milkType: n.milk_type || "",
+        feedMethod: n.feed_method || (quantity != null ? "bottle" : ""),
         formulaBrand: n.formula_brand || "",
-        quantity: n.quantity != null && n.quantity !== "" ? Number(n.quantity) : null,
+        quantity,
         unit: n.unit || "",
+        durationMinutes: n.duration_minutes != null && n.duration_minutes !== "" ? Number(n.duration_minutes) : null,
+        // breast_side is deliberately not surfaced — the form doesn't collect
+        // it and nothing renders it. See the column comment in schema.sql.
         foodIntroduced: n.food_introduced || "",
+        reactionSeverity: n.reaction_severity || "",
         reaction: n.reaction || "",
         date: n.entry_date ? String(n.entry_date).slice(0, 10) : "",
         time: n.entry_time ? String(n.entry_time).slice(0, 5) : "",
@@ -96,25 +105,53 @@ export function nutritionToApp(n) {
 }
 
 // App nutrition form -> backend nutrition_records body.
+//
+// Every branch writes every field, nulling the ones that don't apply. Editing
+// a bottle feed into a breastfeed has to clear the old volume, or the row ends
+// up claiming both a quantity and a duration.
 export function nutritionFormToRecord(form) {
     const body = { entry_type: form.entryType || "milk", notes: form.notes || null };
     if (form.date) body.entry_date = form.date;
     if (form.time) body.entry_time = form.time;
     if ((form.entryType || "milk") === "milk") {
+        // Formula is by definition a bottle, so the form hides the choice.
+        const method = form.milkType === "Formula" ? "bottle" : form.feedMethod || "bottle";
         body.milk_type = form.milkType || null;
-        body.formula_brand =
-            form.milkType === "Formula" || form.milkType === "Mixed" ? form.formulaBrand || null : null;
-        body.quantity = form.quantity === "" || form.quantity == null ? null : Number(form.quantity);
-        body.unit = form.unit || null;
+        body.feed_method = method;
         body.food_introduced = null;
+        body.reaction_severity = null;
         body.reaction = null;
+        if (method === "breast") {
+            // Duration is optional; blank saves as NULL rather than 0, so
+            // "not recorded" and "a zero-minute feed" stay distinguishable.
+            const mins = String(form.durationMinutes ?? "").trim();
+            body.duration_minutes = mins === "" ? null : Number(mins);
+            // The form no longer collects which breast — see the column
+            // comment in schema.sql.
+            body.breast_side = null;
+            body.quantity = null;
+            body.unit = null;
+            body.formula_brand = null;
+        } else {
+            body.quantity = form.quantity === "" || form.quantity == null ? null : Number(form.quantity);
+            body.unit = form.unit || null;
+            body.formula_brand =
+                form.milkType === "Formula" || form.milkType === "Mixed" ? form.formulaBrand || null : null;
+            body.duration_minutes = null;
+            body.breast_side = null;
+        }
     } else {
         body.food_introduced = form.foodIntroduced || null;
-        body.reaction = form.reaction || null;
+        body.reaction_severity = form.reactionSeverity || null;
+        // The description only means anything alongside an actual reaction.
+        body.reaction = form.reactionSeverity && form.reactionSeverity !== "none" ? form.reaction || null : null;
         body.milk_type = null;
+        body.feed_method = null;
         body.formula_brand = null;
         body.quantity = null;
         body.unit = null;
+        body.duration_minutes = null;
+        body.breast_side = null;
     }
     return body;
 }
@@ -125,6 +162,37 @@ export function toMilliliters(quantity, unit) {
     if (unit === "oz") return quantity * 29.5735;
     if (unit === "L") return quantity * 1000;
     return quantity; // mL
+}
+
+// Volume of a single feed in mL. A breastfeed contributes none — there is no
+// measured volume to contribute. Anything asking "did this child feed" must
+// count entries rather than summing this, or a day of eight breastfeeds
+// totals zero and reads as a day with no feeding at all.
+export function feedVolumeMl(e) {
+    if (!e || e.feedMethod === "breast") return 0;
+    return toMilliliters(e.quantity, e.unit);
+}
+
+// One-line description of a RAW nutrition_records row, for the four places
+// that render feeds without adapting them first: the Dashboard's Recent
+// Activity, All Activity, the professional portal and the PDF export. All
+// four had their own copy of the same template, all four built it from
+// quantity alone, and all four therefore printed a bare milk type — or a
+// literal "?" — for every feed given at the breast.
+export function feedRowSummary(n) {
+    if (!n) return "";
+    if ((n.entry_type || "milk") !== "milk") {
+        return `Solid food${n.food_introduced ? ` • ${n.food_introduced}` : ""}`;
+    }
+    const base = n.milk_type || "Milk";
+    if (n.feed_method === "breast") {
+        // Duration is optional, so "at the breast" is the fallback rather than
+        // a bare milk type — the record still says what kind of feed it was.
+        const mins = Number(n.duration_minutes);
+        return Number.isFinite(mins) && mins > 0 ? `${base} • ${mins} min` : `${base} • at the breast`;
+    }
+    const qty = n.quantity != null && n.quantity !== "" ? Number(n.quantity) : null;
+    return qty != null ? `${base} • ${qty} ${n.unit || "mL"}` : base;
 }
 
 // Backend checkup row -> app appointment shape (Growth appointments list).

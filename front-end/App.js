@@ -25,6 +25,7 @@ import {
     PublicSans_700Bold,
 } from "@expo-google-fonts/public-sans";
 import { radius, space, shadow, type, MIN_TOUCH, motion } from "./theme";
+import ActionSheet from "./components/ui/ActionSheet";
 
 // Guarded expo-haptics, same pattern as ui/Toast.js — a no-op if the module
 // isn't available rather than a crash.
@@ -89,7 +90,6 @@ import SideMenu, { MENU_TITLES } from "./components/SideMenu";
 import CalendarView from "./components/CalendarView";
 import AllActivity from "./components/AllActivity";
 import Search from "./components/Search";
-import AllMemories from "./components/AllMemories";
 import OfflineSummaryView from "./components/OfflineSummaryView";
 import AppLoadingScreen from "./components/AppLoadingScreen";
 import { DateField, TimeField } from "./components/ui/DateField";
@@ -110,9 +110,8 @@ import { pickImage, pickerAvailable } from "./utils/imagePicker";
 
 // Header title shown ("← <title>") whenever currentView is a side-menu
 // destination or Share Records — reuses SideMenu's own labels so they can't
-// drift apart. Screens absent here (the 5 bottom tabs, allActivity,
-// allMemories — the latter two already draw their own back header) keep
-// showing the baby's name instead.
+// drift apart. Screens absent here (the 5 bottom tabs, allActivity — which
+// draws its own back header) keep showing the baby's name instead.
 const SCREEN_TITLES = { ...MENU_TITLES, share: "Share Records", offlineSummary: "Offline Summary" };
 
 function MainAppShell({
@@ -243,17 +242,15 @@ function MainAppShell({
         setActionSheetVisible(false);
         changeView(view, tab);
     };
-    const ACTION_SHEET_ITEMS = [
-        { key: "milk", label: "Log Milk", icon: "water-outline", view: "nutrition", tab: "milk" },
-        { key: "food", label: "Log Food", icon: "restaurant-outline", view: "nutrition", tab: "solid" },
-        { key: "growth", label: "Log Growth", icon: "resize-outline", view: "growth", tab: "metrics" },
-        { key: "checkup", label: "Schedule Appointment", icon: "calendar-outline", view: "health", tab: "appointments" },
-        { key: "medication", label: "Add Medication", icon: "medical-outline", view: "health", tab: "medications" },
-        { key: "illness", label: "Add Illness", icon: "pulse-outline", view: "health", tab: "illness" },
-        { key: "vaccine", label: "Add Vaccine", icon: "medkit-outline", view: "health", tab: "vaccine" },
-        { key: "hospitalization", label: "Add Hospitalization", icon: "bandage-outline", view: "health", tab: "hospitalization" },
-        { key: "memory", label: "Add Memory", icon: "image-outline", view: "dashboard", tab: "memory" },
-    ];
+    // The nine actions themselves now live in ui/ActionSheet.js, alongside the
+    // usage counters that order its shortcut row.
+    //
+    // The "+" only appears on the five bottom-tab screens. It used to render
+    // everywhere, which put a "log something" affordance over Privacy
+    // Settings, Search, Share Records and — worst — Offline Summary, the
+    // read-only screen whose whole promise is that it works with no signal.
+    const FAB_VIEWS = ["dashboard", "health", "growth", "nutrition", "calendar"];
+    const showFab = FAB_VIEWS.includes(currentView);
 
     // Core records lists — children now load from the backend.
     const [profiles, setProfiles] = useState([]);
@@ -828,7 +825,7 @@ function MainAppShell({
                 )}
                 {currentView === "nutrition" && (
                     <NutritionTracker
-                        childId={activeProfile.id}
+                        profile={activeProfile}
                         initialAction={navTab}
                         navKey={navKey}
                     />
@@ -837,9 +834,6 @@ function MainAppShell({
                 {currentView === "calendar" && <CalendarView profile={activeProfile} />}
                 {currentView === "allActivity" && (
                     <AllActivity profile={activeProfile} onClose={goBack} />
-                )}
-                {currentView === "allMemories" && (
-                    <AllMemories profile={activeProfile} onClose={goBack} />
                 )}
                 {currentView === "search" && (
                     <Search profile={activeProfile} onClose={goBack} onNavigate={changeView} />
@@ -932,59 +926,24 @@ function MainAppShell({
                 })}
             </View>
 
-            {/* Floating "log something" button, sits above the tab bar and stays
-                reachable from every screen — Calendar keeps its own tab, this is
-                purely additive. */}
-            <TouchableOpacity
-                onPress={() => setActionSheetVisible(true)}
-                style={styles.fab}
-                accessibilityRole="button"
-                accessibilityLabel="Log something"
-            >
-                <Ionicons name="add" size={28} color={colors.onAccent} />
-            </TouchableOpacity>
+            {/* Floating add button, above the tab bar on the five record
+                screens. See FAB_VIEWS above for why it is no longer global. */}
+            {showFab ? (
+                <TouchableOpacity
+                    onPress={() => setActionSheetVisible(true)}
+                    style={styles.fab}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add a record"
+                >
+                    <Ionicons name="add" size={28} color={colors.onPrimary} />
+                </TouchableOpacity>
+            ) : null}
 
-            <Modal
+            <ActionSheet
                 visible={actionSheetVisible}
-                transparent
-                animationType="fade"
-                onRequestClose={() => setActionSheetVisible(false)}
-            >
-                <View style={styles.actionSheetRoot}>
-                    <TouchableOpacity
-                        style={StyleSheet.absoluteFill}
-                        activeOpacity={1}
-                        onPress={() => setActionSheetVisible(false)}
-                        accessibilityRole="button"
-                        accessibilityLabel="Close"
-                    />
-                    <View style={styles.actionSheetCard}>
-                        <Text style={styles.actionSheetTitle}>Log something</Text>
-                        <ScrollView style={styles.actionSheetScroll} showsVerticalScrollIndicator={false}>
-                            {ACTION_SHEET_ITEMS.map((opt) => (
-                                <TouchableOpacity
-                                    key={opt.key}
-                                    style={styles.actionSheetItem}
-                                    onPress={() => runAction(opt.view, opt.tab)}
-                                    accessibilityRole="button"
-                                    accessibilityLabel={opt.label}
-                                >
-                                    <Ionicons name={opt.icon} size={20} color={colors.primary} />
-                                    <Text style={styles.actionSheetItemText}>{opt.label}</Text>
-                                </TouchableOpacity>
-                            ))}
-                        </ScrollView>
-                        <TouchableOpacity
-                            style={styles.actionSheetCancel}
-                            onPress={() => setActionSheetVisible(false)}
-                            accessibilityRole="button"
-                            accessibilityLabel="Cancel"
-                        >
-                            <Text style={styles.actionSheetCancelText}>Cancel</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </Modal>
+                onClose={() => setActionSheetVisible(false)}
+                onSelect={runAction}
+            />
 
             {/* Modal: ADD BABY PROFILE */}
             <Modal
@@ -1596,56 +1555,12 @@ const makeStyles = (colors) => StyleSheet.create({
         width: 56,
         height: 56,
         borderRadius: 28,
-        backgroundColor: colors.accentStrong,
+        borderCurve: "continuous",
+        backgroundColor: colors.primary,
         alignItems: "center",
         justifyContent: "center",
         ...shadow.accent,
     },
-    actionSheetRoot: {
-        flex: 1,
-        justifyContent: "flex-end",
-        backgroundColor: "rgba(28,25,23,0.45)",
-    },
-    actionSheetCard: {
-        backgroundColor: colors.background,
-        borderTopLeftRadius: radius.xl,
-        borderTopRightRadius: radius.xl,
-        borderCurve: "continuous",
-        padding: space.lg,
-        paddingBottom: space.xl,
-        ...shadow.raised,
-    },
-    actionSheetTitle: {
-        fontSize: 16,
-        fontWeight: "800",
-        color: colors.text,
-        marginBottom: space.md,
-        textAlign: "center",
-    },
-    actionSheetScroll: {
-        maxHeight: 420,
-    },
-    actionSheetItem: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: space.md,
-        minHeight: 48,
-        paddingHorizontal: space.md,
-        borderRadius: radius.md,
-        borderCurve: "continuous",
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.hairline,
-        marginBottom: space.sm,
-    },
-    actionSheetItemText: { fontSize: 14, fontWeight: "700", color: colors.text },
-    actionSheetCancel: {
-        marginTop: space.xs,
-        minHeight: 48,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    actionSheetCancelText: { fontSize: 14, fontWeight: "700", color: colors.textSecondary },
     modalBg: {
         flex: 1,
         backgroundColor: "rgba(28,25,23,0.55)",

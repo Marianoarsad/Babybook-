@@ -303,25 +303,29 @@ async function seed() {
             );
 
             // ================= NUTRITION: solid-food introductions =================
+            // `severity` is the structured field the app counts and filters on;
+            // `reaction` is only the description of one, so it stays null when
+            // nothing happened rather than holding the string "None".
             const solidRows = [
-                [6, "Rice Cereal", "None", "First solid food."],
-                [6.5, "Mashed Banana", "None", null],
-                [7, "Avocado", "None", null],
-                [7.5, "Sweet Potato", "None", null],
-                [8, "Scrambled Egg", "Mild rash around mouth — resolved within hours", "Discussed with pediatrician; continue monitoring."],
-                [8.5, "Pureed Chicken", "None", null],
-                [9, "Oats & Yogurt", "None", null],
-                [10, "Peanut Butter (thinned)", "None", "Introduced per pediatrician guidance, watched closely."],
-                [11, "Soft Finger Foods", "None", null],
-                [12, "Table Foods", "None", "Three meals + two snacks a day now."],
+                [6, "Rice Cereal", "none", null, "First solid food."],
+                [6.5, "Mashed Banana", "none", null, null],
+                [7, "Avocado", "none", null, null],
+                [7.5, "Sweet Potato", "none", null, null],
+                [8, "Scrambled Egg", "mild", "Mild rash around mouth — resolved within hours", "Discussed with pediatrician; continue monitoring."],
+                [8.5, "Pureed Chicken", "none", null, null],
+                [9, "Oats & Yogurt", "none", null, null],
+                [10, "Peanut Butter (thinned)", "none", null, "Introduced per pediatrician guidance, watched closely."],
+                [11, "Soft Finger Foods", "none", null, null],
+                [12, "Table Foods", "none", null, "Three meals + two snacks a day now."],
             ];
-            for (const [m, food, reaction, notes] of solidRows) {
+            for (const [m, food, severity, reaction, notes] of solidRows) {
                 const date = jitterDays(addMonths(DOB, m), 2);
                 if (date > NOW) continue;
                 await c.query(
-                    `INSERT INTO nutrition_records (child_id, entry_type, food_introduced, reaction, entry_date, entry_time, notes)
-                     VALUES ($1,'solid',$2,$3,$4,'12:00',$5)`,
-                    [childId, food, reaction, ymd(date), notes]
+                    `INSERT INTO nutrition_records
+                        (child_id, entry_type, food_introduced, reaction_severity, reaction, entry_date, entry_time, notes)
+                     VALUES ($1,'solid',$2,$3,$4,$5,'12:00',$6)`,
+                    [childId, food, severity, reaction, ymd(date), notes]
                 );
             }
 
@@ -447,6 +451,16 @@ async function seed() {
                 if (ageMonths < 12) return { milk_type: "Mixed", brand: "Enfamil A+" };
                 return { milk_type: "Formula", brand: "Enfamil A+" };
             }
+            // How each feed was given. Breastmilk months are fed at the breast
+            // (minutes + side, no volume); formula is always a bottle. The
+            // Mixed months genuinely mix the two within a single day, which is
+            // what a mixed-fed baby looks like and what exercises the app's
+            // "this day has both kinds" handling.
+            function methodFor(milkType, index) {
+                if (milkType === "Breastmilk") return "breast";
+                if (milkType === "Formula") return "bottle";
+                return index % 2 === 0 ? "breast" : "bottle";
+            }
             function ageMonthsAt(date) {
                 return (date.getTime() - DOB.getTime()) / (30.44 * DAY_MS);
             }
@@ -461,13 +475,30 @@ async function seed() {
                     const hour = Math.round((24 / mp.perDay) * i + Math.random() * 1.5);
                     const fedAt = new Date(dayStart.getTime() + hour * 60 * 60 * 1000);
                     if (fedAt > NOW) continue;
-                    const ml = Math.round(mp.ml[0] + Math.random() * (mp.ml[1] - mp.ml[0]));
-                    await c.query(
-                        `INSERT INTO nutrition_records
-                            (child_id, entry_type, milk_type, formula_brand, quantity, unit, entry_date, entry_time)
-                         VALUES ($1,'milk',$2,$3,$4,'mL',$5,$6)`,
-                        [childId, mt.milk_type, mt.brand, ml, ymd(fedAt), `${pad2(fedAt.getHours())}:${pad2(fedAt.getMinutes())}`]
-                    );
+                    const time = `${pad2(fedAt.getHours())}:${pad2(fedAt.getMinutes())}`;
+                    const method = methodFor(mt.milk_type, i);
+                    if (method === "breast") {
+                        // Roughly one feed in five has no duration, because
+                        // that is what real use looks like — the field is
+                        // optional and a parent logging a night feed hours
+                        // later genuinely does not know the minutes. The
+                        // charts have to stay readable against that.
+                        const mins = i % 5 === 0 ? null : 10 + Math.round(Math.random() * 15);
+                        await c.query(
+                            `INSERT INTO nutrition_records
+                                (child_id, entry_type, milk_type, feed_method, duration_minutes, entry_date, entry_time)
+                             VALUES ($1,'milk',$2,'breast',$3,$4,$5)`,
+                            [childId, mt.milk_type, mins, ymd(fedAt), time]
+                        );
+                    } else {
+                        const ml = Math.round(mp.ml[0] + Math.random() * (mp.ml[1] - mp.ml[0]));
+                        await c.query(
+                            `INSERT INTO nutrition_records
+                                (child_id, entry_type, milk_type, feed_method, formula_brand, quantity, unit, entry_date, entry_time)
+                             VALUES ($1,'milk',$2,'bottle',$3,$4,'mL',$5,$6)`,
+                            [childId, mt.milk_type, mt.brand, ml, ymd(fedAt), time]
+                        );
+                    }
                 }
             }
 

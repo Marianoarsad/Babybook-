@@ -41,9 +41,12 @@ export default function PercentileChart({
     // bands are simply omitted rather than guessed.
     const sexKey = useMemo(() => normalizeSex(sex), [sex]);
 
-    const chartHeight = compact ? 150 : 236;
+    const chartHeight = compact ? 168 : 236;
     const padTop = 10;
-    const padBottom = compact ? 16 : 22;
+    // Compact used to be 16, which left no room for the x axis and was the
+    // reason compact had no time reference at all. A curve without an age axis
+    // can't be read: three months of growth and three years look identical.
+    const padBottom = 22;
     // Widened from 30/26 to fit the 13px tick labels (DESIGN.md's 13px text
     // floor) without clipping — narrower and "14.5"/"med" started running off
     // the left/right edge of the compact chart.
@@ -238,38 +241,38 @@ export default function PercentileChart({
                               ))
                             : null}
 
-                        {/* X scale */}
-                        {!compact
-                            ? xTicks.map((t, i) => (
-                                  <SvgText
-                                      key={`x${i}`}
-                                      x={geo.xFor(t.day)}
-                                      y={chartHeight - 5}
-                                      fontSize={13}
-                                      fontWeight="600"
-                                      fill={colors.textMuted}
-                                      textAnchor={i === 0 ? "start" : "middle"}
-                                  >
-                                      {t.label}
-                                  </SvgText>
-                              ))
-                            : null}
+                        {/* X scale — drawn in both sizes now. */}
+                        {xTicks.map((t, i) => (
+                            <SvgText
+                                key={`x${i}`}
+                                x={geo.xFor(t.day)}
+                                y={chartHeight - 5}
+                                fontSize={13}
+                                fontWeight="600"
+                                fill={colors.textMuted}
+                                textAnchor={i === 0 ? "start" : "middle"}
+                            >
+                                {t.label}
+                            </SvgText>
+                        ))}
                     </Svg>
                 ) : null}
             </View>
 
-            {!compact ? (
-                <View style={styles.legendRow}>
-                    <View style={styles.legendItem}>
-                        <View style={[styles.legendLine, { backgroundColor: colors.primary }]} />
-                        <Text style={styles.legendText}>This child ({unit})</Text>
-                    </View>
-                    <View style={styles.legendItem}>
-                        <View style={styles.legendBand} />
-                        <Text style={styles.legendText}>WHO typical range</Text>
-                    </View>
+            {/* Legend, in both sizes. It was gated to the full chart before,
+                which left the compact one showing an unexplained grey band —
+                and the band is the entire point of the chart. It also carries
+                the unit, which nothing else on the Dashboard card states. */}
+            <View style={styles.legendRow}>
+                <View style={styles.legendItem}>
+                    <View style={[styles.legendLine, { backgroundColor: colors.primary }]} />
+                    <Text style={styles.legendText}>This child ({unit})</Text>
                 </View>
-            ) : null}
+                <View style={styles.legendItem}>
+                    <View style={styles.legendBand} />
+                    <Text style={styles.legendText}>Where most children this age are</Text>
+                </View>
+            </View>
 
             {!sexKey ? (
                 <Text style={styles.note}>

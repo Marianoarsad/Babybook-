@@ -74,6 +74,112 @@ describe("BabyBook+ API", () => {
         expect(res.body.vaccine_name).toBe("HepB");
     });
 
+    // Nutrition branches on HOW the milk was given. Before feed_method
+    // existed, every milk row demanded a quantity, so a parent feeding at the
+    // breast had no way to record a feed except by inventing a number.
+    describe("nutrition entries", () => {
+        const post = (body) =>
+            request(app)
+                .post(`/api/children/${childId}/nutrition`)
+                .set("Authorization", `Bearer ${token}`)
+                .send(body);
+
+        test("saves a breastfeed with minutes and no volume", async () => {
+            const res = await post({
+                entry_type: "milk",
+                milk_type: "Breastmilk",
+                feed_method: "breast",
+                duration_minutes: 18,
+                entry_date: "2026-08-15",
+                entry_time: "14:20",
+            });
+            expect(res.status).toBe(201);
+            expect(res.body.duration_minutes).toBe(18);
+            expect(res.body.quantity).toBeNull();
+        });
+
+        // Duration is optional: a parent logging a 3am feed at 7am does not
+        // know the minutes, and requiring them would only swap an invented
+        // volume for an invented duration.
+        test("saves a breastfeed with no duration at all", async () => {
+            const res = await post({
+                entry_type: "milk", milk_type: "Breastmilk", feed_method: "breast",
+                entry_date: "2026-08-15", entry_time: "03:10",
+            });
+            expect(res.status).toBe(201);
+            expect(res.body.duration_minutes).toBeNull();
+            expect(res.body.quantity).toBeNull();
+        });
+
+        test("rejects a breastfeed that also carries a volume", async () => {
+            const res = await post({
+                entry_type: "milk", milk_type: "Breastmilk", feed_method: "breast",
+                duration_minutes: 15, quantity: 120, unit: "mL",
+            });
+            expect(res.status).toBe(400);
+        });
+
+        test("saves a bottle feed with volume", async () => {
+            const res = await post({
+                entry_type: "milk", milk_type: "Formula", feed_method: "bottle",
+                quantity: 120, unit: "mL", formula_brand: "Enfamil A+",
+            });
+            expect(res.status).toBe(201);
+            expect(Number(res.body.quantity)).toBe(120);
+            expect(res.body.formula_brand).toBe("Enfamil A+");
+        });
+
+        test("rejects a bottle feed with no quantity", async () => {
+            const res = await post({
+                entry_type: "milk", milk_type: "Formula", feed_method: "bottle", unit: "mL",
+            });
+            expect(res.status).toBe(400);
+        });
+
+        // A pre-migration client sends no feed_method at all. It has to keep
+        // behaving exactly as it did, or every older app version breaks.
+        test("a milk entry with no feed_method still uses the old rules", async () => {
+            const ok = await post({
+                entry_type: "milk", milk_type: "Breastmilk", quantity: 90, unit: "mL",
+            });
+            expect(ok.status).toBe(201);
+
+            const bad = await post({ entry_type: "milk", milk_type: "Breastmilk" });
+            expect(bad.status).toBe(400);
+        });
+
+        test("saves a solid with a structured reaction", async () => {
+            const res = await post({
+                entry_type: "solid",
+                food_introduced: "Scrambled Egg",
+                reaction_severity: "mild",
+                reaction: "Rash around the mouth",
+            });
+            expect(res.status).toBe(201);
+            expect(res.body.reaction_severity).toBe("mild");
+            expect(res.body.food_introduced).toBe("Scrambled Egg");
+        });
+
+        test("rejects unknown enum values", async () => {
+            const method = await post({
+                entry_type: "milk", milk_type: "Breastmilk", feed_method: "telepathy", quantity: 90, unit: "mL",
+            });
+            expect(method.status).toBe(400);
+
+            const severity = await post({
+                entry_type: "solid", food_introduced: "Avocado", reaction_severity: "catastrophic",
+            });
+            expect(severity.status).toBe(400);
+        });
+
+        test("rejects an implausible duration", async () => {
+            const res = await post({
+                entry_type: "milk", milk_type: "Breastmilk", feed_method: "breast", duration_minutes: 600,
+            });
+            expect(res.status).toBe(400);
+        });
+    });
+
     test("full QR share -> resolve -> access-log flow", async () => {
         // parent creates a share
         const share = await request(app)

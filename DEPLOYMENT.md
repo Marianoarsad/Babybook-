@@ -4,7 +4,7 @@ Covers: deploying the Express/Postgres backend to **Render** and **Railway** (pi
 
 > **Status (August 2026): the live web demo backend runs on Render.** The original Railway free
 > trial expired and its service was left paused (not deleted). Render is the current, active
-> choice — see §1.2 below, and `Documents/plans/BabyBook+_Web_Demo_Hosting_Migration_Plan.md` for
+> choice — see §1.2 below, and `Documents/archive/BabyBook+_Web_Demo_Hosting_Migration_Plan.md` for
 > the exact free-tier settings, cost comparison, and demo-day risk notes (cold starts, ephemeral
 > disk, SMTP port blocking) that guide that setup. §1.3 (Railway) is kept only as historical
 > reference in case you set up a fresh Railway account later.
@@ -52,7 +52,7 @@ Everything below works with either — just use the matching `DATABASE_URL`.
 > **This is the option currently in use for the live web demo.** The steps below are the general
 > case (including a paid persistent disk for uploads, useful for the eventual Android/iOS MVP). If
 > you're re-doing the **free-tier web-demo setup specifically**, use
-> `Documents/plans/BabyBook+_Web_Demo_Hosting_Migration_Plan.md` §5 instead — it has the exact
+> `Documents/archive/BabyBook+_Web_Demo_Hosting_Migration_Plan.md` §5 instead — it has the exact
 > env-var list for the free instance and the accepted risk list (ephemeral disk mitigated via
 > committed seed photos, cold starts, SMTP blocked) rather than the paid-disk path below.
 

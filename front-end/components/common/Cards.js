@@ -99,7 +99,21 @@ export function ListEntryCard({ title, subtitle, label, notes, icon, iconBg, act
 // component — they use ListEntryCard's `thumbnailUrl` slot instead, a
 // structurally separate path, which is what keeps "keepsake" and "clinical
 // record" from ever visually blending into one thing.
-export function MemoryVisualCard({ title, description, date, photoUrl, onClick, style }) {
+// `badge` marks a tile's kind in the Gallery's mixed timeline (a milestone
+// among photo memories). It is always paired with the kind spelled out in the
+// caption, so the distinction never rests on a small glyph alone.
+// `placeholderIcon` overrides the fallback glyph when there is no photo — a
+// milestone with no picture should not look like a missing photo.
+export function MemoryVisualCard({
+    title,
+    description,
+    date,
+    photoUrl,
+    onClick,
+    style,
+    badge,
+    placeholderIcon = "image-outline",
+}) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const CardComponent = onClick ? TouchableOpacity : View;
@@ -110,13 +124,21 @@ export function MemoryVisualCard({ title, description, date, photoUrl, onClick, 
                     <Image source={{ uri: photoUrl }} style={styles.memoryImage} />
                 ) : (
                     <View style={[styles.memoryImage, styles.memoryPlaceholder]}>
-                        <Ionicons name="image-outline" size={26} color={colors.textMuted} />
+                        <Ionicons name={placeholderIcon} size={26} color={colors.textMuted} />
                     </View>
                 )}
+                {badge ? (
+                    <View style={styles.memoryBadge}>
+                        <Ionicons name={badge} size={12} color={colors.onPrimary} />
+                    </View>
+                ) : null}
             </View>
             <View style={styles.memoryCaption}>
                 {date ? <Text style={styles.memoryDate}>{date}</Text> : null}
-                <Text style={styles.memoryTitle} numberOfLines={1}>{title}</Text>
+                {/* Two lines: these render in 48%-wide grid tiles on both the
+                    Dashboard and the Gallery, where one line clipped most real
+                    captions ("First Steps Caught on Camera" → "First Step…"). */}
+                <Text style={styles.memoryTitle} numberOfLines={2}>{title}</Text>
                 {description ? (
                     <Text style={styles.memoryDesc} numberOfLines={2}>{description}</Text>
                 ) : null}
@@ -267,6 +289,18 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     memoryImage: { width: "100%", height: "100%" },
     memoryPlaceholder: { backgroundColor: colors.surfaceAlt, justifyContent: "center", alignItems: "center" },
+    memoryBadge: {
+        position: "absolute",
+        top: 6,
+        left: 6,
+        width: 22,
+        height: 22,
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
+        backgroundColor: colors.primary,
+        alignItems: "center",
+        justifyContent: "center",
+    },
     memoryCaption: { paddingTop: space.sm, paddingHorizontal: space.xs, paddingBottom: space.xs },
     memoryDate: { ...type.subheading, color: colors.textMuted, marginBottom: 3 },
     memoryTitle: { ...type.bodyStrong, color: colors.text },
