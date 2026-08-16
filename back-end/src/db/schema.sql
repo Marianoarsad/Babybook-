@@ -110,6 +110,13 @@ CREATE TABLE vaccinations (
     notes         TEXT,
     source        VARCHAR(20) NOT NULL DEFAULT 'manual'
                   CHECK (source IN ('manual', 'epi')),  -- 'epi' = auto-generated DOH schedule dose
+    dose_number   INTEGER
+                  CHECK (dose_number IS NULL OR (dose_number > 0 AND dose_number <= 10)),
+    -- What happened after the dose. Recorded, never interpreted — see
+    -- migrations/004_vaccination_detail.sql.
+    reaction_severity VARCHAR(10)
+                  CHECK (reaction_severity IN ('none', 'mild', 'severe')),
+    reaction      TEXT,              -- encrypted at rest
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -147,9 +154,15 @@ CREATE TABLE medical_history (
     category      VARCHAR(50) NOT NULL
                   CHECK (category IN ('Illness', 'Allergy', 'Medication', 'Hospitalization', 'Hereditary Condition')),
     title         TEXT,              -- encrypted at rest
-    description   TEXT,
-    date_recorded DATE,
+    description   TEXT,              -- encrypted at rest
+    date_recorded DATE,              -- started / admitted on
     resolved      BOOLEAN NOT NULL DEFAULT FALSE,
+    resolved_date DATE,              -- got better / discharged on
+    -- Where the child was cared for. Illness rows only, and a record of what
+    -- the family DID — not a severity rating. 'home' is not "mild".
+    care_level    VARCHAR(20)
+                  CHECK (care_level IN ('home', 'doctor', 'hospital')),
+    facility      TEXT,              -- hospital / clinic name, encrypted at rest
     notes         TEXT,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()

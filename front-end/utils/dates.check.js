@@ -5,7 +5,8 @@ const path = require("path");
 const src = fs.readFileSync(path.join(__dirname, "dates.js"), "utf8").replace(/export function/g, "function");
 const M = new Function(
     `${src}\nreturn { todayLocal, toLocalISO, shortDate, monthLabel, shortTime, overdueBy,
-                      nowLocalTime, durationText, minutesBetween };`,
+                      nowLocalTime, durationText, minutesBetween, ageAtDate, monthsBetween,
+                      spanText };`,
 )();
 
 let fail = 0;
@@ -69,6 +70,57 @@ eq("minutesBetween seconds tolerated", M.minutesBetween("2026-08-15", "09:00:00"
 eq("minutesBetween missing time defaults midnight", M.minutesBetween("2026-08-15", "", "2026-08-15", "02:00"), 120);
 eq("minutesBetween negative when reversed", M.minutesBetween("2026-08-15", "11:00", "2026-08-15", "09:00"), -120);
 eq("minutesBetween missing date", M.minutesBetween("", "09:00", "2026-08-15", "11:00"), null);
+
+// ---- ageAtDate: the age stored on a milestone and shown on a memory ----
+const DOB = "2025-03-12";
+eq("ageAtDate months", M.ageAtDate(DOB, "2025-08-12"), "5 months");
+eq("ageAtDate one month is singular", M.ageAtDate(DOB, "2025-04-12"), "1 month");
+eq("ageAtDate on the birth date is zero", M.ageAtDate(DOB, DOB), "0 months");
+// The day-of-month has not come round yet, so this is NOT a full 5 months.
+eq("ageAtDate day-of-month rollback", M.ageAtDate(DOB, "2025-08-11"), "4 months");
+// 24 months is where the wording switches from months to years.
+eq("ageAtDate 23 months still months", M.ageAtDate(DOB, "2027-02-12"), "23 months");
+eq("ageAtDate 24 months becomes years", M.ageAtDate(DOB, "2027-03-12"), "2 yr");
+eq("ageAtDate years and months", M.ageAtDate(DOB, "2027-05-12"), "2 yr 2 mo");
+// A date before the birth is not an age — it is bad data, and must not
+// render as "0 months" as though the child were a newborn that day.
+eq("ageAtDate before birth is blank", M.ageAtDate(DOB, "2025-03-11"), "");
+eq("ageAtDate missing dob", M.ageAtDate("", "2026-01-01"), "");
+eq("ageAtDate missing date", M.ageAtDate(DOB, ""), "");
+eq("ageAtDate junk", M.ageAtDate(DOB, "not-a-date"), "");
+eq("ageAtDate tolerates a datetime", M.ageAtDate(DOB, "2025-08-12T09:00:00Z"), "5 months");
+
+// ---- monthsBetween: what ageAtDate formats, and what picks the age band ----
+eq("monthsBetween counts whole months", M.monthsBetween(DOB, "2025-08-12"), 5);
+eq("monthsBetween rolls back an incomplete month", M.monthsBetween(DOB, "2025-08-11"), 4);
+eq("monthsBetween on the birth date is zero", M.monthsBetween(DOB, DOB), 0);
+eq("monthsBetween crosses years", M.monthsBetween(DOB, "2027-03-12"), 24);
+// null, not 0 — "before the child was born" and "newborn" are different facts,
+// and a band picker given 0 would silently show the 2-month list.
+eq("monthsBetween before birth is null", M.monthsBetween(DOB, "2025-03-11"), null);
+eq("monthsBetween missing dob is null", M.monthsBetween("", "2026-01-01"), null);
+eq("monthsBetween junk is null", M.monthsBetween(DOB, "not-a-date"), null);
+// The two must never disagree — ageAtDate is only a formatting of this.
+eq("monthsBetween at the 24-month switch", M.monthsBetween(DOB, "2027-02-12"), 23);
+eq("ageAtDate agrees with it there", M.ageAtDate(DOB, "2027-02-12"), "23 months");
+
+// ---- spanText: how long an illness or a hospital stay lasted ----
+eq("spanText same day", M.spanText("2026-08-10", "2026-08-10"), "Same day");
+eq("spanText one day is singular", M.spanText("2026-08-10", "2026-08-11"), "1 day");
+eq("spanText days", M.spanText("2026-08-10", "2026-08-13"), "3 days");
+eq("spanText switches to weeks at 14", M.spanText("2026-08-01", "2026-08-15"), "2 weeks");
+eq("spanText switches to months at 60", M.spanText("2026-01-01", "2026-04-01"), "3 months");
+eq("spanText tolerates a datetime", M.spanText("2026-08-10T00:00:00Z", "2026-08-13"), "3 days");
+// No end date means it has not ended. "Ongoing" is the whole reason this
+// record type exists — the app could not say it at all before.
+eq("spanText no end is ongoing", M.spanText("2026-08-10", ""), "Ongoing since 10 Aug 2026");
+eq("spanText no end, null", M.spanText("2026-08-10", null), "Ongoing since 10 Aug 2026");
+// An end before the start is bad data. State the certain fact rather than
+// rendering a negative duration as though it meant something.
+eq("spanText reversed falls back to the end date", M.spanText("2026-08-13", "2026-08-10"), "10 Aug 2026");
+eq("spanText no start", M.spanText("", "2026-08-13"), "");
+eq("spanText junk start", M.spanText("not-a-date", "2026-08-13"), "");
+eq("spanText junk end falls back", M.spanText("2026-08-10", "not-a-date"), "");
 
 console.log(fail ? `\n${fail} of ${ran} failed` : `\nall ${ran} passed`);
 process.exit(fail ? 1 : 0);

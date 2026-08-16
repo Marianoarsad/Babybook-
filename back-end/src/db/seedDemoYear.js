@@ -242,16 +242,40 @@ async function seed() {
             );
 
             // ================= MEDICAL HISTORY =================
+            //
+            // Every illness and the hospital stay carry a resolved_date, so the
+            // lists and the healthcare professional's view show real durations
+            // ("6 days", "2 days") rather than a bare start date. Before
+            // migration 005 there was nowhere to put the end date and no way
+            // for the app to set `resolved` at all, so a reviewer opening the
+            // demo met a year of old colds presented as still happening.
+            //
+            // care_level records what the family DID, not how bad it was.
+            const coldStart = addMonths(DOB, 5);
+            const earStart = addMonths(DOB, 9.5);
+            const jaundiceStart = addDays(DOB, 2);
             await c.query(
-                `INSERT INTO medical_history (child_id, category, title, description, date_recorded, resolved, notes)
+                `INSERT INTO medical_history
+                    (child_id, category, title, description, date_recorded, resolved,
+                     resolved_date, care_level, facility, notes)
                  VALUES
-                  ($1,'Hereditary Condition','Asthma (Paternal Grandfather)','Family history noted at birth.',$2,FALSE,'Monitor for wheezing or respiratory symptoms.'),
-                  ($1,'Illness','Common Cold','Runny nose, mild cough, low-grade fever.',$3,TRUE,'Resolved within a week with rest and fluids.'),
-                  ($1,'Allergy','Mild Egg Sensitivity','Slight rash around the mouth after first egg exposure.',$4,FALSE,'Pediatrician says likely mild; continue small exposures and monitor.'),
-                  ($1,'Illness','Ear Infection (Otitis Media)','Fussiness, tugging at ear, fever up to 38.4°C.',$5,TRUE,'Treated with amoxicillin; follow-up exam clear.'),
-                  ($1,'Medication','Amoxicillin','400mg/5mL suspension, twice daily.',$5,TRUE,'10-day course completed, no side effects.'),
-                  ($1,'Hospitalization','Neonatal Jaundice — Phototherapy','Elevated bilirubin noted before discharge; kept an extra day for phototherapy.',$6,TRUE,'Levels normalized; cleared by pediatrician, see Newborn Jaundice Follow-up checkup.')`,
-                [childId, ymd(DOB), ymd(addMonths(DOB, 5)), ymd(addMonths(DOB, 8)), ymd(addMonths(DOB, 9.5)), ymd(addDays(DOB, 2))]
+                  ($1,'Hereditary Condition','Asthma (Paternal Grandfather)','Family history noted at birth.',$2,FALSE,NULL,NULL,NULL,'Monitor for wheezing or respiratory symptoms.'),
+                  ($1,'Illness','Common Cold','Runny nose, mild cough, low-grade fever.',$3,TRUE,$4,'home',NULL,'Resolved within a week with rest and fluids.'),
+                  ($1,'Allergy','Mild Egg Sensitivity','Slight rash around the mouth after first egg exposure.',$5,FALSE,NULL,NULL,NULL,'Pediatrician says likely mild; continue small exposures and monitor.'),
+                  ($1,'Illness','Ear Infection (Otitis Media)','Fussiness, tugging at ear, fever up to 38.4°C.',$6,TRUE,$7,'doctor','Metro General Pediatric Clinic','Treated with amoxicillin; follow-up exam clear.'),
+                  ($1,'Medication','Amoxicillin','400mg/5mL suspension, twice daily.',$6,TRUE,NULL,NULL,NULL,'10-day course completed, no side effects.'),
+                  ($1,'Hospitalization','Neonatal Jaundice — Phototherapy','Elevated bilirubin noted before discharge; kept an extra day for phototherapy.',$8,TRUE,$9,NULL,'Metro General Hospital','Levels normalized; cleared by pediatrician, see Newborn Jaundice Follow-up checkup.')`,
+                [
+                    childId,
+                    ymd(DOB),
+                    ymd(coldStart),
+                    ymd(addDays(coldStart, 6)),
+                    ymd(addMonths(DOB, 8)),
+                    ymd(earStart),
+                    ymd(addDays(earStart, 10)),
+                    ymd(jaundiceStart),
+                    ymd(addDays(jaundiceStart, 2)),
+                ]
             );
 
             // ================= GROWTH RECORDS =================
@@ -273,15 +297,34 @@ async function seed() {
 
             // ================= MILESTONES =================
             const PHOTO = (seed) => `https://picsum.photos/seed/babybook-${seed}/600/600`;
+            // Six of these are spelled EXACTLY as the app's Development
+            // Checklist spells them (front-end/utils/milestoneChecklist.js), so
+            // they tick its boxes. Matching is case- and spacing-insensitive
+            // but never fuzzy, so a near-miss silently ticks nothing — which is
+            // how the demo once ended up showing empty checkboxes beside eleven
+            // achieved milestones.
+            //
+            // Two of the six ("Waves bye-bye", "Pulls up to stand") are in the
+            // CDC 12-month band on purpose. The demo child is about a year old,
+            // so that is the band the Milestones tab opens on — without them a
+            // reviewer would land on a screen with nothing ticked and conclude
+            // the matching is broken.
+            //
+            // The rest are deliberately NOT on the checklist. They are the
+            // free-text milestones a parent types themselves, they keep the
+            // Gallery reading like a family's own words rather than a clinical
+            // list, and they exercise the half of the feature the checklist
+            // cannot reach. Note CDC's 2022 revision dropped crawling entirely,
+            // which is exactly why a parent needs to be able to type it.
             const milestoneRows = [
-                ["Social Smile", 1.5, "Smiled back for the first time during morning feeding.", true, PHOTO("smile")],
-                ["Held Head Up (Tummy Time)", 2, "Lifted head and chest during tummy time.", true, null],
-                ["Rolled Over (Tummy to Back)", 4, "Surprised us during playtime on the mat.", true, PHOTO("rollover")],
-                ["Sat Without Support", 6, "Sat up steady for a full minute.", true, PHOTO("sit")],
+                ["Seems happy to see you when you walk up to them", 1.5, "Smiled back for the first time during morning feeding.", true, PHOTO("smile")],
+                ["Holds head up when on tummy", 2, "Lifted head and chest during tummy time.", true, null],
+                ["Rolls from tummy to back", 4, "Surprised us during playtime on the mat.", true, PHOTO("rollover")],
+                ["Sits without support", 6, "Sat up steady for a full minute.", true, PHOTO("sit")],
                 ["Started Solid Foods", 6, "First taste of rice cereal — mixed reaction, mostly wore it.", true, PHOTO("solids")],
                 ["Crawling", 8.5, "Full-speed crawl across the living room.", true, null],
-                ["Waved Bye-Bye", 10, "Waved at grandma on a video call.", true, null],
-                ["Pulled to Stand", 9.5, "Pulled up on the couch, very proud of himself.", true, PHOTO("stand")],
+                ['Waves "bye-bye"', 10, "Waved at grandma on a video call.", true, null],
+                ["Pulls up to stand", 9.5, "Pulled up on the couch, very proud of himself.", true, PHOTO("stand")],
                 ["First Word (\"Mama\")", 11, "Said it clearly, twice, then went back to babbling.", true, PHOTO("word")],
                 ["Cruising Along Furniture", 11.5, "Cruising from the couch to the coffee table.", true, null],
                 ["First Steps", 12.5, "Three wobbly steps before plopping down laughing.", true, PHOTO("steps")],

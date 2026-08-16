@@ -29,10 +29,7 @@ BabyBook+/
 │   │   ├── Dashboard.js Health.js Growth.js NutritionTracker.js CalendarView.js  # primary tab screens (bottom nav)
 │   │   ├── Services.js                                    # reached from the side menu ("Local Services"), not the bottom nav
 │   │   ├── AllActivity.js                                 # Dashboard "See all" destination for Recent Activity
-│   │   ├── AllMemories.js                                 # full-photo-history screen; currently UNLINKED — the Dashboard's
-│   │   │                                                   #   Milestone Memories "See all" now opens Growth's Gallery tab
-│   │   │                                                   #   instead (nav("growth", "gallery")). Still valid code, just
-│   │   │                                                   #   not reachable from anywhere today.
+│   │   │                                                   #   (AllMemories.js was DELETED — Growth's Gallery tab replaced it)
 │   │   ├── ShareRecords.js QrCodeView.js QrScanner.js     # parent QR share + scan
 │   │   ├── ProfessionalView.js                            # healthcare-pro view-only portal
 │   │   ├── SideMenu.js                                    # slide-in drawer (hamburger icon) — replaces the old Profile tab
@@ -71,7 +68,7 @@ BabyBook+/
 
 ## 3. Architecture & conventions (follow these)
 
-- **Navigation is custom, not expo-router.** `App.js` holds `currentView` state and swaps screens with conditional rendering. Bottom-nav values: `"dashboard" | "health" | "growth" | "nutrition" | "calendar"`. A floating button above the tab bar (reachable from every screen, not just Dashboard) opens a **scrollable** action sheet — `App.js`'s `ACTION_SHEET_ITEMS`, now 9 entries — that deep-links into `"nutrition" | "growth" | "health"` with a sub-tab, auto-opening the matching add-record form: Log Milk, Log Food, Log Growth, Schedule Appointment (Health → Checkups), Add Medication, Add Illness, Add Vaccine, Add Hospitalization, Add Memory. The three newest Health-screen shortcuts deliberately use their own key strings (`"vaccine"`/`"illness"`/`"hospitalization"`) rather than Health's real tab names — see the `§7` gotcha on why. Side-menu/modal/other values: `"share" | "services" | "allActivity" | "allMemories" | "viewProfile" | "editProfile" | "generalSettings" | "themePreferences" | "languagePreferences" | "helpSupport" | "aboutApp" | "changePassword" | "privacySettings"` (`"allMemories"` is defined but currently unreachable — see `§2`). The bottom tab bar, the floating button, and header/menu buttons all call `setCurrentView(...)` (deep-links go through the shared `changeView(view, tab)` helper in `App.js`). There is **no React Navigation / expo-router**; do not introduce it without discussion.
+- **Navigation is custom, not expo-router.** `App.js` holds `currentView` state and swaps screens with conditional rendering. Bottom-nav values: `"dashboard" | "health" | "growth" | "nutrition" | "calendar"`. A floating button above the tab bar (reachable from every screen, not just Dashboard) opens a **scrollable** action sheet — `App.js`'s `ACTION_SHEET_ITEMS`, now 9 entries — that deep-links into `"nutrition" | "growth" | "health"` with a sub-tab, auto-opening the matching add-record form: Log Milk, Log Food, Log Growth, Schedule Appointment (Health → Checkups), Add Medication, Add Illness, Add Vaccine, Add Hospitalization, and Add Photo or Milestone (one form, both kinds). The three newest Health-screen shortcuts deliberately use their own key strings (`"vaccine"`/`"illness"`/`"hospitalization"`) rather than Health's real tab names — see the `§7` gotcha on why. Side-menu/modal/other values: `"share" | "services" | "allActivity" | "viewProfile" | "editProfile" | "generalSettings" | "themePreferences" | "languagePreferences" | "helpSupport" | "aboutApp" | "changePassword" | "privacySettings"`. The bottom tab bar, the floating button, and header/menu buttons all call `setCurrentView(...)` (deep-links go through the shared `changeView(view, tab)` helper in `App.js`). There is **no React Navigation / expo-router**; do not introduce it without discussion.
 - **Icons**: `@expo/vector-icons` (`Ionicons`, `MaterialCommunityIcons`). Verify icon names exist (past bug: invalid Ionicons names).
 - **Styling pattern (IMPORTANT — every screen now uses this):**
   ```js
@@ -83,7 +80,7 @@ BabyBook+/
   ```
   **No hard-coded brand hex in components.** Use theme tokens (`colors.primary`, `colors.accentStrong`, `colors.text`, `colors.textSecondary`, `colors.textMuted`, `colors.background`, `colors.surface`, `colors.surfaceAlt`, `colors.border`, `colors.softGreen`, `colors.softCoral`, `colors.tintGreen`, etc.) and semantic status colors (`colors.success/warning/danger/info` + `*Bg`). White (`#FFFFFF`) is allowed only for text/icons on colored buttons; semantic non-brand colors (emergency-hotline green/blue, gold rating star, status dots) are intentionally literal.
 - **Static tokens** (theme-independent) live in `theme.js`: `space {xs,sm,md,lg,xl,xxl}`, `radius {sm,md,lg,xl,pill}`, `type`, `shadow {card,soft,raised,accent,green}`, `MIN_TOUCH=44`.
-- **Backend style**: raw SQL via `pg` (no ORM). Generic CRUD is factored through `utils/resource.js` (supports an `encrypted` field list). JWT auth (`middleware/auth.js`), `bcryptjs` for passwords, `multer` local-disk uploads (`middleware/upload.js`), `nodemailer` (`utils/mailer.js`).
+- **Backend style**: raw SQL via `pg` (no ORM). Generic CRUD is factored through `utils/resource.js` (supports an `encrypted` field list, and a `photoColumn` that adds multipart upload, signed-URL resolution and file cleanup — currently `milestones` only). JWT auth (`middleware/auth.js`), `bcryptjs` for passwords, `multer` local-disk uploads (`middleware/upload.js`), `nodemailer` (`utils/mailer.js`).
 
 ## 4. Theming system (recently completed)
 
@@ -244,6 +241,160 @@ Supporting changes:
 **The "+" now renders only on the five bottom-tab views** (`FAB_VIEWS` in `App.js`). It used to appear everywhere, which put a "log something" affordance over Privacy Settings, Search, Share Records and — worst — Offline Summary, the read-only screen whose whole promise is that it works with no signal. The memory action now targets the Gallery (`growth` / `memory`) rather than the Dashboard.
 
 **Fixed in the same pass:** the Health ID fact rows put the label above the value instead of beside it. A fixed 108px label column left ~130px for the value at phone width, which truncated real data (`"Mild egg sensitivit…"` for a four-item allergy list). Allergy and hereditary text is arbitrary-length and is exactly the content that must not be cut off. The child's name also wraps to two lines now rather than truncating.
+
+**Also done — Memories and Milestones share one form, and a milestone can finally be recorded.**
+
+The question that started this was whether to merge the two features, because they read as duplicates. They are not. A milestone travels to a healthcare professional in the QR snapshot (`snapshot.js`, "Developmental Milestones"); a photo memory is absent from `RECORD_LABELS` and is therefore **structurally unshareable**. That is the only difference that matters, and the app never stated it.
+
+They *felt* redundant because one was doing the other's job: **the Milestones feature could not record a milestone.** The only way to create one was ticking a box on a fixed six-item checklist, every item under nine months, in an app built for 0–6 years. First steps, first word, first solid food were all unenterable, so they went in as photo memories the doctor would never see. Meanwhile `seedDemoYear.js` was writing free-text titles with ages, descriptions and photos into the same table — **the demo account held records the app itself could not create.** No migration was needed; `records.routes.js` already exposed all six columns.
+
+What changed:
+
+- **`components/ui/AddMemoryModal.js` is now one form for both kinds**, with a Photo / Milestone switch, a date field, and a line stating that milestones are shared with a healthcare professional and photos are not. Milestone titles are free text with suggestion chips.
+- **`utils/milestoneChecklist.js` is new** — the six reference items (moved out of `Growth.js`) plus `normalizeTitle()`, `findRecorded()` and `suggestedTitles()`, covered by `milestoneChecklist.check.js` (23 assertions). **Titles are compared through `normalizeTitle()`, never `===`.**
+- **The chips offer only checklist items this child has *not* recorded** — deliberately unlike `foodSuggestions()`, which offers what you logged before. Foods repeat; milestones happen once, so suggesting a recorded one invites a duplicate.
+- **`utils/dates.js` gained `ageAtDate(dob, date)`** (lifted from `MemoryDetail.js`, which had the only copy). Saving a milestone now derives and stores `age_achieved` — the field the QR snapshot ships and `ProfessionalView` renders, which was NULL for every record the app itself created.
+- **`utils/resource.js` gained `photoColumn`/`photoField`**, doing for the generic router the three things `memories.routes.js` does by hand: multipart create, signed-URL resolution on every response, file cleanup on delete. Without resolution a stored `sb://` ref reaches the app raw and renders as a broken tile. Enabled for `milestones` only. The registration loop now spreads the whole config (`createResourceRouter(r)`) — the old hand-copied key list would have silently dropped it.
+- **`Dashboard.js`'s "Milestone Memories" is now "Photos & Milestones"** — that label borrowed the milestone name for records that are not milestones, and is the single biggest reason the two looked like one feature. Its dead `AddMemoryModal` branch was removed (nothing has routed `memory` to the Dashboard since the FAB started targeting the Gallery), so the form now has exactly one call site — the only one holding the milestone list its chips need.
+
+**A demo-visible defect fixed with it.** The checklist matched titles with `===` while the seed wrote near-misses — "Rolled Over (Tummy to Back)" against the checklist's "Rolls Over (Tummy to Back)", "Social Smile" against "Responsive Social Smile". **No seeded milestone matched any checklist item**, so the demo account showed six empty checkboxes beside eleven achieved milestones. The four corresponding seed titles now use the checklist's exact wording. Note that **normalization alone does not fix this and must not be made to** — "Rolled" and "Rolls" are different words, and `milestoneChecklist.check.js` pins that a fuzzy match is *not* wanted. The remaining seed milestones deliberately stay off-checklist so the demo exercises both halves.
+
+Two things to leave alone. **The QR snapshot still selects only `title, age_achieved, date_recorded, is_completed`** — no photo, no description. The clinician gets the milestone, not the family album; that boundary is deliberate. And **the checklist still stops at nine months.** Extending it is a content and sourcing problem, not a code one — a 0–6y developmental checklist needs a citable source, and PRODUCT.md forbids implying a DOH or barangay relationship. Free-text titles mean no parent is blocked meanwhile.
+
+**Also done — the Development Checklist now covers 0–5 years, and the Milestones tab was rebuilt around it.**
+
+The checklist held **six** items, all under nine months, in an app for ages 0–6 — dead space from ten months on. It now carries **146 items across CDC's 12 age checkpoints** (2, 4, 6, 9, 12, 15, 18, 24, 30, 36, 48, 60 months) in four domains.
+
+**Source, and why not a Philippine one.** Items come from the **CDC "Learn the Signs. Act Early." 2022 revision**, which lists what ~75% of children can do by an age (the previous edition used 50%) and removed hedges like "may" and "begins". It is US federal work, so public domain and reproducible exactly. The Philippine instrument — the **ECCD Checklist** (ECCD Council / DSWD, seven domains, validated in 2001 on 10,915 Filipino children) — was examined first and rejected on purpose: **~300 items across two forms, designed for administration by a trained worker, tallied into domain raw scores.** A scored assessment instrument inside a parent-held baby book is what Principle 5 forbids, and a hand-picked subset would borrow the ECCD name without being it. The screen states that Philippine health centres and day care centres use the ECCD Checklist — **a fact about the world, not a partnership claim**. All of this reasoning is in the header comment of `utils/milestoneChecklist.js`; read it before touching any item text.
+
+**The corpus is a shortened list and says so.** Some bands carry fewer items than CDC publishes. The attribution names the source, admits the abridgement, and points at cdc.gov for the full version. **Never reword an item to sound more certain, and never invent one to fill a thin band** — a fabricated milestone in a health app is a correctness bug. The list ends at 5 years because published checklists do; inventing 5–6 content would be exactly the fabrication PRODUCT.md forbids.
+
+**The tab itself:**
+- **It opens on the child's own age band.** It used to open on the youngest band for every child, so a parent of a three-year-old was shown two-month milestones every time. `monthsBetween()` (extracted from `ageAtDate` in `utils/dates.js`, so the band and the displayed age cannot disagree) feeds `checkpointFor()`.
+- **The band is chosen from a bottom sheet**, not a row of pills. A trigger row shows the age being viewed (`12 months`, `2 years` — `bandLabel()` deliberately has no "By" prefix) and opens `components/ui/OptionSheet.js`, a small sheet that follows `ActionSheet.js`'s idiom exactly so the app has one bottom-sheet pattern rather than two that nearly match. The child's own band carries a muted "Your baby" note and the sheet scrolls to the current choice on open. This **replaced a horizontal scroller of twelve pills**: most bands sat off-screen, the selected one could scroll out of view, and keeping it visible needed a hard-coded `BAND_PILL_STRIDE` pixel constant that would silently go wrong the moment the pill padding changed. Do not reintroduce that. **`bandLabel()` no longer takes a `short` argument** — the compact `"2 yr"` form existed only for the pills.
+- **"Your baby" is suppressed when `dateOfBirth` is missing.** `monthsBetween` returns null there and `checkpointFor` falls back to the first checkpoint, so labelling it would tell a parent their child is two months old on the strength of an empty field.
+- **Grouped by domain**, four labelled groups per band in a fixed order, each with its `colors.rec*` tinted icon tile.
+- **The stock Unsplash photos are gone.** Six pictures of strangers' babies was already odd; 146 would be network for nothing. The parent's **own** photo shows on a row they have recorded — the one image there that means anything.
+- **Progress is a count, never a score:** "4 of 12 recorded". The word is *recorded* because it counts entries, not development. No percentage, no bar, and **no coral or amber on an unticked item** — DESIGN.md reserves those for overdue/error/caution, and a milestone not yet reached is none of the three.
+- A `promptBox` states that children develop at their own pace and that nothing here is a test, matching the register of the growth-percentile note already on this screen.
+
+**Two consequences handled:**
+- **The Gallery would have flooded.** It included every completed milestone, so ticking forty boxes would bury a family's photos under forty bare rows. `completedMilestones` now requires a **photo or a description** — something the parent authored. A bare tick still shows on the checklist with its date.
+- **`suggestedTitles()` is age-aware** and takes the child's age in months; against 146 items an age-blind list offered newborn milestones to a four-year-old.
+
+**Seed:** six of the eleven demo milestones are spelled exactly as checklist items, **two of them deliberately in the 12-month band** because the demo child is about a year old and that is the band the tab opens on — without them a reviewer lands on a screen with nothing ticked and concludes the matching is broken. The other five stay free-text so the Gallery reads like a family's own words. `front-end/utils/seedMatch.check.js` cross-checks which seed titles tick and asserts the 12-month band is among them — run it after editing either the corpus or the seed. Note CDC 2022 **dropped crawling entirely**, which is precisely why free-text milestones matter.
+
+**Known debt, decided deliberately:** the ~146 item strings are **English only**. PRODUCT.md calls bilingual "a product commitment, not a feature toggle", so this is a recorded gap, not an oversight — the Filipino pass is its own piece of work. For context, `tag` is already only ~63% translated app-wide (46 of its 123 keys are still English), so this screen is not the outlier it looks like. Item text lives in `utils/milestoneChecklist.js`, not `translations.js`; when it is translated, the natural shape is `{ en, fil }` pairs in the data module rather than ~300 new keys.
+
+**Also fixed — a form opened by itself whenever a bottom-nav tab was tapped.**
+
+`changeView(view, tab = null)` in `App.js` only wrote the deep-link target when a tab was passed (`if (tab) { setNavTab(tab); … }`), so a plain bottom-nav tap left **`navTab` holding its previous value forever**. Screens are rendered conditionally, so Health / Growth / Nutrition **unmount** on navigation away and their `useEffect(…, [navKey])` runs again **on the next mount** regardless of whether `navKey` changed. Use the "+" to add a vaccine, close it, go to the Dashboard, tap Health — Health mounted fresh, read the stale `"vaccine"`, and popped the Add Vaccine form on its own. The same sequence popped Log Growth, Add Memory, Log Milk and Log Food on their own tabs.
+
+`changeView` now always writes `navTab`, **including `null`**. `goBack()` and `handleLogOut()` clear it too, because both set `currentView` directly and bypass `changeView`. **Do not "optimise" this back to `if (tab)`** — and do not patch it inside the three screens; their `tabFor` / `modalFor` maps were always correct, and the guard belongs in the one place all navigation routes through. The class of bug to watch for generally: **state that outlives an unmount and is re-applied on the next mount.**
+
+**Also done — Vaccination Tracking rebuilt, and the DOH schedule verified against a primary source.**
+
+**The schedule had a real error.** `data/epiSchedule.js` flagged three rows as MEDIUM confidence and said they "MUST be checked against a primary DOH/PIDSP document before this is used in the actual capstone defense". They have now been checked, on 2026-08-16, against the **2026 PIDSP Childhood Immunization Schedule** (`https://www.pidsphil.org/home/wp-content/uploads/2025/11/2026-PIDSP-Immunization-Calendar.pdf`), whose colour coding marks which rows belong to the free National Immunization Program:
+
+- **IPV was wrong** — modelled as a single dose at 14 weeks; there is a **2nd dose at 9 months**. A parent following the app would have missed it. Added.
+- **Japanese Encephalitis confirmed national**, and has a **2nd dose at 19–24 months** that was absent. Added.
+- **MMR dose 2 at 12 months confirmed** for the NIP row; the 12–15 month window belongs to the separate private-sector row.
+
+**How to read that PDF again, because the dead ends cost real time:** the DOH EPI page returns 403 to automated fetches; the PIDSP PDF defeats WebFetch, raw zlib stream inflation *and* ToUnicode CMap decoding (its tables use subset fonts whose CMaps cover only 85 codes). It was read by **rendering it in Chrome and reading the page**. Private-sector vaccines on that calendar (Rotavirus, Varicella, Hepatitis A, Influenza, DTwP/PCV boosters) are **deliberately excluded** — listing them inside a schedule the app presents as the DOH programme would tell a parent they are owed something free that they are not.
+
+`SCHEDULE_VERSION` is now `DOH-NIP-2026-PIDSP-verified-2026-08-16`, and `src/data/epiSchedule.check.js` (30 assertions, no database needed) pins the schedule and the dedupe.
+
+**Migration `004_vaccination_detail.sql` — the user must run `npm run db:migrate:up`.** Adds `dose_number`, `reaction_severity` (`none`/`mild`/`severe`) and `reaction` (encrypted) to `vaccinations`. No backfill for `dose_number`: the digit that would populate it lives inside the **encrypted** `vaccine_name`, which SQL cannot read — the same wall the nutrition reaction backfill hit.
+
+**A dedupe trap worth understanding.** Giving IPV a dose number renames a stored `"IPV"` to `"IPV 1"`, and the EPI generator's `fill-gaps` key was `vaccine_name|visit_name` — which would have inserted a **duplicate of every affected dose into every existing child**. `epiDedupeKey()` (now exported and tested) strips a trailing dose digit before comparing, so `"IPV"` and `"IPV 1"` are one dose while `"IPV 2 | 9 Months"` stays new. Doses are told apart by `visit_name`.
+
+**The form and tab:**
+- **The vaccine name is picked, not typed.** A blank box asking a non-medical parent to name a vaccine is close to unanswerable. The picker reuses `ui/OptionSheet.js` and is fed by a new `GET /api/children/vaccine-catalogue`, served from `epiSchedule.js` itself so the picker and the due dates cannot drift. "Something else" keeps free text available for a private or overseas dose. Offline it falls back to names already in the child's own records — **never** to a hard-coded copy of the schedule.
+- **Dose number** is a chip row, pre-selected to the lowest dose this child has no record of.
+- **`date_given` is no longer forced to today.** `applyVaccineToggle` hard-coded `todayLocal()`, so a dose given last week was filed as today's — and `date_given` is exactly what the professional portal shows a clinician. Marking a dose given now asks when.
+- **Post-dose reaction** (None / Mild / Severe + description) is captured in the same step, mirroring the nutrition solid-food reaction so the app asks this question one way. **Principle 5 guard: it must never write to `children.allergies`, warn, or say anything about a later dose.** A quiet line naming where a known allergy belongs is the limit.
+- **A "what's next" band sits above the list** — missed doses (coral, tappable into the Overdue filter) and the next visit with everything due that day (teal, informational). Rows show a mild/severe reaction marker; `none` shows nothing, because a "no reaction" line on every dose hides the one that matters.
+- `snapshot.js` and `ProfessionalView.js` carry `dose_number` and the reaction through to the QR consultation view, where a reaction outranks lateness in the flag slot.
+
+**Also done — illnesses and hospital stays can finally END, and both forms were rebuilt.**
+
+The Add Illness form was two free-text boxes ("Condition / Illness Title", "Doctor Remarks & Advice")
+and a mandatory photo, under a title reading "Add Clinical Record". Underneath it were three real bugs.
+
+**The big one: nothing in the app could ever mark a record resolved.** `resolved: false` was written
+at creation and no front-end file ever wrote `true` — there was no edit path for `medical-history` at
+all. But four places read that boolean and assume it changes: the Dashboard's Needs Attention card
+(which ranks an unresolved hospitalization as the single loudest alert in the app), the baby
+switcher's coral sibling dot, the professional portal's "Unresolved:" line, and `CalendarView`. So a
+cold logged in March still said "not yet resolved" in August, a discharged hospital stay still read
+as *in hospital right now* at the top of a clinician's QR view, and the parent had no way to clear
+either. Same class as the vaccination `date_given` bug: a field the professional portal presents as
+fact that the app cannot maintain.
+
+The other two: **the date was forced to `todayLocal()`**, so Tuesday's fever logged on Friday was
+filed as Friday; and **the mandatory photo hard-blocked the commonest case** — a fever managed at
+home has no document to photograph. The user chose to make the photo optional **for illnesses and
+hospital stays only**; vaccination cards, prescriptions and checkup slips keep `required`, because
+those documents genuinely exist.
+
+**Migration `005_medical_event_detail.sql` — the user must run `npm run db:migrate:up`.** Adds
+`resolved_date` (got better / discharged on), `care_level` (`home`/`doctor`/`hospital`), and
+`facility` (encrypted). `resolved_date`/`care_level` stay OUT of `encrypted` for the same reason
+`dose_number` did in 004. `medical_history.notes` stays unused rather than being repurposed as a
+hospital name — stuffing a distinct fact into a general-purpose column is what made "which dose is
+this?" a string match on ciphertext before 004.
+
+**`care_level` is a record of what the family DID, never a severity grade.** "At home" is not "mild"
+and "hospital" is not "severe"; PRODUCT.md Principle 5 makes any reading as clinical judgment a
+correctness bug. Do not add a severity field, a symptom checklist, or any "this looks serious"
+verdict. Duration is arithmetic and is fine.
+
+**`components/ui/MedicalEventModal.js` is new** — one form for both kinds, keyed by `kind`
+(`"illness" | "hospitalization"`) with an optional `record` prop (absent = create, present = edit).
+They are the same row underneath and had the same bugs; one implementation keeps them fixed
+together. **Edit is the whole point** — it is what makes "this is over now" sayable, and it is the
+app's first edit path for medical history. Rows carry an action that opens it (`checkmark-done` when
+open, `create-outline` when closed).
+
+**`utils/commonConditions.js` is new** — tap-to-fill chips under "What was it?", offering this
+child's own previously recorded conditions first, then common ones. Deliberately the opposite of
+`suggestedTitles()` for milestones, which offers only what has NOT been recorded: a milestone happens
+once, an illness comes back. **Its header states these are typing shortcuts, not a diagnosis list and
+not sourced from DOH/WHO/PIDSP or any clinical instrument. Never add a sourcing claim to that file,
+and never make the list the only way in** — free text stays primary. Covered by
+`commonConditions.check.js` (22 assertions).
+
+**`utils/dates.js` gained `spanText(start, end)`** — "3 days", "2 weeks", "Ongoing since 12 Aug 2026".
+Both lists, the Dashboard and the clinician's view need to say "how long" the same way; four copies
+is how `toISOString().slice(0,10)` reached twelve sites. Covered in `dates.check.js` (now 71).
+
+**A separate bug fixed in `ProfessionalView.js`:** the medical-history rows coloured every unresolved
+row coral with an alert icon — including **every Medication**, which has no ongoing/resolved meaning
+and whose `resolved` column is simply always FALSE. Only Illness and Hospitalization carry a status
+now; a medication is neutral. Tones follow the Dashboard's ladder (coral = in hospital now, amber =
+illness still being got over, green = over).
+
+**Validation is inline and lives in the pinned footer beside the buttons, not at the field.** This
+was tested live and matters: the form is long enough that a parent filling in the notes box is
+nowhere near the first field, and an error rendered at the top of a scrolled ScrollView is a Save
+button that appears to do nothing. Scrolling the ScrollView back was tried first and is a trap —
+**on react-native-web the ScrollView ref is the DOM node, whose `scrollTo` reads `top`/`behavior` and
+silently ignores React Native's `y`/`animated`.** The coral field border says *which*, the footer
+line says *what*.
+
+**A stale-dev-server trap worth knowing.** After editing `records.routes.js`, the running
+`npm run dev` backend did not restart, and `pickBody` filtered the new columns out — so
+`resolved: true` saved while `resolved_date` and `care_level` came back null, looking exactly like a
+front-end bug. A fresh process passed every assertion. **If new columns silently return null, restart
+the API before debugging the client.**
+
+`seedDemoYear.js` now gives every seeded illness and the hospital stay a real `resolved_date`
+(Common Cold 6 days at home, Ear Infection 10 days with a doctor, Jaundice 2 days at Metro General),
+so the demo shows real durations instead of bare dates.
+
+**Deliberately not done:** delete (a destructive confirm needs a pattern this app lacks — RN `Alert`
+is unreliable on the web build); a symptom checklist; temperature (removed deliberately, see §5);
+linking a medication to the illness it treated.
 
 **Migrations — resolved 2026-08-10:** the three additive migrations under `back-end/src/db/migrations/` (`000_calendar_events.sql`, `001_access_log_context.sql`, `002_vaccination_source.sql`) were previously applied only to the local dev database. `npm run db:migrate:up` has since been run against Supabase's Session pooler (`DB_SSL=true`) and verified via the `schema_migrations` table — all three are now confirmed applied to the live database. Custom calendar events, auto-generated EPI vaccination doses, and the QR consultation `POST /api/consult/resolve` flow (which writes to `access_logs.ip_address`/`user_agent`) all now have the columns/tables they need on the deployed backend. If a *new* migration is added later, remember: use `npm run db:migrate:up` (additive) — never `db:migrate`, which drops and recreates every table and is intentionally left for the user to run, not something Claude should do unattended.
 

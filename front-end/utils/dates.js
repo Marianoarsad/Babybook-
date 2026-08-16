@@ -96,6 +96,42 @@ export function minutesBetween(dateA, timeA, dateB, timeB) {
     return Math.round((b - a) / 60000);
 }
 
+// How old the child was on a given date: "5 months" / "1 yr 2 mo". Both
+// arguments are "YYYY-MM-DD"; returns "" when either is missing, unparseable,
+// or the date falls before the birth.
+//
+// Lifted out of MemoryDetail.js, which was the only screen that could answer
+// "how old was she when this happened". A saved milestone now stores the same
+// answer in `age_achieved`, which is what the QR snapshot ships to the
+// healthcare professional — so the derivation has to live somewhere both can
+// reach, and it must not drift between them.
+export function ageAtDate(dob, date) {
+    const months = monthsBetween(dob, date);
+    if (months == null) return "";
+    if (months < 24) return `${months} month${months === 1 ? "" : "s"}`;
+    const yrs = Math.floor(months / 12);
+    const mo = months % 12;
+    return mo ? `${yrs} yr ${mo} mo` : `${yrs} yr`;
+}
+
+// Whole months between two "YYYY-MM-DD" dates, or null when either is missing,
+// unparseable, or the second falls before the first.
+//
+// Split out of ageAtDate so the Development Checklist can pick the age band a
+// child belongs in using exactly the arithmetic that renders their age. Two
+// definitions of "how many months old" would eventually disagree, and the one
+// place that would show is a parent landing on the wrong band.
+export function monthsBetween(dob, date) {
+    if (!dob || !date) return null;
+    const b = new Date(`${String(dob).slice(0, 10)}T00:00:00`);
+    const d = new Date(`${String(date).slice(0, 10)}T00:00:00`);
+    if (isNaN(b.getTime()) || isNaN(d.getTime()) || d < b) return null;
+    let months = (d.getFullYear() - b.getFullYear()) * 12 + (d.getMonth() - b.getMonth());
+    // Not a full month yet if the day-of-month hasn't come round again.
+    if (d.getDate() < b.getDate()) months -= 1;
+    return months < 0 ? 0 : months;
+}
+
 // "3 days overdue" / "5 months overdue" for a date already in the past.
 // Returns "" when the date is in the future or unparseable, so a caller can
 // treat "" as "not overdue".
@@ -118,4 +154,36 @@ export function overdueBy(value) {
     }
     const y = Math.floor(days / 365.25);
     return `${y} year${y === 1 ? "" : "s"} overdue`;
+}
+
+// How long something lasted, in plain words. Both arguments are "YYYY-MM-DD".
+//
+//   spanText("2026-08-10", "2026-08-13")  -> "3 days"
+//   spanText("2026-08-10", "2026-08-10")  -> "Same day"
+//   spanText("2026-08-10", "")            -> "Ongoing since 10 Aug 2026"
+//
+// An illness and a hospital stay both answer "how long was this going on",
+// and the Health lists, the Dashboard and the healthcare professional's view
+// all need to say it the same way. Four components growing four copies of the
+// same formatter is precisely how `toISOString().slice(0, 10)` reached twelve
+// call sites before anyone noticed it was returning yesterday.
+export function spanText(start, end) {
+    if (!start) return "";
+    const s = new Date(`${String(start).slice(0, 10)}T00:00:00`);
+    if (isNaN(s.getTime())) return "";
+    if (!end) return `Ongoing since ${shortDate(start)}`;
+    const e = new Date(`${String(end).slice(0, 10)}T00:00:00`);
+    // An end before the start is bad data, not a negative duration. Say what
+    // is certain (when it ended) rather than inventing "-3 days".
+    if (isNaN(e.getTime()) || e < s) return shortDate(end);
+    const days = Math.round((e.getTime() - s.getTime()) / 86400000);
+    if (days === 0) return "Same day";
+    if (days === 1) return "1 day";
+    if (days < 14) return `${days} days`;
+    if (days < 60) {
+        const w = Math.round(days / 7);
+        return `${w} week${w === 1 ? "" : "s"}`;
+    }
+    const mo = Math.round(days / 30.4375);
+    return `${mo} month${mo === 1 ? "" : "s"}`;
 }

@@ -76,9 +76,16 @@ const RESOURCES = [
     {
         path: "vaccinations",
         table: "vaccinations",
-        columns: ["vaccine_name", "visit_name", "due_date", "date_given", "status", "notes"],
+        // dose_number and reaction_severity stay OUT of `encrypted`: an integer
+        // and a fixed vocabulary gain no privacy from encryption and would lose
+        // the ability to be counted or filtered in SQL. `reaction` is free text
+        // about a child's health, so it is encrypted like every other such field.
+        columns: [
+            "vaccine_name", "visit_name", "due_date", "date_given", "status", "notes",
+            "dose_number", "reaction_severity", "reaction",
+        ],
         orderBy: "COALESCE(date_given, due_date) DESC NULLS LAST, id DESC",
-        encrypted: ["vaccine_name", "visit_name", "notes"],
+        encrypted: ["vaccine_name", "visit_name", "notes", "reaction"],
     },
     {
         path: "checkups",
@@ -90,9 +97,23 @@ const RESOURCES = [
     {
         path: "medical-history",
         table: "medical_history",
-        columns: ["category", "title", "description", "date_recorded", "resolved", "notes"],
+        // resolved_date / care_level stay OUT of `encrypted`: a date and a
+        // three-value vocabulary, where encryption buys no privacy and blocks
+        // any future counting. `facility` is in, because it locates a real
+        // family at a real place on a real date.
+        columns: [
+            "category",
+            "title",
+            "description",
+            "date_recorded",
+            "resolved",
+            "resolved_date",
+            "care_level",
+            "facility",
+            "notes",
+        ],
         orderBy: "date_recorded DESC NULLS LAST, id DESC",
-        encrypted: ["title", "description", "notes"],
+        encrypted: ["title", "description", "facility", "notes"],
     },
     {
         path: "growth",
@@ -106,6 +127,10 @@ const RESOURCES = [
         columns: ["title", "age_achieved", "description", "date_recorded", "is_completed", "photo_url"],
         orderBy: "date_recorded DESC NULLS LAST, id DESC",
         encrypted: ["title", "age_achieved", "description"],
+        // A milestone can carry the parent's own photo, so its stored ref has
+        // to be signed on the way out. The seed's external picsum URLs are not
+        // storage refs and pass through resolveUrl() untouched.
+        photoColumn: "photo_url",
     },
     {
         path: "nutrition",
@@ -144,7 +169,9 @@ for (const r of RESOURCES) {
         `/:childId/${r.path}`,
         requireAuth,
         requireChildOwnership,
-        createResourceRouter({ table: r.table, columns: r.columns, orderBy: r.orderBy, validate: r.validate, encrypted: r.encrypted })
+        // Spread rather than listing keys — the old hand-copied list silently
+        // dropped any new resource option (photoColumn was the first).
+        createResourceRouter(r)
     );
 }
 

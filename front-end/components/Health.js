@@ -22,7 +22,7 @@ import { pickImage, pickerAvailable } from "../utils/imagePicker";
 import { useToast } from "./ui/Toast";
 import { useLanguage } from "../context/LanguageContext";
 import { useTheme } from "../context/ThemeContext";
-import { radius, space, type, shadow } from "../theme";
+import { radius, space, type, shadow, MIN_TOUCH } from "../theme";
 import {
     SectionContainerCard,
     ListEntryCard,
@@ -34,10 +34,20 @@ import { ImmunizationsSkeleton, AppointmentsSkeleton } from "./ui/Skeleton";
 import { useRefreshControl } from "./ui/useRefreshControl";
 import { DateField, TimeField } from "./ui/DateField";
 import ImageViewer from "./ui/ImageViewer";
+import OptionSheet from "./ui/OptionSheet";
+import MedicalEventModal from "./ui/MedicalEventModal";
 import TipStrip from "./ui/TipStrip";
 import KeyboardAvoider from "./ui/KeyboardAvoider";
-import { shortDate, shortTime, overdueBy, todayLocal } from "../utils/dates";
+import { shortDate, shortTime, overdueBy, todayLocal, spanText } from "../utils/dates";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+
+// How the care level a parent picked reads back on the row. A record of what
+// the family did, never a severity grade — "At home" is not "mild".
+const CARE_LABELS = {
+    home: "Cared for at home",
+    doctor: "Saw a doctor",
+    hospital: "Admitted to hospital",
+};
 
 export default function Health({
     profile,
@@ -80,18 +90,18 @@ export default function Health({
             hospitalization: "appointments",
         };
         const modalFor = {
-            vaccine: setShowVaxModal,
-            medication: setShowMedModal,
-            illness: setShowIllnessModal,
-            checkup: setShowApptModal,
-            hospitalization: setShowHospModal,
+            vaccine: () => setShowVaxModal(true),
+            medication: () => setShowMedModal(true),
+            illness: () => setMedEvent({ kind: "illness", record: null }),
+            checkup: () => setShowApptModal(true),
+            hospitalization: () => setMedEvent({ kind: "hospitalization", record: null }),
         };
         if (initialTab && tabFor[initialTab]) {
             setActiveTab(tabFor[initialTab]);
             const open = modalFor[initialTab];
             if (open) {
                 resetAttach();
-                open(true);
+                open();
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -158,6 +168,28 @@ export default function Health({
         return "due";
     };
 
+    // "What does my child need, and when?" — the question this tab is opened
+    // with, which a flat grouped list never answered. All derived from rows
+    // already loaded; no extra request.
+    const vaxSummary = useMemo(() => {
+        const pending = vaccines.filter((v) => !v.isCompleted && v.dueDate);
+        const today = todayLocal();
+        const overdue = pending.filter((v) => v.dueDate < today);
+        const upcoming = pending
+            .filter((v) => v.dueDate >= today)
+            .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+        // Everything sharing the earliest due date — a clinic visit gives
+        // several doses at once, so "next" is a visit, not a single shot.
+        const nextDate = upcoming.length ? upcoming[0].dueDate : "";
+        return {
+            done: vaccines.filter((v) => v.isCompleted).length,
+            total: vaccines.length,
+            overdue: overdue.sort((a, b) => a.dueDate.localeCompare(b.dueDate)),
+            next: upcoming.filter((v) => v.dueDate === nextDate),
+            nextDate,
+        };
+    }, [vaccines]);
+
     const filteredVaccines = useMemo(() => {
         const sorted = [...vaccines].sort((a, b) => (a.dueDate || "9999").localeCompare(b.dueDate || "9999"));
         const q = vaxSearch.trim().toLowerCase();
@@ -212,9 +244,6 @@ export default function Health({
     };
 
     const [illnesses, setIllnesses] = useState([]);
-    const [showIllnessModal, setShowIllnessModal] = useState(false);
-    const [illnessTitle, setIllnessTitle] = useState("");
-    const [illnessDesc, setIllnessDesc] = useState("");
     const [illnessVisible, setIllnessVisible] = useState(10);
 
     const [medications, setMedications] = useState([]);
@@ -224,10 +253,56 @@ export default function Health({
     const [medsVisible, setMedsVisible] = useState(10);
 
     const [hospitalizations, setHospitalizations] = useState([]);
-    const [showHospModal, setShowHospModal] = useState(false);
-    const [hospTitle, setHospTitle] = useState("");
-    const [hospDesc, setHospDesc] = useState("");
     const [hospVisible, setHospVisible] = useState(10);
+
+    // Illnesses and hospital stays share one form (ui/MedicalEventModal.js).
+    // `record` absent means add; present means edit — and edit is what makes
+    // "this is over now" sayable at all. Nothing in the app could set
+    // `resolved` before, so every past illness claimed to still be happening
+    // on the Dashboard and in the healthcare professional's view.
+    const [medEvent, setMedEvent] = useState(null); // { kind, record } | null
+
+    const handleMedEventSaved = (saved, kind, wasEdit) => {
+        const setList = kind === "illness" ? setIllnesses : setHospitalizations;
+        setList((prev) =>
+            wasEdit ? prev.map((r) => (r.id === saved.id ? saved : r)) : [saved, ...prev],
+        );
+        // A newly attached photo is not in attachMap yet, and an edit may have
+        // replaced the old one. Cheaper and more honest than guessing.
+        loadAttachments();
+    };
+
+    // How long it lasted, plus where the child was cared for when that was
+    // recorded. Both lists used to show a bare date and — for hospital stays —
+    // no status at all, while the Dashboard shouted about the same record.
+    // A row saved before migration 005 can be resolved with no end date. Fall
+    // back to the start date there rather than to spanText's "Ongoing since",
+    // which would contradict the "Better" pill sitting right beside it.
+    const medEventSubtitle = (r) => {
+        const span = r.resolved
+            ? r.resolvedDate
+                ? spanText(r.date, r.resolvedDate)
+                : shortDate(r.date)
+            : spanText(r.date, "");
+        return [span, CARE_LABELS[r.careLevel], r.facility].filter(Boolean).join("  ·  ");
+    };
+
+    // Amber while it is still going, green once it is over. DESIGN.md reserves
+    // coral for overdue / error / destructive, and something a child is still
+    // getting over is none of those. The word carries the state as well as the
+    // colour, so it never rests on hue alone.
+    const statusPill = (resolved, doneWord) => (
+        <View style={[styles.statusPill, resolved ? styles.statusPillDone : styles.statusPillOpen]}>
+            <Text
+                style={[
+                    styles.statusPillText,
+                    { color: resolved ? colors.success : colors.warning },
+                ]}
+            >
+                {resolved ? doneWord : "Ongoing"}
+            </Text>
+        </View>
+    );
 
     // Appointment (checkup) adding state
     const [showApptModal, setShowApptModal] = useState(false);
@@ -363,37 +438,103 @@ export default function Health({
     };
 
     // Add-vaccine modal state.
+    const OTHER_VACCINE = "__other__";
     const [showVaxModal, setShowVaxModal] = useState(false);
     const [vaxName, setVaxName] = useState("");
-    const [vaxVisit, setVaxVisit] = useState("");
+    const [vaxOtherName, setVaxOtherName] = useState("");
+    const [vaxDose, setVaxDose] = useState(1);
     const [vaxDue, setVaxDue] = useState("");
+    const [vaxPickerOpen, setVaxPickerOpen] = useState(false);
+
+    // The DOH vaccine list, fetched once. Falls back to the names already in
+    // this child's own records if the request fails, so an offline parent can
+    // still pick rather than type — and never to a hard-coded copy of the
+    // schedule, which would drift from the one generating their due dates.
+    const [catalogue, setCatalogue] = useState([]);
+    useEffect(() => {
+        let active = true;
+        api.vaccineCatalogue()
+            .then((r) => {
+                if (active && Array.isArray(r?.vaccines)) setCatalogue(r.vaccines);
+            })
+            .catch(() => {});
+        return () => {
+            active = false;
+        };
+    }, []);
+
+    const vaxIsOther = vaxName === OTHER_VACCINE;
+    const vaccineOptions = useMemo(() => {
+        const fromCatalogue = catalogue.map((v) => ({ key: v.name, label: v.name, doses: v.doses }));
+        if (fromCatalogue.length) return fromCatalogue;
+        // Offline fallback: whatever this child already has on file.
+        const seen = new Map();
+        for (const v of vaccines) {
+            const base = String(v.vaccineName || "").replace(/\s+\d+$/, "").trim();
+            if (base && !seen.has(base)) seen.set(base, { key: base, label: base, doses: 1 });
+        }
+        return [...seen.values()];
+    }, [catalogue, vaccines]);
+
+    // Doses this vaccine has in the schedule, so "which dose" is a choice
+    // between real options rather than a number to guess at.
+    const vaxDoseOptions = useMemo(() => {
+        const hit = vaccineOptions.find((o) => o.key === vaxName);
+        const n = hit?.doses || 1;
+        return Array.from({ length: n }, (_, i) => i + 1);
+    }, [vaccineOptions, vaxName]);
+
+    // Pre-select the lowest dose this child has no record of — the one they
+    // are almost certainly here to add.
+    useEffect(() => {
+        if (!vaxName || vaxIsOther) return;
+        const taken = new Set(
+            vaccines
+                .filter((v) => String(v.vaccineName || "").replace(/\s+\d+$/, "").trim() === vaxName)
+                .map((v) => v.doseNumber)
+                .filter(Boolean),
+        );
+        const next = vaxDoseOptions.find((d) => !taken.has(d));
+        setVaxDose(next || vaxDoseOptions[0] || 1);
+    }, [vaxName, vaccines, vaxDoseOptions, vaxIsOther]);
+
+    const resetVaxForm = () => {
+        setVaxName("");
+        setVaxOtherName("");
+        setVaxDose(1);
+        setVaxDue("");
+    };
 
     const handleAddVaccine = async () => {
-        if (!vaxName) {
-            toast.error("Please enter a vaccine name");
+        const picked = vaxIsOther ? vaxOtherName.trim() : vaxName;
+        if (!picked) {
+            toast.error(vaxIsOther ? "Please enter a vaccine name" : "Please choose a vaccine");
             return;
         }
         if (!requireAttach()) return;
-        const name = vaxName;
-        const visit = vaxVisit;
+        const multiDose = !vaxIsOther && vaxDoseOptions.length > 1;
+        // The dose stays in the name as well as its own column: every existing
+        // row is named this way, and the dedupe that stops the DOH generator
+        // duplicating doses compares on that name.
+        const name = multiDose ? `${picked} ${vaxDose}` : picked;
+        const dose = multiDose ? vaxDose : null;
         const due = vaxDue;
         setShowVaxModal(false);
-        setVaxName("");
-        setVaxVisit("");
-        setVaxDue("");
+        resetVaxForm();
         try {
             const saved = await api.createRecord(profile.id, "vaccinations", {
                 vaccine_name: name,
-                visit_name: visit || null,
+                visit_name: null,
                 due_date: due || null,
                 status: "scheduled",
+                dose_number: dose,
             });
             setVaccines((prev) => [...prev, vaccinationToApp(saved)]);
             await uploadAttachFor("vaccination", saved.id);
             // Set a reminder for the due date: notification + backend record.
             const when = morningOf(due);
             if (when) {
-                scheduleReminder("Vaccination reminder", `${name} — ${visit || "vaccination"} due`, when);
+                scheduleReminder("Vaccination reminder", `${name} due`, when);
                 api
                     .createRecord(profile.id, "reminders", {
                         reminder_type: "Vaccination",
@@ -409,20 +550,37 @@ export default function Health({
         }
     };
 
-    const applyVaccineToggle = async (vax, nowCompleted) => {
-        const today = todayLocal();
+    // `given` is the date the dose was ACTUALLY administered, not the date the
+    // parent got round to recording it. This used to be hard-coded to today,
+    // so a dose given last week was filed as today's — and date_given is
+    // exactly what the professional portal shows a clinician.
+    const applyVaccineToggle = async (vax, nowCompleted, extra = {}) => {
+        const given = nowCompleted ? extra.dateGiven || todayLocal() : null;
         // optimistic update
         setVaccines((prev) =>
             prev.map((v) =>
                 v.id === vax.id
-                    ? { ...v, isCompleted: nowCompleted, completedDate: nowCompleted ? today : undefined }
+                    ? {
+                          ...v,
+                          isCompleted: nowCompleted,
+                          completedDate: nowCompleted ? given : undefined,
+                          reactionSeverity: nowCompleted ? extra.reactionSeverity || "" : "",
+                          reaction: nowCompleted ? extra.reaction || "" : "",
+                      }
                     : v,
             ),
         );
         try {
             await api.updateRecord(profile.id, "vaccinations", vax.id, {
                 status: nowCompleted ? "completed" : "scheduled",
-                date_given: nowCompleted ? today : null,
+                date_given: given,
+                reaction_severity: nowCompleted ? extra.reactionSeverity || null : null,
+                // The description only means anything alongside an actual
+                // reaction — same rule as the nutrition form.
+                reaction:
+                    nowCompleted && extra.reactionSeverity && extra.reactionSeverity !== "none"
+                        ? extra.reaction || null
+                        : null,
             });
         } catch (e) {
             // revert on failure
@@ -434,29 +592,43 @@ export default function Health({
     // Marking a dose "given" requires a supporting photo (vaccination card),
     // same as any other record with a mandatory attachment — but this one
     // is required only at completion time, not while the dose is scheduled.
+    // The same step now also captures WHEN it was given and whether anything
+    // happened afterwards.
     const [completeVaxTarget, setCompleteVaxTarget] = useState(null);
     const [completeAttachUri, setCompleteAttachUri] = useState("");
+    const [completeDate, setCompleteDate] = useState("");
+    const [completeReaction, setCompleteReaction] = useState("");
+    const [completeReactionNote, setCompleteReactionNote] = useState("");
 
     const handleToggleVaccine = async (id) => {
         const vax = vaccines.find((v) => v.id === id);
         if (!vax) return;
         const nowCompleted = !vax.isCompleted;
-        if (nowCompleted && !attachUrlFor("vaccination", id)) {
+        if (nowCompleted) {
             setCompleteAttachUri("");
+            setCompleteDate(todayLocal());
+            setCompleteReaction("");
+            setCompleteReactionNote("");
             setCompleteVaxTarget(vax);
             return;
         }
-        await applyVaccineToggle(vax, nowCompleted);
+        await applyVaccineToggle(vax, false);
     };
 
     const handleConfirmCompleteWithPhoto = async () => {
-        if (!completeAttachUri) {
+        const alreadyAttached = !!attachUrlFor("vaccination", completeVaxTarget?.id);
+        if (!completeAttachUri && !alreadyAttached) {
             toast.error("A supporting photo is required to mark this dose given.");
             return;
         }
         const vax = completeVaxTarget;
         setCompleteVaxTarget(null);
-        await applyVaccineToggle(vax, true);
+        await applyVaccineToggle(vax, true, {
+            dateGiven: completeDate,
+            reactionSeverity: completeReaction,
+            reaction: completeReactionNote,
+        });
+        if (!completeAttachUri) return;
         try {
             const a = await api.uploadAttachment(profile.id, {
                 recordType: "vaccination",
@@ -498,33 +670,6 @@ export default function Health({
         setNewAllergy("");
     };
 
-    const handleAddIllness = async () => {
-        if (!illnessTitle) {
-            toast.error("Please enter illness name");
-            return;
-        }
-        if (!requireAttach()) return;
-        const title = illnessTitle;
-        const desc = illnessDesc;
-        setShowIllnessModal(false);
-        setIllnessTitle("");
-        setIllnessDesc("");
-        try {
-            const saved = await api.createRecord(profile.id, "medical-history", {
-                category: "Illness",
-                title,
-                description: desc || null,
-                date_recorded: todayLocal(),
-                resolved: false,
-            });
-            setIllnesses((prev) => [medHistoryToIllness(saved), ...prev]);
-            await uploadAttachFor("illness", saved.id);
-            toast.success("Medical condition recorded successfully.");
-        } catch (e) {
-            toast.error(e.message || "Could not save condition");
-        }
-    };
-
     const handleAddMedication = async () => {
         if (!medTitle) {
             toast.error("Please enter medication name");
@@ -548,33 +693,6 @@ export default function Health({
             toast.success("Prescribed medication logged successfully.");
         } catch (e) {
             toast.error(e.message || "Could not save medication");
-        }
-    };
-
-    const handleAddHospitalization = async () => {
-        if (!hospTitle) {
-            toast.error("Please enter a reason for hospitalization");
-            return;
-        }
-        if (!requireAttach()) return;
-        const title = hospTitle;
-        const desc = hospDesc;
-        setShowHospModal(false);
-        setHospTitle("");
-        setHospDesc("");
-        try {
-            const saved = await api.createRecord(profile.id, "medical-history", {
-                category: "Hospitalization",
-                title,
-                description: desc || null,
-                date_recorded: todayLocal(),
-                resolved: false,
-            });
-            setHospitalizations((prev) => [medHistoryToIllness(saved), ...prev]);
-            await uploadAttachFor("hospitalization", saved.id);
-            toast.success("Hospitalization recorded.");
-        } catch (e) {
-            toast.error(e.message || "Could not save hospitalization");
         }
     };
 
@@ -783,6 +901,63 @@ export default function Health({
                             </View>
                         }
                     >
+                        {/* The summary sits above the filters because it is the
+                            answer, not a way of finding one. Overdue is coral
+                            because a missed dose IS overdue; the next visit is
+                            informational teal, not a warning. */}
+                        {!vaxLoading && vaccines.length > 0 && (
+                            <View style={styles.vaxSummary}>
+                                {vaxSummary.overdue.length > 0 && (
+                                    <TouchableOpacity
+                                        style={[styles.vaxSummaryRow, styles.vaxSummaryOverdue]}
+                                        onPress={() => setVaxStatusFilter("overdue")}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={`Show ${vaxSummary.overdue.length} overdue doses`}
+                                    >
+                                        <Ionicons name="alert-circle" size={18} color={colors.danger} />
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={styles.vaxSummaryTitle}>
+                                                {vaxSummary.overdue.length === 1
+                                                    ? "1 dose missed"
+                                                    : `${vaxSummary.overdue.length} doses missed`}
+                                            </Text>
+                                            <Text style={styles.vaxSummaryLine}>
+                                                {`${vaxSummary.overdue[0].vaccineName} · ${overdueBy(vaxSummary.overdue[0].dueDate)}`}
+                                            </Text>
+                                        </View>
+                                        <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                                    </TouchableOpacity>
+                                )}
+
+                                {vaxSummary.next.length > 0 && (
+                                    <View style={[styles.vaxSummaryRow, styles.vaxSummaryNext]}>
+                                        <Ionicons name="calendar-outline" size={18} color={colors.info} />
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={styles.vaxSummaryTitle}>
+                                                {`Next visit · ${shortDate(vaxSummary.nextDate)}`}
+                                            </Text>
+                                            <Text style={styles.vaxSummaryLine}>
+                                                {vaxSummary.next.map((v) => v.vaccineName).join(", ")}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                )}
+
+                                {vaxSummary.next.length === 0 && vaxSummary.overdue.length === 0 && (
+                                    <View style={[styles.vaxSummaryRow, styles.vaxSummaryNext]}>
+                                        <Ionicons
+                                            name="checkmark-circle-outline"
+                                            size={18}
+                                            color={colors.success}
+                                        />
+                                        <Text style={styles.vaxSummaryTitle}>
+                                            {`Nothing due — ${vaxSummary.done} of ${vaxSummary.total} recorded as given`}
+                                        </Text>
+                                    </View>
+                                )}
+                            </View>
+                        )}
+
                         {!vaxLoading && vaccines.length > 0 && (
                             <>
                                 <View style={styles.filterRow}>
@@ -881,6 +1056,43 @@ export default function Health({
                                                 <Text style={styles.vaxOverdue}>
                                                     {overdueBy(vax.dueDate)}
                                                 </Text>
+                                            ) : null}
+                                            {/* A recorded reaction is the most
+                                                decision-relevant thing on this
+                                                row. Amber for mild, coral for
+                                                severe — "none" shows nothing,
+                                                because a row that says "no
+                                                reaction" on every dose is noise
+                                                that hides the one that matters. */}
+                                            {vax.reactionSeverity === "mild" ||
+                                            vax.reactionSeverity === "severe" ? (
+                                                <View style={styles.reactionRow}>
+                                                    <Ionicons
+                                                        name="alert-circle-outline"
+                                                        size={13}
+                                                        color={
+                                                            vax.reactionSeverity === "severe"
+                                                                ? colors.danger
+                                                                : colors.warning
+                                                        }
+                                                    />
+                                                    <Text
+                                                        style={[
+                                                            styles.reactionText,
+                                                            {
+                                                                color:
+                                                                    vax.reactionSeverity === "severe"
+                                                                        ? colors.danger
+                                                                        : colors.warning,
+                                                            },
+                                                        ]}
+                                                    >
+                                                        {vax.reactionSeverity === "severe"
+                                                            ? "Severe reaction"
+                                                            : "Mild reaction"}
+                                                        {vax.reaction ? ` · ${vax.reaction}` : ""}
+                                                    </Text>
+                                                </View>
                                             ) : null}
                                             {vax.notes && (
                                                 <Text style={styles.vaxNotes}>
@@ -1099,14 +1311,14 @@ export default function Health({
 
                     {/* Active Illness Conditions */}
                     <SectionContainerCard
-                        title="Pediatric Conditions & Illnesses"
-                        subtitle="Triage check-up log records"
+                        title="Illnesses & Conditions"
+                        subtitle="Colds, fevers, and anything else your child has been through"
                         action={
                             <TouchableOpacity
-                                onPress={() => { resetAttach(); setShowIllnessModal(true); }}
+                                onPress={() => setMedEvent({ kind: "illness", record: null })}
                                 style={styles.actionBtn}
                                 accessibilityRole="button"
-                                accessibilityLabel="Add condition"
+                                accessibilityLabel="Log an illness"
                             >
                                 <Ionicons name="add" size={16} color="#FFFFFF" />
                             </TouchableOpacity>
@@ -1114,7 +1326,7 @@ export default function Health({
                     >
                         {histLoading && <AppointmentsSkeleton count={3} />}
                         {!histLoading && illnesses.length === 0 && (
-                            <EmptyStateCard message="No conditions recorded yet." icon="pulse-outline" />
+                            <EmptyStateCard message="Nothing recorded yet." icon="pulse-outline" />
                         )}
                         {!histLoading && illnesses.slice(0, illnessVisible).map((ill, idx) => (
                             <ListEntryCard
@@ -1122,7 +1334,8 @@ export default function Health({
                                 thumbnailUrl={attachUrlFor("illness", ill.id)}
                                 onThumbnailPress={() => openViewer("illness", ill.id)}
                                 title={ill.title}
-                                subtitle={`${shortDate(ill.date)}  ·  ${ill.resolved ? "Resolved" : "Ongoing"}`}
+                                label={statusPill(ill.resolved, "Better")}
+                                subtitle={medEventSubtitle(ill)}
                                 notes={ill.desc}
                                 icon={
                                     <Ionicons
@@ -1132,6 +1345,24 @@ export default function Health({
                                     />
                                 }
                                 iconBg={colors.recIllness.bg}
+                                actions={
+                                    <TouchableOpacity
+                                        onPress={() => setMedEvent({ kind: "illness", record: ill })}
+                                        style={styles.rowEditBtn}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={
+                                            ill.resolved
+                                                ? `Edit ${ill.title}`
+                                                : `Mark ${ill.title} better`
+                                        }
+                                    >
+                                        <Ionicons
+                                            name={ill.resolved ? "create-outline" : "checkmark-done"}
+                                            size={16}
+                                            color={colors.primary}
+                                        />
+                                    </TouchableOpacity>
+                                }
                             />
                         ))}
                         {!histLoading && (
@@ -1210,14 +1441,14 @@ export default function Health({
                     </SectionContainerCard>
 
                     <SectionContainerCard
-                        title="Hospitalizations"
-                        subtitle="Hospital stays and admissions"
+                        title="Hospital Stays"
+                        subtitle="Admissions, and how long each one lasted"
                         action={
                             <TouchableOpacity
-                                onPress={() => { resetAttach(); setShowHospModal(true); }}
+                                onPress={() => setMedEvent({ kind: "hospitalization", record: null })}
                                 style={styles.actionBtn}
                                 accessibilityRole="button"
-                                accessibilityLabel="Add hospitalization"
+                                accessibilityLabel="Log a hospital stay"
                             >
                                 <Ionicons name="add" size={16} color="#FFFFFF" />
                             </TouchableOpacity>
@@ -1225,7 +1456,7 @@ export default function Health({
                     >
                         {histLoading && <AppointmentsSkeleton count={2} />}
                         {!histLoading && hospitalizations.length === 0 && (
-                            <EmptyStateCard message="No hospitalizations recorded." icon="bandage-outline" />
+                            <EmptyStateCard message="No hospital stays recorded." icon="bandage-outline" />
                         )}
                         {!histLoading && hospitalizations.slice(0, hospVisible).map((h, idx) => (
                             <ListEntryCard
@@ -1233,12 +1464,36 @@ export default function Health({
                                 thumbnailUrl={attachUrlFor("hospitalization", h.id)}
                                 onThumbnailPress={() => openViewer("hospitalization", h.id)}
                                 title={h.title}
-                                subtitle={shortDate(h.date)}
+                                // This list showed no status at all, while the
+                                // Dashboard ranked an unresolved stay as the
+                                // single loudest alert in the app.
+                                label={statusPill(h.resolved, "Discharged")}
+                                subtitle={medEventSubtitle(h)}
                                 notes={h.desc}
                                 icon={
                                     <Ionicons name="bandage-outline" size={18} color={colors.recHospitalization.on} />
                                 }
                                 iconBg={colors.recHospitalization.bg}
+                                actions={
+                                    <TouchableOpacity
+                                        onPress={() =>
+                                            setMedEvent({ kind: "hospitalization", record: h })
+                                        }
+                                        style={styles.rowEditBtn}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={
+                                            h.resolved
+                                                ? `Edit ${h.title}`
+                                                : `Mark ${h.title} discharged`
+                                        }
+                                    >
+                                        <Ionicons
+                                            name={h.resolved ? "create-outline" : "checkmark-done"}
+                                            size={16}
+                                            color={colors.primary}
+                                        />
+                                    </TouchableOpacity>
+                                }
                             />
                         ))}
                         {!histLoading && (
@@ -1253,109 +1508,17 @@ export default function Health({
                 </View>
             )}
 
-            {/* Hospitalization Modal */}
-            <Modal visible={showHospModal} transparent animationType="slide">
-                <KeyboardAvoider>
-                <View style={styles.modalBg}>
-                    <View style={styles.modalCard}>
-                        <Text style={styles.modalTitle}>Add Hospitalization</Text>
-
-                        <Text style={styles.modalLabel}>Reason / Title</Text>
-                        <TextInput
-                            style={styles.modalInput}
-                            placeholder="e.g. Dengue admission"
-                            placeholderTextColor={colors.placeholder}
-                            value={hospTitle}
-                            onChangeText={setHospTitle}
-                        />
-
-                        <Text style={styles.modalLabel}>Details (optional)</Text>
-                        <TextInput
-                            style={styles.modalInput}
-                            value={hospDesc}
-                            onChangeText={setHospDesc}
-                        />
-
-                        <PhotoAttach
-                            required
-                            uri={attachUri}
-                            onChangeUri={setAttachUri}
-                        />
-
-                        <View style={styles.modalButtons}>
-                            <TouchableOpacity
-                                onPress={() => setShowHospModal(false)}
-                                style={styles.modalCancelBtn}
-                            >
-                                <Text style={styles.modalCancelText}>{t("cancel")}</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                onPress={handleAddHospitalization}
-                                style={styles.modalSaveBtn}
-                            >
-                                <Text style={styles.modalSaveText}>{t("save")}</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
-                </KeyboardAvoider>
-            </Modal>
-
-            {/* Illness Modal */}
-            <Modal visible={showIllnessModal} transparent animationType="slide">
-                <KeyboardAvoider>
-                <View style={styles.modalBg}>
-                    <View style={styles.modalCard}>
-                        <Text style={styles.modalTitle}>
-                            Add Clinical Record
-                        </Text>
-
-                        <Text style={styles.modalLabel}>
-                            Condition / Illness Title
-                        </Text>
-                        <TextInput
-                            style={styles.modalInput}
-                            value={illnessTitle}
-                            onChangeText={setIllnessTitle}
-                        />
-
-                        <Text style={styles.modalLabel}>
-                            Doctor Remarks & Advice
-                        </Text>
-                        <TextInput
-                            style={styles.modalInput}
-                            value={illnessDesc}
-                            onChangeText={setIllnessDesc}
-                        />
-
-                        <PhotoAttach
-                            required
-                            uri={attachUri}
-                            onChangeUri={setAttachUri}
-                        />
-
-                        <View style={styles.modalButtons}>
-                            <TouchableOpacity
-                                onPress={() => setShowIllnessModal(false)}
-                                style={styles.modalCancelBtn}
-                            >
-                                <Text style={styles.modalCancelText}>
-                                    {t("cancel")}
-                                </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                onPress={handleAddIllness}
-                                style={styles.modalSaveBtn}
-                            >
-                                <Text style={styles.modalSaveText}>
-                                    {t("save")}
-                                </Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
-                </KeyboardAvoider>
-            </Modal>
+            {/* One form for illnesses and hospital stays — same record type,
+                same bugs, so one implementation keeps them fixed together. */}
+            <MedicalEventModal
+                visible={!!medEvent}
+                kind={medEvent ? medEvent.kind : "illness"}
+                profile={profile}
+                record={medEvent ? medEvent.record : null}
+                previous={illnesses}
+                onClose={() => setMedEvent(null)}
+                onSaved={handleMedEventSaved}
+            />
 
             {/* Medication Modal */}
             <Modal visible={showMedModal} transparent animationType="slide">
@@ -1418,23 +1581,63 @@ export default function Health({
                     <View style={styles.modalCard}>
                         <Text style={styles.modalTitle}>Add Vaccination</Text>
 
-                        <Text style={styles.modalLabel}>Vaccine Name</Text>
-                        <TextInput
-                            style={styles.modalInput}
-                            placeholder="e.g. MMR"
-                            placeholderTextColor={colors.placeholder}
-                            value={vaxName}
-                            onChangeText={setVaxName}
-                        />
+                        {/* Picked from the DOH list, not typed. A blank box
+                            asking a parent to name a vaccine is close to
+                            unanswerable — and the app already holds the
+                            canonical list the due dates come from. */}
+                        <Text style={styles.modalLabel}>Vaccine</Text>
+                        <TouchableOpacity
+                            style={styles.pickerTrigger}
+                            onPress={() => setVaxPickerOpen(true)}
+                            accessibilityRole="button"
+                            accessibilityLabel={
+                                vaxName ? `Vaccine: ${vaxName}. Choose a different one` : "Choose a vaccine"
+                            }
+                        >
+                            <Text style={[styles.pickerTriggerText, !vaxName && styles.pickerTriggerEmpty]}>
+                                {vaxName || "Choose a vaccine"}
+                            </Text>
+                            <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
+                        </TouchableOpacity>
 
-                        <Text style={styles.modalLabel}>
-                            Visit (e.g. 12 Month Wellness)
-                        </Text>
-                        <TextInput
-                            style={styles.modalInput}
-                            value={vaxVisit}
-                            onChangeText={setVaxVisit}
-                        />
+                        {/* Revealed only when the parent picks "Something else",
+                            so the free-text path still exists for a vaccine the
+                            DOH list does not carry (a private-sector one, or a
+                            dose given abroad) without being the default. */}
+                        {vaxIsOther && (
+                            <TextInput
+                                style={styles.modalInput}
+                                placeholder="Vaccine name"
+                                placeholderTextColor={colors.placeholder}
+                                value={vaxOtherName}
+                                onChangeText={setVaxOtherName}
+                            />
+                        )}
+
+                        {vaxDoseOptions.length > 1 && (
+                            <>
+                                <Text style={styles.modalLabel}>Which dose</Text>
+                                <View style={styles.doseRow}>
+                                    {vaxDoseOptions.map((d) => {
+                                        const on = vaxDose === d;
+                                        return (
+                                            <TouchableOpacity
+                                                key={d}
+                                                style={[styles.doseChip, on && styles.doseChipOn]}
+                                                onPress={() => setVaxDose(d)}
+                                                accessibilityRole="button"
+                                                accessibilityState={{ selected: on }}
+                                                accessibilityLabel={`Dose ${d}`}
+                                            >
+                                                <Text style={[styles.doseChipText, on && styles.doseChipTextOn]}>
+                                                    {d}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                            </>
+                        )}
 
                         <DateField label="Due Date" value={vaxDue} onChange={setVaxDue} />
 
@@ -1549,13 +1752,82 @@ export default function Health({
                         <Text style={styles.modalLabel}>
                             {completeVaxTarget ? completeVaxTarget.vaccineName : ""}
                         </Text>
-                        <PhotoAttach
-                            required
-                            uri={completeAttachUri}
-                            onChangeUri={setCompleteAttachUri}
-                            label="Vaccination Card Photo"
-                            helper="Required to confirm this dose was given"
-                        />
+
+                        <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
+                            {/* Editable, not assumed. A parent recording a dose
+                                a week after the clinic visit was previously
+                                forced to file it as today's. */}
+                            <DateField
+                                label="Date given"
+                                value={completeDate}
+                                onChange={setCompleteDate}
+                                maximumDate={todayLocal()}
+                            />
+
+                            <Text style={styles.modalLabel}>Any reaction afterwards?</Text>
+                            <View style={styles.doseRow}>
+                                {[
+                                    { key: "none", label: "None" },
+                                    { key: "mild", label: "Mild" },
+                                    { key: "severe", label: "Severe" },
+                                ].map((r) => {
+                                    const on = completeReaction === r.key;
+                                    return (
+                                        <TouchableOpacity
+                                            key={r.key}
+                                            style={[styles.doseChip, on && styles.doseChipOn]}
+                                            onPress={() => setCompleteReaction(r.key)}
+                                            accessibilityRole="button"
+                                            accessibilityState={{ selected: on }}
+                                            accessibilityLabel={`Reaction: ${r.label}`}
+                                        >
+                                            <Text style={[styles.doseChipText, on && styles.doseChipTextOn]}>
+                                                {r.label}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </View>
+
+                            {completeReaction === "mild" || completeReaction === "severe" ? (
+                                <>
+                                    <TextInput
+                                        style={styles.modalInput}
+                                        placeholder="What happened?"
+                                        placeholderTextColor={colors.placeholder}
+                                        value={completeReactionNote}
+                                        onChangeText={setCompleteReactionNote}
+                                    />
+                                    {/* States where a known allergy belongs
+                                        without acting on it. Recording a
+                                        reaction must never write to the
+                                        child's allergies, warn, or say
+                                        anything about a later dose —
+                                        PRODUCT.md Principle 5. */}
+                                    <View style={styles.noteBox}>
+                                        <Ionicons
+                                            name="information-circle-outline"
+                                            size={15}
+                                            color={colors.info}
+                                        />
+                                        <Text style={styles.noteText}>
+                                            Kept with this dose so you can show it at the next visit. If
+                                            this turns out to be a known allergy, you can add it to your
+                                            child&apos;s profile.
+                                        </Text>
+                                    </View>
+                                </>
+                            ) : null}
+
+                            <PhotoAttach
+                                required
+                                uri={completeAttachUri}
+                                onChangeUri={setCompleteAttachUri}
+                                label="Vaccination Card Photo"
+                                helper="Required to confirm this dose was given"
+                            />
+                        </ScrollView>
+
                         <View style={styles.modalButtons}>
                             <TouchableOpacity
                                 onPress={() => setCompleteVaxTarget(null)}
@@ -1574,6 +1846,29 @@ export default function Health({
                 </View>
                 </KeyboardAvoider>
             </Modal>
+
+            {/* The DOH vaccine list. "Something else" sits first so a
+                private-sector or overseas dose — the one case the list cannot
+                cover — is the first thing a parent sees rather than something
+                they scroll seventeen doses to find. */}
+            <OptionSheet
+                visible={vaxPickerOpen}
+                title="Choose a vaccine"
+                options={[
+                    { key: OTHER_VACCINE, label: "Something else", note: "Type the name" },
+                    ...vaccineOptions.map((o) => ({
+                        key: o.key,
+                        label: o.label,
+                        note: o.doses > 1 ? `${o.doses} doses` : null,
+                    })),
+                ]}
+                selectedKey={vaxName}
+                onSelect={(key) => {
+                    setVaxName(key);
+                    setVaxPickerOpen(false);
+                }}
+                onClose={() => setVaxPickerOpen(false)}
+            />
 
             <ImageViewer
                 visible={!!viewer}
@@ -1751,6 +2046,28 @@ const makeStyles = (colors) => StyleSheet.create({
         ...type.label,
         color: "#FFFFFF",
     },
+    // Opens the record for editing — which is also how a parent says "this is
+    // over now". A record that can never be corrected or closed is the reason
+    // every past illness still read as happening.
+    rowEditBtn: {
+        width: MIN_TOUCH,
+        height: MIN_TOUCH,
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
+        backgroundColor: colors.primarySoft,
+    },
+    statusPill: {
+        alignSelf: "flex-start",
+        paddingHorizontal: 10,
+        paddingVertical: 3,
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
+    },
+    statusPillOpen: { backgroundColor: colors.warningBg },
+    statusPillDone: { backgroundColor: colors.successBg },
+    statusPillText: { ...type.caption, fontWeight: "700" },
     exportPdfBtn: {
         flexDirection: "row",
         alignItems: "center",
@@ -1941,6 +2258,77 @@ const makeStyles = (colors) => StyleSheet.create({
         justifyContent: "flex-end",
         gap: 12,
     },
+    // The Mark Dose Given step now carries a date, a reaction and a photo, so
+    // it scrolls rather than growing past the screen on a small phone.
+    modalScroll: { flexGrow: 0, maxHeight: 380 },
+
+    // Opens the vaccine picker. Reads like an input so it is obviously a field,
+    // not a button that navigates away.
+    pickerTrigger: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        backgroundColor: colors.surfaceAlt,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
+        paddingHorizontal: 12,
+        minHeight: MIN_TOUCH,
+        marginBottom: 16,
+    },
+    pickerTriggerText: { ...type.body, color: colors.text, flex: 1 },
+    pickerTriggerEmpty: { color: colors.placeholder },
+
+    doseRow: { flexDirection: "row", gap: 8, marginBottom: 16, flexWrap: "wrap" },
+    doseChip: {
+        minWidth: 48,
+        minHeight: MIN_TOUCH,
+        paddingHorizontal: 14,
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+    },
+    doseChipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+    doseChipText: { ...type.label, color: colors.textSecondary },
+    doseChipTextOn: { color: colors.onPrimary },
+
+    noteBox: {
+        flexDirection: "row",
+        alignItems: "flex-start",
+        gap: 8,
+        padding: 12,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
+        backgroundColor: colors.infoBg,
+        marginBottom: 16,
+    },
+    noteText: { flex: 1, ...type.caption, color: colors.text },
+
+    // "What's next" band above the vaccine list.
+    vaxSummary: { gap: 8, marginBottom: 16 },
+    vaxSummaryRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+        padding: 12,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
+        borderWidth: 1,
+    },
+    // Coral for a missed dose, which genuinely is overdue; teal for the next
+    // visit, which is information rather than a warning.
+    vaxSummaryOverdue: { backgroundColor: colors.surface, borderColor: colors.danger },
+    vaxSummaryNext: { backgroundColor: colors.infoBg, borderColor: colors.border },
+    vaxSummaryTitle: { ...type.bodyStrong, color: colors.text },
+    vaxSummaryLine: { ...type.caption, color: colors.textSecondary, marginTop: 2 },
+
+    reactionRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3 },
+    reactionText: { ...type.caption, flex: 1 },
     modalCancelBtn: {
         paddingVertical: 10,
         paddingHorizontal: 16,

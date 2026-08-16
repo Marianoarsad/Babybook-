@@ -77,6 +77,162 @@ describe("BabyBook+ API", () => {
     // Nutrition branches on HOW the milk was given. Before feed_method
     // existed, every milk row demanded a quantity, so a parent feeding at the
     // breast had no way to record a feed except by inventing a number.
+    describe("vaccination detail", () => {
+        const post = (body) =>
+            request(app)
+                .post(`/api/children/${childId}/vaccinations`)
+                .set("Authorization", `Bearer ${token}`)
+                .send(body);
+
+        test("saves a dose number in its own column", async () => {
+            const res = await post({
+                vaccine_name: "Pentavalent (DTwP-HepB-Hib) 2",
+                due_date: "2026-03-12",
+                status: "scheduled",
+                dose_number: 2,
+            });
+            expect(res.status).toBe(201);
+            expect(res.body.dose_number).toBe(2);
+        });
+
+        // The date a dose was actually given, which used to be forced to today.
+        test("accepts a back-dated date_given", async () => {
+            const created = await post({ vaccine_name: "BCG", status: "scheduled" });
+            const res = await request(app)
+                .put(`/api/children/${childId}/vaccinations/${created.body.id}`)
+                .set("Authorization", `Bearer ${token}`)
+                .send({ status: "completed", date_given: "2026-07-01" });
+            expect(res.status).toBe(200);
+            expect(String(res.body.date_given).slice(0, 10)).toBe("2026-07-01");
+        });
+
+        test("records a reaction and returns it decrypted", async () => {
+            const created = await post({ vaccine_name: "MMR (Measles, Mumps, Rubella) 1" });
+            const res = await request(app)
+                .put(`/api/children/${childId}/vaccinations/${created.body.id}`)
+                .set("Authorization", `Bearer ${token}`)
+                .send({
+                    status: "completed",
+                    date_given: "2026-08-01",
+                    reaction_severity: "mild",
+                    reaction: "Slight fever overnight",
+                });
+            expect(res.status).toBe(200);
+            expect(res.body.reaction_severity).toBe("mild");
+            expect(res.body.reaction).toBe("Slight fever overnight");
+        });
+
+        test("rejects a severity outside the vocabulary", async () => {
+            const res = await post({ vaccine_name: "OPV 1", reaction_severity: "catastrophic" });
+            expect(res.status).toBeGreaterThanOrEqual(400);
+        });
+
+        // Rows predating migration 004 have neither field; "not recorded" and
+        // "no reaction" must stay distinguishable.
+        test("a vaccine with no reaction recorded returns null, not 'none'", async () => {
+            const res = await post({ vaccine_name: "PCV 1", due_date: "2026-02-12" });
+            expect(res.status).toBe(201);
+            expect(res.body.reaction_severity).toBeNull();
+            expect(res.body.dose_number).toBeNull();
+        });
+
+        test("the vaccine catalogue lists the DOH schedule", async () => {
+            const res = await request(app)
+                .get(`/api/children/vaccine-catalogue`)
+                .set("Authorization", `Bearer ${token}`);
+            expect(res.status).toBe(200);
+            expect(Array.isArray(res.body.vaccines)).toBe(true);
+            const ipv = res.body.vaccines.find((v) => v.name === "IPV");
+            // Verified 2026-08-16 against the 2026 PIDSP calendar: IPV is a
+            // two-dose vaccine, which the schedule previously got wrong.
+            expect(ipv.doses).toBe(2);
+        });
+    });
+
+    // An illness and a hospital stay are the same row, and until migration 005
+    // neither could ever END: the client wrote resolved=FALSE at creation and
+    // had no way to write TRUE, so every past cold still claimed to be
+    // happening on the Dashboard and in the professional's QR view.
+    describe("medical event detail", () => {
+        const post = (body) =>
+            request(app)
+                .post(`/api/children/${childId}/medical-history`)
+                .set("Authorization", `Bearer ${token}`)
+                .send(body);
+
+        test("an illness can be closed with an end date", async () => {
+            const created = await post({
+                category: "Illness",
+                title: "Common Cold",
+                date_recorded: "2026-08-01",
+                resolved: false,
+            });
+            expect(created.status).toBe(201);
+            expect(created.body.resolved).toBe(false);
+            expect(created.body.resolved_date).toBeNull();
+
+            const res = await request(app)
+                .put(`/api/children/${childId}/medical-history/${created.body.id}`)
+                .set("Authorization", `Bearer ${token}`)
+                .send({ resolved: true, resolved_date: "2026-08-07" });
+            expect(res.status).toBe(200);
+            expect(res.body.resolved).toBe(true);
+            expect(String(res.body.resolved_date).slice(0, 10)).toBe("2026-08-07");
+        });
+
+        // The date used to be forced to today by the client, so an illness
+        // logged three days late was filed three days late.
+        test("accepts a back-dated start", async () => {
+            const res = await post({
+                category: "Illness",
+                title: "Ear Infection",
+                date_recorded: "2026-06-15",
+            });
+            expect(res.status).toBe(201);
+            expect(String(res.body.date_recorded).slice(0, 10)).toBe("2026-06-15");
+        });
+
+        test("records the care level", async () => {
+            const res = await post({ category: "Illness", title: "Fever", care_level: "doctor" });
+            expect(res.status).toBe(201);
+            expect(res.body.care_level).toBe("doctor");
+        });
+
+        test("rejects a care level outside the vocabulary", async () => {
+            const res = await post({ category: "Illness", title: "Fever", care_level: "witchcraft" });
+            expect(res.status).toBeGreaterThanOrEqual(400);
+        });
+
+        // "nobody answered" and "cared for at home" must stay distinguishable.
+        test("an unanswered care level is null, not 'home'", async () => {
+            const res = await post({ category: "Illness", title: "Rash" });
+            expect(res.status).toBe(201);
+            expect(res.body.care_level).toBeNull();
+            expect(res.body.resolved_date).toBeNull();
+            expect(res.body.facility).toBeNull();
+        });
+
+        test("a hospital stay stores an encrypted facility and returns it decrypted", async () => {
+            const created = await post({
+                category: "Hospitalization",
+                title: "Dengue admission",
+                facility: "Cebu Doctors' University Hospital",
+                date_recorded: "2026-05-02",
+                resolved: true,
+                resolved_date: "2026-05-06",
+            });
+            expect(created.status).toBe(201);
+            expect(created.body.facility).toBe("Cebu Doctors' University Hospital");
+
+            // Stored ciphertext, not plaintext.
+            const { rows } = await pool.query(
+                "SELECT facility FROM medical_history WHERE id = $1",
+                [created.body.id],
+            );
+            expect(rows[0].facility.startsWith("enc:v1:")).toBe(true);
+        });
+    });
+
     describe("nutrition entries", () => {
         const post = (body) =>
             request(app)

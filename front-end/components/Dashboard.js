@@ -20,7 +20,6 @@ import { api } from "../utils/api";
 import { memoryToApp, toMilliliters, feedRowSummary } from "../utils/adapters";
 import { useToast } from "./ui/Toast";
 import { useRefreshControl } from "./ui/useRefreshControl";
-import AddMemoryModal from "./ui/AddMemoryModal";
 import { cacheSummary } from "../utils/offlineSummary";
 import { seen, markSeen } from "../utils/firstRun";
 import { todayLocal, durationText } from "../utils/dates";
@@ -173,8 +172,6 @@ export default function Dashboard({
     onOpenAddModal,
     onOpenEditModal,
     onChangeView,
-    initialAction,
-    navKey,
 }) {
     const { t } = useLanguage();
     const { colors } = useTheme();
@@ -490,7 +487,6 @@ export default function Dashboard({
     // Photo memories load from and persist to the backend.
     const [memories, setMemories] = useState([]);
     const [detailMemory, setDetailMemory] = useState(null);
-    const [showMemoryModal, setShowMemoryModal] = useState(false);
     const loadMemories = useCallback(async (isActive) => {
         const rows = await api.listRecords(profile.id, "memories");
         if (!isActive()) return;
@@ -517,13 +513,11 @@ export default function Dashboard({
     };
     const refreshControl = useRefreshControl(dashboardLoading, retryAll);
 
-    // Arriving here from the floating log button's "Add Memory" choice opens
-    // the form automatically, the same pattern NutritionTracker.js uses for
-    // its own "Log Milk"/"Log Food" shortcuts.
-    useEffect(() => {
-        if (initialAction === "memory") setShowMemoryModal(true);
-    }, [navKey]);
-
+    // The add form used to open here too, but the floating log button's
+    // keepsake shortcut targets the Gallery (ActionSheet.js: view "growth",
+    // tab "memory"), so nothing has routed "memory" to the Dashboard for a
+    // while. Adding now happens in one place, which is also the only place
+    // that holds the milestone list the form's suggestion chips need.
 
     const headCirc = growthRows.length
         ? growthRows
@@ -1320,16 +1314,22 @@ export default function Dashboard({
                 <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </Pressable>
 
-            {/* Photo Memories — square photo gallery. Adding a memory now
-                lives in the floating log button's menu, alongside Log Milk,
-                Log Food, etc., instead of a second add button here. */}
+            {/* Square photo gallery. Adding lives in the floating log button's
+                menu, alongside Log Milk, Log Food, etc., instead of a second
+                add button here.
+
+                Titled "Milestone Memories" until now, which is the label that
+                made the two features look like one: it borrowed the milestone
+                name for records that are not milestones and never reach a
+                healthcare professional. "Photos & Milestones" is what the
+                Gallery's own filter chips already say. */}
             <SectionContainerCard
-                title="Milestone Memories"
+                title="Photos & Milestones"
                 action={
                     <TouchableOpacity
                         onPress={() => nav("growth", "gallery")}
                         accessibilityRole="button"
-                        accessibilityLabel="See all photo memories"
+                        accessibilityLabel="See all photos and milestones"
                     >
                         <Text style={styles.seeAllText}>See all</Text>
                     </TouchableOpacity>
@@ -1406,15 +1406,6 @@ export default function Dashboard({
                 onClose={() => setDetailMemory(null)}
             />
 
-            {/* Shared with the Growth screen's Gallery tab — see
-                ui/AddMemoryModal.js. It used to live inline here, which is why
-                the gallery had no way to add to itself. */}
-            <AddMemoryModal
-                visible={showMemoryModal}
-                profile={profile}
-                onClose={() => setShowMemoryModal(false)}
-                onSaved={(m) => setMemories((prev) => [m, ...prev])}
-            />
         </ScrollView>
     );
 }

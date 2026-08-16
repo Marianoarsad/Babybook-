@@ -13,7 +13,7 @@ import { RECORD_LABELS } from "../utils/shareStore";
 import { api } from "../utils/api";
 import { useTheme } from "../context/ThemeContext";
 import QrScanner, { scannerAvailable } from "./QrScanner";
-import { shortDate, shortTime, overdueBy } from "../utils/dates";
+import { shortDate, shortTime, overdueBy, spanText } from "../utils/dates";
 import { feedRowSummary } from "../utils/adapters";
 import { ageText } from "./Dashboard";
 import {
@@ -31,6 +31,14 @@ import {
 // which previously rendered in full and pushed Medical History off the bottom.
 // Matches DESIGN.md's app-wide rule (cap at 10, reveal the rest on request).
 const PAGE = 10;
+
+// Where the child was cared for, as recorded by the parent. Stated as a fact
+// about what the family did — the app assigns no severity and must not start.
+const CARE_LABELS = {
+    home: "cared for at home",
+    doctor: "seen by a doctor",
+    hospital: "admitted to hospital",
+};
 
 // Clinical reading order. The old order was Profile, Vaccinations, Allergies,
 // Growth, Milestones, Checkups, Nutrition, Medical History — which put the
@@ -522,17 +530,60 @@ function RecordsView({ session, onEnd, onExit }) {
                 <Capped
                     rows={p.medicalHistory}
                     noun="entries"
-                    render={(m, i) => (
-                        <Item
-                            key={i}
-                            tone={m.resolved ? colors.success : colors.danger}
-                            statusIcon={m.resolved ? "checkmark-circle" : "alert-circle"}
-                            title={`${m.title || m.category} · ${m.category}`}
-                            sub={[shortDate(m.date_recorded), m.resolved ? "resolved" : "ongoing"]
-                                .filter(Boolean)
-                                .join(" · ")}
-                        />
-                    )}
+                    render={(m, i) => {
+                        // A medication is neither ongoing nor resolved — the
+                        // column is just FALSE for every one of them, so this
+                        // row used to render every prescription in coral with
+                        // an alert icon. Only the two categories that actually
+                        // have a course carry a status.
+                        const hasStatus =
+                            m.category === "Illness" || m.category === "Hospitalization";
+                        // Coral for a child in hospital right now, amber for an
+                        // illness still being got over, green once it is over.
+                        // Same ladder the Dashboard's Needs Attention card uses.
+                        const tone = !hasStatus
+                            ? colors.textSecondary
+                            : m.resolved
+                              ? colors.success
+                              : m.category === "Hospitalization"
+                                ? colors.danger
+                                : colors.warning;
+                        return (
+                            <Item
+                                key={i}
+                                tone={tone}
+                                statusIcon={
+                                    !hasStatus
+                                        ? "ellipse-outline"
+                                        : m.resolved
+                                          ? "checkmark-circle"
+                                          : "alert-circle"
+                                }
+                                title={`${m.title || m.category} · ${m.category}`}
+                                sub={[
+                                    shortDate(m.date_recorded),
+                                    // How long it ran, which is what a clinician
+                                    // is reading this list for. A bare start
+                                    // date leaves "three days" and "three
+                                    // months" looking identical. A row resolved
+                                    // with no end date (possible before
+                                    // migration 005) says so plainly rather
+                                    // than claiming to be ongoing.
+                                    !hasStatus
+                                        ? null
+                                        : m.resolved
+                                          ? m.resolved_date
+                                              ? spanText(m.date_recorded, m.resolved_date)
+                                              : "resolved"
+                                          : spanText(m.date_recorded, ""),
+                                    CARE_LABELS[m.care_level],
+                                    m.facility,
+                                ]
+                                    .filter(Boolean)
+                                    .join(" · ")}
+                            />
+                        );
+                    }}
                 />
             </Section>
         ),
@@ -551,15 +602,41 @@ function RecordsView({ session, onEnd, onExit }) {
                     render={(v, i) => {
                         const done = v.status === "completed";
                         const late = !done && v.due_date ? overdueBy(v.due_date) : "";
+                        // A reaction to a previous dose is among the most
+                        // decision-relevant things this screen can carry, and
+                        // it could not reach a clinician at all before. It
+                        // outranks lateness in the flag slot when present.
+                        const reacted =
+                            v.reaction_severity === "mild" || v.reaction_severity === "severe";
+                        const reactionFlag = reacted
+                            ? `${v.reaction_severity} reaction${v.reaction ? `: ${v.reaction}` : ""}`
+                            : null;
                         return (
                             <Item
                                 key={i}
-                                tone={done ? colors.success : late ? colors.danger : colors.warning}
+                                tone={
+                                    reacted
+                                        ? v.reaction_severity === "severe"
+                                            ? colors.danger
+                                            : colors.warning
+                                        : done
+                                          ? colors.success
+                                          : late
+                                            ? colors.danger
+                                            : colors.warning
+                                }
                                 statusIcon={
-                                    done ? "checkmark-circle" : late ? "alert-circle" : "time-outline"
+                                    reacted
+                                        ? "alert-circle"
+                                        : done
+                                          ? "checkmark-circle"
+                                          : late
+                                            ? "alert-circle"
+                                            : "time-outline"
                                 }
                                 title={v.vaccine_name}
                                 sub={[
+                                    v.dose_number ? `dose ${v.dose_number}` : null,
                                     v.visit_name,
                                     done
                                         ? `given ${shortDate(v.date_given) || "—"}`
@@ -567,7 +644,7 @@ function RecordsView({ session, onEnd, onExit }) {
                                 ]
                                     .filter(Boolean)
                                     .join(" · ")}
-                                flag={late || null}
+                                flag={reactionFlag || late || null}
                             />
                         );
                     }}

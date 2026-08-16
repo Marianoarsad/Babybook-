@@ -29,7 +29,8 @@ const ACTIONS = {
     medication: { label: "Medication", icon: "medical-outline", tint: "recMedication", view: "health", tab: "medication" },
     illness: { label: "Illness", icon: "thermometer-outline", tint: "recIllness", view: "health", tab: "illness" },
     hospitalization: { label: "Hospital stay", icon: "bed-outline", tint: "recHospitalization", view: "health", tab: "hospitalization" },
-    memory: { label: "Photo memory", icon: "image-outline", tint: "recMemory", view: "growth", tab: "memory" },
+    // One entry, because it opens one form that saves either kind.
+    memory: { label: "Photo or milestone", icon: "image-outline", tint: "recMemory", view: "growth", tab: "memory" },
 };
 
 // Fixed groups, in a fixed order. This list must never reorder itself — the

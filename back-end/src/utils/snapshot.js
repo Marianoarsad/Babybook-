@@ -43,10 +43,15 @@ async function buildSnapshot(child, keys) {
 
     if (keys.includes("vaccinations")) {
         const { rows } = await query(
-            "SELECT vaccine_name, visit_name, due_date, date_given, status, notes FROM vaccinations WHERE child_id = $1 ORDER BY COALESCE(date_given, due_date) DESC NULLS LAST",
+            // dose_number and the reaction fields travel too: a reaction to a
+            // previous dose is among the most decision-relevant things a
+            // clinician can be told, and it could not reach them at all before.
+            "SELECT vaccine_name, visit_name, due_date, date_given, status, notes, dose_number, reaction_severity, reaction FROM vaccinations WHERE child_id = $1 ORDER BY COALESCE(date_given, due_date) DESC NULLS LAST",
             [child.id]
         );
-        snap.vaccinations = rows.map((r) => decryptRow(r, ["vaccine_name", "visit_name", "notes"]));
+        snap.vaccinations = rows.map((r) =>
+            decryptRow(r, ["vaccine_name", "visit_name", "notes", "reaction"])
+        );
     }
 
     if (keys.includes("growth")) {
@@ -91,12 +96,14 @@ async function buildSnapshot(child, keys) {
 
     if (keys.includes("medicalHistory")) {
         const { rows } = await query(
-            `SELECT category, title, description, date_recorded, resolved, notes FROM medical_history
+            `SELECT category, title, description, date_recorded, resolved, resolved_date,
+                    care_level, facility, notes
+             FROM medical_history
              WHERE child_id = $1 AND category IN ('Illness', 'Medication', 'Hospitalization')
              ORDER BY date_recorded DESC NULLS LAST`,
             [child.id]
         );
-        snap.medicalHistory = rows.map((r) => decryptRow(r, ["title", "description", "notes"]));
+        snap.medicalHistory = rows.map((r) => decryptRow(r, ["title", "description", "facility", "notes"]));
     }
 
     return snap;

@@ -48,9 +48,6 @@ export const translations = {
         dashDiagTitle: "Health Diagnostics Summary",
         dashDiagSub:
             "Active health warnings, temperature tracking, and vaccinations status",
-        dashMemoriesTitle: "Milestone Memories Gallery",
-        dashMemoriesSub:
-            "Your baby's precious achievements captured with pictures and stories",
         dashEmptyMemories:
             "No precious milestone photos uploaded yet. Record one in the Growth section!",
         dashViewDiag: "Click to view full health diagnostic summary",
@@ -89,10 +86,7 @@ export const translations = {
         growthHeadCirc: "Head Circ.",
         growthMilestonesTitle: "Development Milestone Tracker",
         growthMilestonesSub:
-            "Check age-appropriate physical, social, and language targets",
-        growthCreateMemoryTitle: "Document a Milestone Memory",
-        growthCreateMemorySub:
-            "Create a lovely log with custom titles, stories, and photos",
+            "What most children can do by this age — tick what you have seen",
         growthMemoryFormTitle: "Milestone Memory Title",
         growthMemoryFormDesc: "Write a short happy story...",
         growthMemoryFormDate: "Date Observed",
@@ -207,9 +201,6 @@ export const translations = {
         dashDiagTitle: "Buod ng Kalusugan",
         dashDiagSub:
             "Mga aktibong babala sa kalusugan, temperatura, at katayuan ng mga bakuna",
-        dashMemoriesTitle: "Galerya ng mga Mahahalagang Alaala",
-        dashMemoriesSub:
-            "Ang mga mahahalagang nakamit ng iyong sanggol na may kasamang larawan at kwento",
         dashEmptyMemories:
             "Wala pang nakalagay na larawan ng milestones. Magdagdag sa Paglaki at Milestones section!",
         dashViewDiag: "Pindutin para makita ang buong buod ng kalusugan",
@@ -250,10 +241,7 @@ export const translations = {
         growthHeadCirc: "Sukat ng Ulo",
         growthMilestonesTitle: "Gabay sa Pag-unlad ni Baby",
         growthMilestonesSub:
-            "Suriin ang mga angkop na kakayahan sa pisikal, sosyal, at pagsasalita",
-        growthCreateMemoryTitle: "Itala ang Isang Mahalagang Alaala",
-        growthCreateMemorySub:
-            "Gumawa ng magandang tala na may sariling pamagat, kwento, at larawan",
+            "Karaniwang kayang gawin ng mga bata sa edad na ito — markahan ang nakita mo",
         growthMemoryFormTitle: "Pamagat ng Alaala",
         growthMemoryFormDesc: "Isulat ang masayang kwento ni baby...",
         growthMemoryFormDate: "Petsa ng Pagkaganap",
@@ -371,8 +359,6 @@ export const translations = {
         dashDiagTitle: "Health Diagnostics Summary",
         dashDiagSub:
             "Active health warnings, temperature logs, at vaccine status",
-        dashMemoriesTitle: "Milestone Memories Gallery",
-        dashMemoriesSub: "Precious memories at kwento ng inyong cute baby",
         dashEmptyMemories:
             "Wala pang picture si baby! Mag-upload sa Growth & Milestones section, dali!",
         dashViewDiag: "Click dito para makita ang full diagnostics summary",
@@ -409,10 +395,7 @@ export const translations = {
         growthHeadCirc: "Head Circ.",
         growthMilestonesTitle: "Development Milestones Tracker",
         growthMilestonesSub:
-            "Check natin ang physical, social, at language targets",
-        growthCreateMemoryTitle: "Document a Milestone Memory",
-        growthCreateMemorySub:
-            "I-save ang precious baby memories, pictures, at stories",
+            "Karaniwang kaya ng mga bata sa edad na ito — i-check ang nakita mo",
         growthMemoryFormTitle: "Milestone Memory Title",
         growthMemoryFormDesc: "Ikwento ang masayang milestone ni baby...",
         growthMemoryFormDate: "Petsa ng Milestone",

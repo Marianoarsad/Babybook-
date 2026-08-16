@@ -223,15 +223,28 @@ function MainAppShell({
             }
             return view;
         });
-        if (tab) {
-            setNavTab(tab);
-            setNavKey((k) => k + 1);
-        }
+        // Always write the deep-link target, INCLUDING when it is null.
+        //
+        // This used to be `if (tab) { ... }`, which left the previous value in
+        // place forever on a plain tab tap. Screens here are rendered
+        // conditionally, so Health/Growth/Nutrition UNMOUNT when you navigate
+        // away and their `useEffect(..., [navKey])` runs again on the next
+        // mount regardless of whether navKey changed. So: use the "+" button
+        // to add a vaccine, close it, go to the Dashboard, then tap the Health
+        // tab — Health mounted fresh, read the stale "vaccine", and popped the
+        // Add Vaccine form on its own. Same for Log Growth, Add Memory and
+        // Log Milk on their tabs.
+        setNavTab(tab);
+        setNavKey((k) => k + 1);
     };
     const goBack = () => {
         const prev = historyRef.current[historyRef.current.length - 1];
         historyRef.current = historyRef.current.slice(0, -1);
         setCurrentView(prev || "dashboard");
+        // Back navigation bypasses changeView, so it has to clear the deep-link
+        // target itself or it leaks the same stale alias.
+        setNavTab(null);
+        setNavKey((k) => k + 1);
     };
 
     // Floating "log something" button (bottom-right, above the tab bar) and
@@ -448,6 +461,7 @@ function MainAppShell({
         setProfiles([]);
         setSelectedProfileId(null);
         setCurrentView("dashboard");
+        setNavTab(null); // nor let it carry the old session's pending deep link
         historyRef.current = []; // don't let a new session's back arrow reach the old one
         try {
             await clearToken();
@@ -787,8 +801,6 @@ function MainAppShell({
                             )
                         }
                         onChangeView={changeView}
-                        initialAction={navTab}
-                        navKey={navKey}
                     />
                 )}
                 {currentView === "health" && (

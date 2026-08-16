@@ -39,8 +39,17 @@ import {
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import TipStrip from "./ui/TipStrip";
 import KeyboardAvoider from "./ui/KeyboardAvoider";
-import { todayLocal, shortDate, monthLabel } from "../utils/dates";
+import { todayLocal, shortDate, monthLabel, monthsBetween } from "../utils/dates";
 import AddMemoryModal from "./ui/AddMemoryModal";
+import OptionSheet from "./ui/OptionSheet";
+import {
+    CHECKPOINTS,
+    DOMAINS,
+    bandLabel,
+    checkpointFor,
+    findRecorded,
+    itemsForCheckpoint,
+} from "../utils/milestoneChecklist";
 
 const METRIC_TABS = [
     { key: "weight", label: "Weight", field: "weight" },
@@ -58,62 +67,7 @@ function ageLabel(days) {
     return rem ? `${years}y ${rem}m old` : `${years} year${years === 1 ? "" : "s"} old`;
 }
 
-const ageChecklists = [
-    {
-        id: "mc1",
-        ageGroup: "0-3m",
-        title: "Responsive Social Smile",
-        guidance:
-            "Smiles back at you or reacts happily when you speak, cuddle, or make playful faces.",
-        photoUrl:
-            "https://images.unsplash.com/photo-1519689680058-324335c77ebe?auto=format&fit=crop&q=80&w=600",
-    },
-    {
-        id: "mc2",
-        ageGroup: "0-3m",
-        title: "Lifts Head During Tummy Time",
-        guidance:
-            "While resting on the tummy, starts lifting their head and supporting their weight on forearms.",
-        photoUrl:
-            "https://images.unsplash.com/photo-1510154268590-7842d3ed4c32?auto=format&fit=crop&q=80&w=600",
-    },
-    {
-        id: "mc3",
-        ageGroup: "4-6m",
-        title: "Rolls Over (Tummy to Back)",
-        guidance:
-            "Pushes off and rolls from stomach to back, and later from back to tummy.",
-        photoUrl:
-            "https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?auto=format&fit=crop&q=80&w=600",
-    },
-    {
-        id: "mc4",
-        ageGroup: "4-6m",
-        title: "Reaches & Grabbing Action",
-        guidance:
-            "Puts out hands deliberately to touch, close fingers, and grasp visual playthings.",
-        photoUrl:
-            "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=600",
-    },
-    {
-        id: "mc5",
-        ageGroup: "7-9m",
-        title: "Steadily Sits Without Support",
-        guidance:
-            "Can sit vertically alone, maintaining balanced posture without leaning on their hands.",
-        photoUrl:
-            "https://images.unsplash.com/photo-1596854407944-bf87f6f94791?auto=format&fit=crop&q=80&w=600",
-    },
-    {
-        id: "mc6",
-        ageGroup: "7-9m",
-        title: "Expresses Babble Vocalizations",
-        guidance:
-            'Produces repetitive double consonantal sounds like "ba-ba", "ma-ma", or "da-da".',
-        photoUrl:
-            "https://images.unsplash.com/photo-1502086223501-7ea6ecd79368?auto=format&fit=crop&q=80&w=600",
-    },
-];
+
 
 export default function Growth({
     profile,
@@ -128,7 +82,40 @@ export default function Growth({
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const [growthTab, setGrowthTab] = useState("milestones");
-    const [selectedAgeGroup, setSelectedAgeGroup] = useState("0-3m");
+
+    // The checklist band this child's own age falls in. Everything about the
+    // Milestones tab keys off this: the tab used to open on the youngest band
+    // regardless of the child, so a parent of a three-year-old was shown
+    // two-month milestones every single time.
+    const ageMonths = useMemo(
+        () => monthsBetween(profile.dateOfBirth, todayLocal()),
+        [profile.dateOfBirth],
+    );
+    const ownBand = useMemo(() => checkpointFor(ageMonths), [ageMonths]);
+    const [selectedBand, setSelectedBand] = useState(ownBand);
+    const [bandSheetOpen, setBandSheetOpen] = useState(false);
+
+    // Rows for the age menu. "Your baby" is suppressed when the birth date was
+    // never recorded: monthsBetween returns null there and checkpointFor falls
+    // back to the first band, so labelling it would tell a parent their child
+    // is two months old on the strength of a missing field.
+    const bandOptions = useMemo(
+        () =>
+            CHECKPOINTS.map((c) => ({
+                key: c,
+                label: bandLabel(c),
+                note: ageMonths != null && c === ownBand ? "Your baby" : null,
+            })),
+        [ageMonths, ownBand],
+    );
+
+    // Follow the child when the selected child changes — without this, a
+    // switch from a newborn to a five-year-old keeps the newborn's band.
+    useEffect(() => {
+        setSelectedBand(ownBand);
+    }, [ownBand]);
+
+    const bandItems = useMemo(() => itemsForCheckpoint(selectedBand), [selectedBand]);
     // Apply a deep-link tab request from the floating log button, and — for
     // "Log Growth"/"Schedule Checkup" — open the matching form directly
     // instead of just switching tabs, the same way NutritionTracker.js
@@ -155,6 +142,13 @@ export default function Growth({
     // own top-level screen (App.js) — see NutritionTracker.js. Checkups moved
     // to the Health screen — see Health.js.
     const [mstones, setMstones] = useState([]);
+    // How many of this band's items the parent has recorded. Declared here
+    // rather than beside `bandItems` because it needs `mstones`, which is
+    // initialised below the band state.
+    const bandRecordedCount = useMemo(
+        () => bandItems.filter((i) => findRecorded(mstones, i.title)?.isCompleted).length,
+        [bandItems, mstones],
+    );
     const [memories, setMemories] = useState([]);
     const [memoriesVisible, setMemoriesVisible] = useState(10);
     // Gallery filter: "all" | "memory" | "milestone".
@@ -255,16 +249,24 @@ export default function Growth({
         return { latest, value, z, percentile: percentileFromZ(z), ...describeZ(z) };
     }, [measurements, activeMetric.field, metricKey, sexKey, profile.dateOfBirth]);
 
-    const completedMilestones = useMemo(() => mstones.filter((m) => m.isCompleted), [mstones]);
+    // Achieved milestones the parent actually authored — one carrying a photo
+    // or a note. A bare checklist tick is a record, not a keepsake: the
+    // Development Checklist now offers ~146 items, and including every tick
+    // here would bury a family's photographs under rows of plain text they
+    // never wrote. Ticks still show on the checklist itself, with their date.
+    const completedMilestones = useMemo(
+        () => mstones.filter((m) => m.isCompleted && (m.photoUrl || m.description)),
+        [mstones],
+    );
 
     // One chronological history of everything worth keeping: photo memories
     // and achieved milestones together, newest first.
     //
-    // Milestones belong here because nothing else shows them. The Development
-    // Checklist renders six hardcoded ageChecklists entries with stock photos
-    // and only matches real records by title string to draw a tick — so a
-    // milestone like "First Steps", which is not one of those six, is invisible
-    // everywhere else in the app.
+    // Milestones belong here because the Development Checklist only shows six
+    // reference items (utils/milestoneChecklist.js) and draws a tick when a
+    // record matches one by title. A milestone like "First Steps" is not among
+    // those six, so this timeline is the only place it appears — which is also
+    // why the add form had to be able to create one.
     const galleryItems = useMemo(() => {
         const items = [
             ...memories.map((m) => ({ ...m, kind: "memory" })),
@@ -303,7 +305,11 @@ export default function Growth({
 
     const todayStr = () => todayLocal();
     const handleToggleMilestone = async (title) => {
-        const existing = mstones.find((m) => m.title === title);
+        // Matched through normalizeTitle, never `===`. Titles now come from
+        // the parent's own typing as well as this checklist, so a stray
+        // capital or double space must not create a second record for a
+        // milestone that already exists.
+        const existing = findRecorded(mstones, title);
         if (existing) {
             const now = !existing.isCompleted;
             setMstones((prev) =>
@@ -444,89 +450,134 @@ export default function Growth({
             {/* GROWTH TAB: MILESTONES */}
             {growthTab === "milestones" && (
                 <View>
-                    {/* Age selection group */}
-                    <View style={styles.ageSelector}>
-                        {["0-3m", "4-6m", "7-9m"].map((group) => (
-                            <TouchableOpacity
-                                key={group}
-                                style={[
-                                    styles.ageTab,
-                                    selectedAgeGroup === group &&
-                                        styles.ageTabActive,
-                                ]}
-                                onPress={() => setSelectedAgeGroup(group)}
-                            >
-                                <Text
-                                    style={[
-                                        styles.ageTabText,
-                                        selectedAgeGroup === group &&
-                                            styles.ageTabTextActive,
-                                    ]}
-                                >
-                                    {group}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-
-                    {/* Guidelines checklist */}
                     <SectionContainerCard
                         title="Development Checklist"
                         subtitle={t("growthMilestonesSub")}
                     >
-                        {ageChecklists
-                            .filter((c) => c.ageGroup === selectedAgeGroup)
-                            .map((item, index) => {
-                                const matchingMilestone = mstones.find(
-                                    (m) => m.title === item.title,
-                                );
-                                const isDone = matchingMilestone
-                                    ? matchingMilestone.isCompleted
-                                    : false;
+                        {/* One control instead of twelve scrolling pills. It
+                            always shows the age being viewed, so a parent can
+                            read it without opening anything, and it starts on
+                            their own child's band. */}
+                        <TouchableOpacity
+                            style={styles.bandTrigger}
+                            onPress={() => setBandSheetOpen(true)}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Age ${bandLabel(selectedBand)}. Choose a different age`}
+                        >
+                            <Text style={styles.bandTriggerText}>{bandLabel(selectedBand)}</Text>
+                            <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
+                        </TouchableOpacity>
 
-                                return (
-                                    <View
-                                        key={item.id || index}
-                                        style={styles.checklistRow}
-                                    >
-                                        <Image
-                                            source={{ uri: item.photoUrl }}
-                                            style={styles.checklistImg}
-                                        />
-                                        <View
-                                            style={{ flex: 1, marginRight: 8 }}
-                                        >
-                                            <Text style={styles.checklistTitle}>
-                                                {item.title}
-                                            </Text>
-                                            <Text style={styles.checklistDesc}>
-                                                {item.guidance}
-                                            </Text>
+                        {/* A count, never a score. "Recorded" because it counts
+                            entries the parent made, not development. No bar and
+                            no percentage — those read as a grade. */}
+                        <Text style={styles.bandCount}>
+                            {`${bandRecordedCount} of ${bandItems.length} recorded`}
+                        </Text>
+
+                        {DOMAINS.map((domain) => {
+                            const items = bandItems.filter((i) => i.domain === domain.key);
+                            if (!items.length) return null;
+                            const tint = colors[domain.tint] || { bg: colors.surfaceAlt, on: colors.primary };
+                            return (
+                                <View key={domain.key} style={styles.domainGroup}>
+                                    <View style={styles.domainHeader}>
+                                        <View style={[styles.domainIcon, { backgroundColor: tint.bg }]}>
+                                            <Ionicons name={domain.icon} size={14} color={tint.on} />
                                         </View>
-                                        <TouchableOpacity
-                                            onPress={() => handleToggleMilestone(item.title)}
-                                            style={[
-                                                styles.checkBtn,
-                                                isDone && styles.checkBtnActive,
-                                            ]}
-                                        >
-                                            <Ionicons
-                                                name={
-                                                    isDone
-                                                        ? "checkmark"
-                                                        : "square-outline"
-                                                }
-                                                size={18}
-                                                color={
-                                                    isDone
-                                                        ? "#FFFFFF"
-                                                        : colors.primary
-                                                }
-                                            />
-                                        </TouchableOpacity>
+                                        <Text style={styles.domainLabel}>{domain.label}</Text>
                                     </View>
-                                );
-                            })}
+
+                                    {items.map((item) => {
+                                        const rec = findRecorded(mstones, item.title);
+                                        const isDone = !!rec && rec.isCompleted;
+                                        return (
+                                            <TouchableOpacity
+                                                key={item.id}
+                                                style={styles.checklistRow}
+                                                onPress={() => handleToggleMilestone(item.title)}
+                                                accessibilityRole="checkbox"
+                                                accessibilityState={{ checked: isDone }}
+                                                accessibilityLabel={item.title}
+                                            >
+                                                {/* The parent's own photo is the
+                                                    only image on this row that
+                                                    means anything. The stock
+                                                    Unsplash pictures of other
+                                                    people's babies are gone —
+                                                    they carried no information
+                                                    and 146 of them would be a
+                                                    lot of network for nothing. */}
+                                                {isDone && rec.photoUrl ? (
+                                                    <Image
+                                                        source={{ uri: rec.photoUrl }}
+                                                        style={styles.checklistImg}
+                                                    />
+                                                ) : null}
+
+                                                <View style={{ flex: 1, marginRight: 8 }}>
+                                                    <Text style={styles.checklistTitle}>
+                                                        {item.title}
+                                                    </Text>
+                                                    {isDone && rec.date ? (
+                                                        <Text style={styles.checklistDone}>
+                                                            {`Recorded ${shortDate(rec.date)}`}
+                                                            {rec.ageAchieved ? ` · ${rec.ageAchieved}` : ""}
+                                                        </Text>
+                                                    ) : null}
+                                                </View>
+
+                                                {/* Unticked is neutral, never
+                                                    coral or amber — DESIGN.md
+                                                    reserves those for overdue,
+                                                    error and caution, and a
+                                                    milestone not yet reached is
+                                                    none of the three. */}
+                                                <View
+                                                    style={[
+                                                        styles.checkBtn,
+                                                        isDone && styles.checkBtnActive,
+                                                    ]}
+                                                >
+                                                    <Ionicons
+                                                        name={isDone ? "checkmark" : "square-outline"}
+                                                        size={18}
+                                                        color={isDone ? colors.onPrimary : colors.primary}
+                                                    />
+                                                </View>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                            );
+                        })}
+
+                        {/* Principle 5 surface. Same register as the growth
+                            percentile note further down this screen: state the
+                            reference, hand the reading to a health worker. */}
+                        <View style={styles.promptBox}>
+                            <Ionicons
+                                name="chatbubble-ellipses-outline"
+                                size={16}
+                                color={colors.info}
+                                style={{ marginTop: 1 }}
+                            />
+                            <Text style={styles.promptText}>
+                                Children develop at their own pace, and reaching something later than
+                                this list says is common. Nothing here is a test or a score — if
+                                anything about your child's development worries you, your health
+                                worker is the person to ask.
+                            </Text>
+                        </View>
+
+                        <Text style={styles.sourceNote}>
+                            Based on the CDC&apos;s &ldquo;Learn the Signs. Act Early.&rdquo;
+                            developmental milestones (2022 revision), which describe what most
+                            children can do by each age. This is a shortened list — see cdc.gov for
+                            the full one, and note that health centres and day care centres in the
+                            Philippines use their own ECCD Checklist. The list ends at 5 years
+                            because published milestone checklists do.
+                        </Text>
                     </SectionContainerCard>
                 </View>
             )}
@@ -546,7 +597,7 @@ export default function Growth({
                                 onPress={() => setShowAddMemory(true)}
                                 style={styles.addBtn}
                                 accessibilityRole="button"
-                                accessibilityLabel="Add photo memory"
+                                accessibilityLabel="Add a photo or milestone"
                             >
                                 <Ionicons name="add" size={16} color={colors.onPrimary} />
                             </TouchableOpacity>
@@ -590,7 +641,7 @@ export default function Growth({
 
                         {!growthLoading && galleryItems.length === 0 && (
                             <EmptyStateCard
-                                message="Nothing here yet. Tap + to save a photo, or tick a milestone in the Milestones tab."
+                                message="Nothing here yet. Tap + to save a photo or record a milestone."
                                 icon="image-outline"
                             />
                         )}
@@ -897,11 +948,33 @@ export default function Growth({
                 onClose={() => setDetailMemory(null)}
             />
 
+            {/* The age menu. Every band stays freely selectable; the child's
+                own is marked rather than forced. */}
+            <OptionSheet
+                visible={bandSheetOpen}
+                title="Choose an age"
+                options={bandOptions}
+                selectedKey={selectedBand}
+                onSelect={(key) => {
+                    setSelectedBand(key);
+                    setBandSheetOpen(false);
+                }}
+                onClose={() => setBandSheetOpen(false)}
+            />
+
+            {/* One form for both kinds. `milestones` feeds its suggestion
+                chips, which offer only checklist items this child has not
+                recorded yet — so tapping one cannot create a duplicate. */}
             <AddMemoryModal
                 visible={showAddMemory}
                 profile={profile}
+                milestones={mstones}
                 onClose={() => setShowAddMemory(false)}
-                onSaved={(m) => setMemories((prev) => [m, ...prev])}
+                onSaved={(record, kind) =>
+                    kind === "milestone"
+                        ? setMstones((prev) => [record, ...prev])
+                        : setMemories((prev) => [record, ...prev])
+                }
             />
         </ScrollView>
     );
@@ -942,56 +1015,78 @@ const makeStyles = (colors) => StyleSheet.create({
         color: colors.primaryDark,
         ...type.label,
     },
-    ageSelector: {
+    // Opens the age menu. Shows the band being viewed so the age is readable
+    // without opening anything — the twelve-pill scroller it replaced pushed
+    // most bands, sometimes the selected one, off-screen.
+    bandTrigger: {
         flexDirection: "row",
-        marginBottom: 16,
-        gap: 8,
-    },
-    ageTab: {
-        flex: 1,
-        paddingVertical: 8,
+        alignItems: "center",
+        justifyContent: "space-between",
+        minHeight: MIN_TOUCH,
+        paddingHorizontal: space.md,
+        marginBottom: space.md,
         backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.border,
         borderRadius: radius.md,
         borderCurve: "continuous",
-        alignItems: "center",
     },
-    ageTabActive: {
-        borderColor: colors.accentStrong,
-        backgroundColor: colors.primarySoft,
+    bandTriggerText: {
+        ...type.bodyStrong,
+        color: colors.text,
     },
-    ageTabText: {
+    // "4 of 12 recorded". A count, never a percentage or a bar — this screen
+    // must not read as a score (PRODUCT.md Principle 5).
+    bandCount: {
         ...type.caption,
-        color: colors.textSecondary,
+        color: colors.textMuted,
+        marginBottom: space.md,
     },
-    ageTabTextActive: {
-        color: colors.primaryDark,
+    domainGroup: { marginBottom: space.lg },
+    domainHeader: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.sm,
+        marginBottom: space.sm,
+    },
+    domainIcon: {
+        width: 24,
+        height: 24,
+        borderRadius: radius.sm,
+        borderCurve: "continuous",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    domainLabel: {
         ...type.label,
+        color: colors.textSecondary,
     },
     checklistRow: {
         flexDirection: "row",
         alignItems: "center",
+        minHeight: MIN_TOUCH,
         marginBottom: 12,
         borderBottomWidth: 1,
         borderBottomColor: colors.surfaceAlt,
         paddingBottom: 12,
     },
     checklistImg: {
-        width: 48,
-        height: 48,
+        width: 40,
+        height: 40,
         borderRadius: radius.md,
         borderCurve: "continuous",
         marginRight: 10,
     },
     checklistTitle: {
-        ...type.bodyStrong,
+        ...type.body,
         color: colors.text,
     },
-    checklistDesc: {
+    // "Recorded 12 Mar 2025 · 5 months" — the parent's own record behind the
+    // tick, in the app's success tone rather than a neutral grey.
+    checklistDone: {
         ...type.caption,
-        color: colors.textMuted,
-        marginTop: 2,
+        color: colors.success,
+        marginTop: 4,
     },
     checkBtn: {
         width: 28,
