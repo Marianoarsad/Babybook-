@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
-import { space, radius, shadow } from "../theme";
+import { space, radius, shadow, type, MIN_TOUCH } from "../theme";
+import { useScreenPadBottom } from "../utils/responsive";
 import { api } from "../utils/api";
 import { EmptyStateCard } from "./common/Cards";
 import { AppointmentsSkeleton } from "./ui/Skeleton";
@@ -19,6 +20,7 @@ import { todayLocal } from "../utils/dates";
 export default function AllActivity({ profile, onClose }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
     const [activity, setActivity] = useState([]);
     const [loading, setLoading] = useState(true);
     const [visibleCount, setVisibleCount] = useState(10);
@@ -117,7 +119,11 @@ export default function AllActivity({ profile, onClose }) {
                 <Text style={styles.headerTitle}>Recent Activity</Text>
                 <View style={styles.headerBtn} />
             </View>
-            <ScrollView contentContainerStyle={styles.content} refreshControl={refreshControl}>
+            <ScrollView
+                contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+                refreshControl={refreshControl}
+                keyboardShouldPersistTaps="handled"
+            >
                 {loading && activity.length === 0 ? (
                     <AppointmentsSkeleton />
                 ) : !loading && activity.length === 0 ? (
@@ -174,9 +180,9 @@ const makeStyles = (colors) =>
             borderBottomWidth: 1,
             borderBottomColor: colors.hairline,
         },
-        headerBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-        headerTitle: { fontSize: 18, fontWeight: "800", color: colors.primary },
-        content: { padding: space.lg, paddingBottom: space.xxl },
+        headerBtn: { width: MIN_TOUCH, height: MIN_TOUCH, alignItems: "center", justifyContent: "center" },
+        headerTitle: { ...type.heading, fontWeight: "800", color: colors.primary, flex: 1, minWidth: 0 },
+        content: { padding: space.lg },
         activityCard: {
             backgroundColor: colors.surface,
             borderRadius: radius.xl,
@@ -196,7 +202,7 @@ const makeStyles = (colors) =>
         activityRowBorder: { borderBottomWidth: 1, borderBottomColor: colors.hairline },
         activityLeft: { flexDirection: "row", alignItems: "center", gap: space.md, flex: 1 },
         activityIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-        activityTitle: { fontSize: 14, fontWeight: "700", color: colors.text },
-        activitySubtitle: { fontSize: 12, fontWeight: "500", color: colors.textMuted, marginTop: 1 },
-        activityDate: { fontSize: 11, fontWeight: "600", color: colors.textMuted, marginLeft: space.sm },
+        activityTitle: { ...type.label, fontWeight: "700", color: colors.text },
+        activitySubtitle: { ...type.caption, fontWeight: "500", color: colors.textMuted, marginTop: 1 },
+        activityDate: { ...type.caption, fontWeight: "600", color: colors.textMuted, marginLeft: space.sm, flexShrink: 0 },
     });

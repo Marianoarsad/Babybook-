@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-nati
 import { SectionContainerCard } from "../common/Cards";
 import { useLanguage } from "../../context/LanguageContext";
 import { useTheme } from "../../context/ThemeContext";
+import { useScreenPadBottom } from "../../utils/responsive";
 import { space, radius, type } from "../../theme";
 
 const LANGUAGES = [
@@ -15,9 +16,14 @@ export default function LanguagePreferences() {
     const { language, setLanguage, t } = useLanguage();
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
 
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView
+            style={styles.container}
+            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+            keyboardShouldPersistTaps="handled"
+        >
             <SectionContainerCard title={t("settingsLanguageLabel")} subtitle={t("settingsLanguageHelp")}>
                 <View style={styles.langGrid}>
                     {LANGUAGES.map((l) => {
@@ -43,7 +49,9 @@ export default function LanguagePreferences() {
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
+        container: { flex: 1, backgroundColor: colors.background },
+        // Padding on the content so the bottom clearance scrolls with it.
+        content: { padding: space.lg },
         langGrid: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
         langCard: {
             flexBasis: "31%",

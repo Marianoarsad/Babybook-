@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, Animated, Easing, Platform } from "react-native";
 import { useTheme } from "../context/ThemeContext";
-import { space, shadow } from "../theme";
+import { space, shadow, type } from "../theme";
 
 // Rotating status messages (from the Stitch "App Loading Screen").
 const MESSAGES = [
@@ -126,7 +126,7 @@ const makeStyles = (colors) =>
         book: { fontSize: 40, lineHeight: 46 },
         brand: { fontSize: 23, fontWeight: "800", color: colors.primary, letterSpacing: -0.3, marginBottom: 4 },
         status: { fontSize: 14, color: colors.textSecondary, opacity: 0.85, textAlign: "center", maxWidth: 260 },
-        percent: { marginTop: space.xl, fontSize: 12, fontWeight: "700", color: colors.textMuted, letterSpacing: 2 },
+        percent: { marginTop: space.xl, ...type.caption, fontWeight: "700", color: colors.textMuted, letterSpacing: 2 },
         footer: { position: "absolute", bottom: space.xl, left: 0, right: 0, alignItems: "center" },
-        footerText: { fontSize: 12, fontWeight: "600", color: colors.textMuted, opacity: 0.7 },
+        footerText: { ...type.caption, fontWeight: "600", color: colors.textMuted, opacity: 0.7 },
     });

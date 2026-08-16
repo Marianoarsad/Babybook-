@@ -3,7 +3,8 @@ import { View, Text, StyleSheet, ScrollView, Linking, TouchableOpacity } from "r
 import { Ionicons } from "@expo/vector-icons";
 import { SectionContainerCard } from "../common/Cards";
 import { useTheme } from "../../context/ThemeContext";
-import { space, radius, type } from "../../theme";
+import { useScreenPadBottom } from "../../utils/responsive";
+import { space, radius, type, MIN_TOUCH } from "../../theme";
 
 // Each FAQ gets its own icon + rec* tint, so the tint doubles as a topic
 // legend across the screen (share/QR = recMemory, connectivity = recGrowth,
@@ -38,10 +39,15 @@ const FAQS = [
 export default function HelpSupport() {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
     const [openIdx, setOpenIdx] = useState(null);
 
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView
+            style={styles.container}
+            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+            keyboardShouldPersistTaps="handled"
+        >
             <SectionContainerCard title="Frequently Asked Questions">
                 {FAQS.map((item, idx) => {
                     const open = openIdx === idx;
@@ -86,9 +92,11 @@ export default function HelpSupport() {
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
+        container: { flex: 1, backgroundColor: colors.background },
+        // Padding on the content so the bottom clearance scrolls with it.
+        content: { padding: space.lg },
         faqItem: { marginBottom: space.sm, paddingBottom: space.sm, borderBottomWidth: 1, borderBottomColor: colors.hairline },
-        faqHeader: { flexDirection: "row", alignItems: "center", paddingVertical: space.xs },
+        faqHeader: { flexDirection: "row", alignItems: "center", minHeight: MIN_TOUCH, paddingVertical: space.xs },
         faqIconWrap: {
             width: 34,
             height: 34,
@@ -103,6 +111,7 @@ const makeStyles = (colors) =>
         contactRow: {
             flexDirection: "row",
             alignItems: "center",
+            minHeight: MIN_TOUCH,
             paddingVertical: 10,
             paddingHorizontal: 12,
             backgroundColor: colors.surfaceAlt,

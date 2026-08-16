@@ -7,6 +7,7 @@ import { useToast } from "../ui/Toast";
 import { SkeletonBlock } from "../ui/Skeleton";
 import KeyboardAvoider from "../ui/KeyboardAvoider";
 import { useTheme } from "../../context/ThemeContext";
+import { useScreenPadBottom } from "../../utils/responsive";
 import { space, radius, type } from "../../theme";
 
 const PREDEFINED_AVATARS = [
@@ -27,6 +28,7 @@ export default function EditProfile({
 }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
     const toast = useToast();
 
     const [email, setEmail] = useState("");
@@ -74,7 +76,11 @@ export default function EditProfile({
 
     return (
         <KeyboardAvoider>
-        <ScrollView style={styles.container}>
+        <ScrollView
+            style={styles.container}
+            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+            keyboardShouldPersistTaps="handled"
+        >
             {/* Prominent ringed avatar hero — the photo picker moved up here
                 (out of its old "Select Guardian Avatar" card slot) so the
                 thing being edited is the first thing seen. */}
@@ -148,7 +154,9 @@ export default function EditProfile({
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
+        container: { flex: 1, backgroundColor: colors.background },
+        // Padding on the content so the bottom clearance scrolls with it.
+        content: { padding: space.lg },
         headerBox: { alignItems: "center", marginVertical: space.lg },
         avatarRing: {
             width: 104,

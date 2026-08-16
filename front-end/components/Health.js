@@ -8,6 +8,7 @@ import {
     TextInput,
     Modal,
     Image,
+    useWindowDimensions,
 } from "react-native";
 import { api } from "../utils/api";
 import {
@@ -37,6 +38,7 @@ import { useToast } from "./ui/Toast";
 import { useLanguage } from "../context/LanguageContext";
 import { useTheme } from "../context/ThemeContext";
 import { radius, space, type, shadow, MIN_TOUCH } from "../theme";
+import { useScreenPadBottom, fitsColumns } from "../utils/responsive";
 import {
     SectionContainerCard,
     ListEntryCard,
@@ -76,6 +78,11 @@ const CARE_LABELS = {
 function MedicineCourseCard({ med, doses, treats, thumbnailUrl, onThumbnailPress, onEdit, onGive, onUndo }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    // The footer holds a button and a status line side by side. Measured, so
+    // the pair drops to two lines rather than crushing the status text to
+    // ~110pt on a narrow phone or at a raised font scale.
+    const [footWidth, setFootWidth] = useState(0);
+    const footTwoCol = fitsColumns(footWidth, 2, space.sm);
     const times = doseTimesOf(med);
     const given = doses.length;
     const extra = Math.max(0, given - times.length);
@@ -156,7 +163,10 @@ function MedicineCourseCard({ med, doses, treats, thumbnailUrl, onThumbnailPress
                         the wrong scroll position. The status text takes the
                         right-hand side, where being partly covered costs
                         nothing. */}
-                    <View style={styles.courseFoot}>
+                    <View
+                        style={[styles.courseFoot, !footTwoCol && styles.courseFootStacked]}
+                        onLayout={(e) => setFootWidth(e.nativeEvent.layout.width)}
+                    >
                         <TouchableOpacity
                             onPress={onGive}
                             style={styles.giveBtn}
@@ -164,9 +174,14 @@ function MedicineCourseCard({ med, doses, treats, thumbnailUrl, onThumbnailPress
                             accessibilityLabel={`Record a dose of ${med.title}`}
                         >
                             <Ionicons name="add" size={15} color={colors.onPrimary} />
-                            <Text style={styles.giveBtnText}>Record a dose</Text>
+                            <Text style={styles.giveBtnText} numberOfLines={1}>
+                                Record a dose
+                            </Text>
                         </TouchableOpacity>
-                        <Text style={styles.courseNext} numberOfLines={2}>
+                        <Text
+                            style={[styles.courseNext, !footTwoCol && styles.courseNextStacked]}
+                            numberOfLines={2}
+                        >
                             {given >= times.length
                                 ? `All ${times.length} recorded today`
                                 : `${given} of ${times.length} today${next ? ` · next at ${shortTime(next)}` : ""}`}
@@ -190,6 +205,12 @@ export default function Health({
     const toast = useToast();
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
+    // Room inside a modal sheet: screen, less the backdrop padding, capped at
+    // the card's maxWidth, less the card's own padding. Paired fields (Date /
+    // Time) drop to one per line when that can't give each a readable column.
+    const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+    const modalTwoCol = fitsColumns(Math.min(windowWidth - 40, 440) - 40, 2, space.sm);
     const [activeTab, setActiveTab] = useState("immunizations");
     // Apply a deep-link tab request from the floating log button, and — for
     // Deep links into this screen. THE RULE, and it is absolute:
@@ -987,7 +1008,12 @@ export default function Health({
     };
 
     return (
-        <ScrollView style={styles.container} refreshControl={refreshControl}>
+        <ScrollView
+            style={styles.container}
+            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+            refreshControl={refreshControl}
+            keyboardShouldPersistTaps="handled"
+        >
             <TipStrip tipKey="tip_health">
                 Every vaccine in the DOH schedule is already here, dated from your child's birthday. Tap one to
                 mark it given.
@@ -1187,9 +1213,17 @@ export default function Health({
                                             size={18}
                                             color={colors.success}
                                         />
-                                        <Text style={styles.vaxSummaryTitle}>
-                                            {`Nothing due — ${vaxSummary.done} of ${vaxSummary.total} recorded as given`}
-                                        </Text>
+                                        {/* The flex:1 wrapper the other two
+                                            branches have. Without it this Text
+                                            sat directly in the row at its own
+                                            intrinsic width and overflowed the
+                                            card — it is the longest string of
+                                            the three. */}
+                                        <View style={{ flex: 1, minWidth: 0 }}>
+                                            <Text style={styles.vaxSummaryTitle}>
+                                                {`Nothing due — ${vaxSummary.done} of ${vaxSummary.total} recorded as given`}
+                                            </Text>
+                                        </View>
                                     </View>
                                 )}
                             </View>
@@ -1211,7 +1245,10 @@ export default function Health({
                                             accessibilityRole="button"
                                             accessibilityLabel={`Filter: ${f.label}`}
                                         >
-                                            <Text style={[styles.filterChipText, vaxStatusFilter === f.key && styles.filterChipTextActive]}>
+                                            <Text
+                                                numberOfLines={1}
+                                                style={[styles.filterChipText, vaxStatusFilter === f.key && styles.filterChipTextActive]}
+                                            >
                                                 {f.label}
                                             </Text>
                                         </TouchableOpacity>
@@ -1562,13 +1599,23 @@ export default function Health({
                         <View style={styles.allergyChips}>
                             {allergies.map((all, index) => (
                                 <View key={index} style={styles.chip}>
-                                    <Text style={styles.chipText}>{all}</Text>
+                                    <Text style={styles.chipText} numberOfLines={2}>
+                                        {all}
+                                    </Text>
+                                    {/* hitSlop, because the visible target is a
+                                        14px glyph — about 14pt of tappable area
+                                        inside a chip that is itself only ~26pt
+                                        tall. The chip must stay small, so the
+                                        touch area grows instead of the icon. */}
                                     <TouchableOpacity
                                         onPress={() =>
                                             persistAllergies(
                                                 allergies.filter((_, i) => i !== index),
                                             )
                                         }
+                                        hitSlop={{ top: 12, bottom: 12, left: 10, right: 14 }}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={`Remove allergy ${all}`}
                                     >
                                         <Ionicons
                                             name="close"
@@ -1812,6 +1859,15 @@ export default function Health({
             <Modal visible={showVaxModal} transparent animationType="slide">
                 <KeyboardAvoider>
                 <View style={styles.modalBg}>
+                    {/* This sheet had no ScrollView. Vaccine picker + dose chips
+                        + date field + photo attach is taller than a 360x640
+                        screen, so Save sat below the fold with no way to reach
+                        it — the form could be filled in but not submitted. */}
+                    <ScrollView
+                        style={styles.modalSheet}
+                        contentContainerStyle={styles.modalSheetContent}
+                        keyboardShouldPersistTaps="handled"
+                    >
                     <View style={styles.modalCard}>
                         <Text style={styles.modalTitle}>Add Vaccination</Text>
 
@@ -1900,6 +1956,7 @@ export default function Health({
                             </TouchableOpacity>
                         </View>
                     </View>
+                    </ScrollView>
                 </View>
                 </KeyboardAvoider>
             </Modal>
@@ -1908,7 +1965,11 @@ export default function Health({
             <Modal visible={showApptModal} transparent animationType="slide">
                 <KeyboardAvoider>
                 <View style={styles.modalBg}>
-                    <ScrollView contentContainerStyle={{ width: "100%", alignItems: "center" }}>
+                    <ScrollView
+                        style={styles.modalSheet}
+                        contentContainerStyle={styles.modalSheetContent}
+                        keyboardShouldPersistTaps="handled"
+                    >
                     <View style={styles.modalCard}>
                         <Text style={styles.modalTitle}>New Appointment</Text>
 
@@ -1928,12 +1989,12 @@ export default function Health({
                             onChangeText={setApptDoctor}
                         />
 
-                        <View style={{ flexDirection: "row", gap: 8 }}>
-                            <View style={{ flex: 1 }}>
+                        <View style={modalTwoCol ? styles.formRow : styles.formStack}>
+                            <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
                                 <Text style={styles.modalLabel}>Date</Text>
                                 <DateField value={apptDate} onChange={setApptDate} />
                             </View>
-                            <View style={{ flex: 1 }}>
+                            <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
                                 <Text style={styles.modalLabel}>Time</Text>
                                 <TimeField value={apptTime} onChange={setApptTime} />
                             </View>
@@ -1987,7 +2048,10 @@ export default function Health({
                             {completeVaxTarget ? completeVaxTarget.vaccineName : ""}
                         </Text>
 
-                        <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
+                        <ScrollView
+                            style={[styles.modalScroll, { maxHeight: windowHeight * 0.5 }]}
+                            keyboardShouldPersistTaps="handled"
+                        >
                             {/* Editable, not assumed. A parent recording a dose
                                 a week after the clinic visit was previously
                                 forced to file it as today's. */}
@@ -2119,7 +2183,13 @@ const makeStyles = (colors) => StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: colors.background,
-        padding: 16,
+    },
+    // Padding belongs on the CONTENT, not the ScrollView itself: padding on
+    // the scroll view's own box does not scroll with the content, so the
+    // bottom clearance that keeps the last card above the tab bar and the
+    // floating button has to live here.
+    content: {
+        padding: space.lg,
     },
     careTeamBox: {
         backgroundColor: colors.surface,
@@ -2140,8 +2210,11 @@ const makeStyles = (colors) => StyleSheet.create({
         color: colors.primary,
         marginLeft: 6,
     },
+    // Body, not caption: "Pediatrician: …" and "Hospital: …" are the card's
+    // actual content, not a footnote about it, and 13px is the floor for
+    // secondary text rather than a size for the thing you came to read.
     careTeamText: {
-        ...type.caption,
+        ...type.body,
         color: colors.textSecondary,
         marginTop: 2,
     },
@@ -2267,9 +2340,15 @@ const makeStyles = (colors) => StyleSheet.create({
         color: colors.textMuted,
         marginTop: 2,
     },
+    // Sized by padding alone, this came out 40 x 30.4 — an icon-only button
+    // needs its own minimum box, not whatever its glyph plus padding happens
+    // to measure.
     actionBtn: {
         flexDirection: "row",
         alignItems: "center",
+        justifyContent: "center",
+        minWidth: MIN_TOUCH,
+        minHeight: MIN_TOUCH,
         backgroundColor: colors.accentStrong,
         borderRadius: radius.md,
         borderCurve: "continuous",
@@ -2367,7 +2446,9 @@ const makeStyles = (colors) => StyleSheet.create({
         gap: space.sm,
         marginTop: space.md,
     },
-    courseNext: { ...type.caption, color: colors.textMuted, flex: 1, textAlign: "right" },
+    courseFootStacked: { flexDirection: "column", alignItems: "flex-start" },
+    courseNext: { ...type.caption, color: colors.textMuted, flex: 1, minWidth: 0, textAlign: "right" },
+    courseNextStacked: { flex: 0, textAlign: "left", marginTop: space.sm },
     giveBtn: {
         flexDirection: "row",
         alignItems: "center",
@@ -2432,9 +2513,15 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     filterChip: {
         flex: 1,
+        minWidth: 0,
         alignItems: "center",
-        paddingHorizontal: space.sm,
-        paddingVertical: 6,
+        justifyContent: "center",
+        // Zero horizontal padding, same reasoning as tabButton above: four
+        // chips share the row, so at 360pt each gets ~67pt and "Overdue" at
+        // 14px needed ~74pt including its padding. The pill's shape comes from
+        // its vertical padding and radius, not from side padding it can't afford.
+        paddingHorizontal: 0,
+        minHeight: MIN_TOUCH,
         borderRadius: radius.pill,
         borderCurve: "continuous",
         borderWidth: 1,
@@ -2445,8 +2532,11 @@ const makeStyles = (colors) => StyleSheet.create({
         backgroundColor: colors.softGreen,
         borderColor: colors.primary,
     },
+    // 13px, not 14 — see the note on tabButtonText. Both states are the same
+    // size so selecting a chip can't grow its label past the box.
     filterChipText: {
-        ...type.label,
+        ...type.caption,
+        fontWeight: "600",
         color: colors.textMuted,
     },
     filterChipTextActive: {
@@ -2463,13 +2553,16 @@ const makeStyles = (colors) => StyleSheet.create({
         borderRadius: radius.sm,
         borderCurve: "continuous",
         paddingHorizontal: 6,
-        paddingVertical: 1,
+        paddingVertical: 2,
+        flexShrink: 0,
     },
     // No type-scale role fits a badge this small — type.subheading (14px)
-    // overflows the chip's 1px vertical padding. Deliberate literal exception.
+    // overflows the chip. Deliberate literal exception, but raised from 9px:
+    // three capitals at 9px is below anything legible on a real phone, and the
+    // chip has room for 11 once its vertical padding goes from 1 to 2.
     epiChipText: {
         fontFamily: "PublicSans_700Bold",
-        fontSize: 9,
+        fontSize: 11,
         fontWeight: "700",
         letterSpacing: 0.3,
         color: colors.recVaccine.on,
@@ -2531,16 +2624,26 @@ const makeStyles = (colors) => StyleSheet.create({
         alignItems: "center",
         padding: 20,
     },
+    // The scroller that lets a tall sheet reach its own Save button.
+    modalSheet: { width: "100%" },
+    modalSheetContent: { flexGrow: 1, justifyContent: "center", alignItems: "center" },
     modalCard: {
         backgroundColor: colors.background,
         borderRadius: radius.xl,
         borderCurve: "continuous",
         padding: 20,
         width: "100%",
-        maxWidth: 340,
+        // 440, not 340 — at 340 the sheet was narrower than the phone under it
+        // on every reference width, wasting room the fields needed.
+        maxWidth: 440,
         borderWidth: 1,
         borderColor: colors.border,
     },
+    // Paired form fields; `formStack` is the same fields one per line.
+    formRow: { flexDirection: "row", gap: space.sm },
+    formStack: { flexDirection: "column" },
+    formCell: { flex: 1, minWidth: 0 },
+    formCellFull: { width: "100%" },
     modalTitle: {
         ...type.heading,
         color: colors.primary,
@@ -2571,7 +2674,10 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     // The Mark Dose Given step now carries a date, a reaction and a photo, so
     // it scrolls rather than growing past the screen on a small phone.
-    modalScroll: { flexGrow: 0, maxHeight: 380 },
+    // maxHeight is applied inline as a fraction of the window — a hardcoded
+    // 380 was taller than the usable area on a short phone and did not move
+    // when the OS font scale grew the fields inside it.
+    modalScroll: { flexGrow: 0 },
 
     // Opens the vaccine picker. Reads like an input so it is obviously a field,
     // not a button that navigates away.

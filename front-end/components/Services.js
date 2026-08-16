@@ -11,6 +11,8 @@ import {
 import { useLanguage } from "../context/LanguageContext";
 import { useToast } from "./ui/Toast";
 import { useTheme } from "../context/ThemeContext";
+import { space, type, radius, MIN_TOUCH } from "../theme";
+import { useScreenPadBottom } from "../utils/responsive";
 import { SectionContainerCard, ListEntryCard } from "./common/Cards";
 import { Ionicons } from "@expo/vector-icons";
 import { initialUpdates, initialClinics } from "../mockData";
@@ -18,6 +20,7 @@ import { initialUpdates, initialClinics } from "../mockData";
 export default function Services() {
     const { language, t } = useLanguage();
     const toast = useToast();
+    const padBottom = useScreenPadBottom();
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const [selectedCity, setSelectedCity] = useState("QUEZON CITY");
@@ -29,7 +32,10 @@ export default function Services() {
     };
 
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView
+            style={styles.container}
+            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+        >
             {/* Services Title Header */}
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>{t("servicesHeader")}</Text>
@@ -119,8 +125,8 @@ export default function Services() {
                             </View>
                             <Text style={styles.bulletinDate}>{item.date}</Text>
                         </View>
-                        <Text style={styles.bulletinTitle}>{item.title}</Text>
-                        <Text style={styles.bulletinBody}>{item.content}</Text>
+                        <Text style={styles.bulletinTitle} numberOfLines={2}>{item.title}</Text>
+                        <Text style={styles.bulletinBody} numberOfLines={4}>{item.content}</Text>
                     </View>
                 ))}
             </SectionContainerCard>
@@ -136,9 +142,9 @@ export default function Services() {
                             source={{ uri: clinic.imageUrl }}
                             style={styles.clinicImg}
                         />
-                        <View style={{ flex: 1, marginLeft: 12 }}>
-                            <Text style={styles.clinicName}>{clinic.name}</Text>
-                            <Text style={styles.clinicDistance}>
+                        <View style={{ flex: 1, minWidth: 0, marginLeft: 12 }}>
+                            <Text style={styles.clinicName} numberOfLines={2}>{clinic.name}</Text>
+                            <Text style={styles.clinicDistance} numberOfLines={2}>
                                 {clinic.distance} | {clinic.address}
                             </Text>
                             <View style={styles.ratingRow}>
@@ -163,18 +169,19 @@ const makeStyles = (colors) => StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: colors.background,
-        padding: 16,
     },
+    // Padding on the content, not the ScrollView box — see Health.js.
+    content: { padding: space.lg },
     header: {
         marginBottom: 16,
     },
     headerTitle: {
-        fontSize: 22,
+        ...type.title,
         fontWeight: "800",
         color: colors.primary,
     },
     headerSub: {
-        fontSize: 12,
+        ...type.caption,
         color: colors.textMuted,
         marginTop: 4,
     },
@@ -191,7 +198,7 @@ const makeStyles = (colors) => StyleSheet.create({
         borderRadius: 16,
         padding: 12,
         justifyContent: "space-between",
-        minHeight: 110,
+        gap: space.md,
     },
     hotlineHeader: {
         flexDirection: "row",
@@ -199,7 +206,7 @@ const makeStyles = (colors) => StyleSheet.create({
         marginBottom: 12,
     },
     hotlineName: {
-        fontSize: 12,
+        ...type.caption,
         fontWeight: "700",
         color: "#064E3B",
         marginLeft: 6,
@@ -207,13 +214,15 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     callBtn: {
         backgroundColor: "#047857",
+        minHeight: MIN_TOUCH,
+        justifyContent: "center",
         paddingVertical: 8,
         borderRadius: 10,
         alignItems: "center",
     },
     callBtnText: {
         color: "#FFFFFF",
-        fontSize: 11,
+        ...type.caption,
         fontWeight: "700",
         textTransform: "uppercase",
     },
@@ -230,7 +239,7 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     categoryBadge: {
         backgroundColor: colors.recCheckup.bg,
-        paddingVertical: 2,
+        paddingVertical: 3,
         paddingHorizontal: 6,
         borderRadius: 6,
         marginRight: 8,
@@ -239,7 +248,7 @@ const makeStyles = (colors) => StyleSheet.create({
         backgroundColor: colors.dangerBg,
     },
     categoryBadgeText: {
-        fontSize: 9,
+        fontSize: 11,
         fontWeight: "800",
         color: colors.recCheckup.on,
     },
@@ -247,20 +256,20 @@ const makeStyles = (colors) => StyleSheet.create({
         color: colors.danger,
     },
     bulletinDate: {
-        fontSize: 10,
+        ...type.caption,
         color: colors.textMuted,
         fontWeight: "600",
     },
     bulletinTitle: {
-        fontSize: 13,
+        ...type.caption,
         fontWeight: "700",
         color: colors.text,
         marginBottom: 4,
     },
     bulletinBody: {
-        fontSize: 11,
+        ...type.caption,
         color: colors.textSecondary,
-        lineHeight: 16,
+        lineHeight: 18,
     },
     clinicRow: {
         flexDirection: "row",
@@ -273,15 +282,16 @@ const makeStyles = (colors) => StyleSheet.create({
     clinicImg: {
         width: 60,
         height: 60,
+        flexShrink: 0,
         borderRadius: 12,
     },
     clinicName: {
-        fontSize: 13,
+        ...type.body,
         fontWeight: "700",
         color: colors.text,
     },
     clinicDistance: {
-        fontSize: 11,
+        ...type.caption,
         color: colors.textMuted,
         marginTop: 2,
     },
@@ -291,7 +301,7 @@ const makeStyles = (colors) => StyleSheet.create({
         marginTop: 4,
     },
     ratingText: {
-        fontSize: 10,
+        ...type.caption,
         fontWeight: "700",
         color: colors.warning,
         marginLeft: 4,

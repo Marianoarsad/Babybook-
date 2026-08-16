@@ -3,7 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, TextInput 
 import { Ionicons } from "@expo/vector-icons";
 import { Calendar, CalendarProvider, WeekCalendar } from "react-native-calendars";
 import { useTheme } from "../context/ThemeContext";
-import { space, radius, shadow } from "../theme";
+import { space, radius, shadow, type, MIN_TOUCH } from "../theme";
+import { useScreenPadBottom } from "../utils/responsive";
 import { api } from "../utils/api";
 import { EmptyStateCard } from "./common/Cards";
 import { AppointmentsSkeleton } from "./ui/Skeleton";
@@ -57,6 +58,7 @@ function todayISO() {
 export default function CalendarView({ profile }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
     const toast = useToast();
 
     const [viewMode, setViewMode] = useState("month"); // month | week | day
@@ -212,6 +214,19 @@ export default function CalendarView({ profile }) {
             textMonthFontWeight: "800",
             textDayFontWeight: "600",
             textDayHeaderFontWeight: "700",
+            // react-native-calendars draws its day cells at 32pt, which is the
+            // whole tap target for picking a date — the most-tapped control on
+            // this screen. `stylesheet.day.basic` is the library's own
+            // documented override hook; only the box grows, the type and the
+            // dot markers are untouched.
+            "stylesheet.day.basic": {
+                base: {
+                    width: MIN_TOUCH,
+                    height: MIN_TOUCH,
+                    alignItems: "center",
+                    justifyContent: "center",
+                },
+            },
         }),
         [colors],
     );
@@ -317,9 +332,11 @@ export default function CalendarView({ profile }) {
                 <View style={[styles.eventIconWrap, { backgroundColor: categoryColor(colors, ev.category) + "22" }]}>
                     <Ionicons name={meta.icon} size={18} color={categoryColor(colors, ev.category)} />
                 </View>
-                <View style={{ flex: 1 }}>
-                    <Text style={styles.eventTitle}>{ev.title}</Text>
-                    <Text style={styles.eventSubtitle}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.eventTitle} numberOfLines={2} ellipsizeMode="tail">
+                        {ev.title}
+                    </Text>
+                    <Text style={styles.eventSubtitle} numberOfLines={2} ellipsizeMode="tail">
                         {meta.label}
                         {ev.subtitle ? ` · ${ev.subtitle}` : ""}
                     </Text>
@@ -340,13 +357,18 @@ export default function CalendarView({ profile }) {
                         accessibilityRole="button"
                         accessibilityLabel={`${mode} view`}
                     >
-                        <Text style={[styles.switcherText, viewMode === mode && styles.switcherTextActive]}>
+                        <Text
+                            numberOfLines={1}
+                            style={[styles.switcherText, viewMode === mode && styles.switcherTextActive]}
+                        >
                             {mode === "month" ? "Monthly" : mode === "week" ? "Weekly" : "Daily"}
                         </Text>
                     </TouchableOpacity>
                 ))}
                 <TouchableOpacity onPress={jumpToToday} style={styles.todayBtn} accessibilityRole="button" accessibilityLabel="Jump to today">
-                    <Text style={styles.todayBtnText}>Today</Text>
+                    <Text style={styles.todayBtnText} numberOfLines={1}>
+                        Today
+                    </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                     onPress={openCreateModal}
@@ -358,7 +380,11 @@ export default function CalendarView({ profile }) {
                 </TouchableOpacity>
             </View>
 
-            <ScrollView contentContainerStyle={styles.scrollContent} refreshControl={refreshControl}>
+            <ScrollView
+                contentContainerStyle={[styles.scrollContent, { paddingBottom: padBottom }]}
+                refreshControl={refreshControl}
+                keyboardShouldPersistTaps="handled"
+            >
                 <TipStrip tipKey="tip_calendar">
                     Appointments and vaccine due dates appear here automatically. Tap any date to add your own
                     event.
@@ -471,7 +497,10 @@ export default function CalendarView({ profile }) {
             <Modal visible={showEventModal} transparent animationType="slide" onRequestClose={() => setShowEventModal(false)}>
                 <KeyboardAvoider>
                 <View style={styles.modalBg}>
-                    <ScrollView contentContainerStyle={{ width: "100%", alignItems: "center" }}>
+                    <ScrollView
+                        contentContainerStyle={{ width: "100%", alignItems: "center" }}
+                        keyboardShouldPersistTaps="handled"
+                    >
                         <View style={styles.modalCard}>
                             <Text style={styles.modalTitle}>{editingEventId ? "Edit Event" : "Add Custom Event"}</Text>
 
@@ -540,29 +569,44 @@ export default function CalendarView({ profile }) {
 const makeStyles = (colors) =>
     StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
-        scrollContent: { padding: space.lg, paddingBottom: space.xxl },
+        // paddingBottom applied inline — space.xxl (32) left the last event
+        // underneath the tab bar and the floating button.
+        scrollContent: { padding: space.lg },
+        // Wraps. Three mode buttons + Today + the add button came to ~310pt of
+        // the 328pt available at 360pt with no wrap and no scroll, so a 320pt
+        // screen — or a raised font scale on any screen — pushed the add button
+        // clean off the edge with no way to reach it.
         switcherRow: {
             flexDirection: "row",
             alignItems: "center",
+            flexWrap: "wrap",
             paddingHorizontal: space.lg,
             paddingTop: space.md,
             gap: space.xs,
         },
         switcherBtn: {
+            minHeight: MIN_TOUCH,
+            justifyContent: "center",
             paddingVertical: 8,
             paddingHorizontal: space.md,
             borderRadius: radius.pill,
             backgroundColor: colors.surfaceAlt,
         },
         switcherBtnActive: { backgroundColor: colors.softGreen },
-        switcherText: { fontSize: 12, fontWeight: "700", color: colors.textMuted },
+        switcherText: { ...type.caption, fontWeight: "700", color: colors.textMuted },
         switcherTextActive: { color: colors.primaryDark },
-        todayBtn: { marginLeft: "auto", paddingVertical: 8, paddingHorizontal: space.md },
-        todayBtnText: { fontSize: 12, fontWeight: "800", color: colors.accentStrong },
+        todayBtn: {
+            marginLeft: "auto",
+            minHeight: MIN_TOUCH,
+            justifyContent: "center",
+            paddingVertical: 8,
+            paddingHorizontal: space.md,
+        },
+        todayBtnText: { ...type.caption, fontWeight: "800", color: colors.accentStrong },
         addEventBtn: {
-            width: 32,
-            height: 32,
-            borderRadius: 16,
+            width: MIN_TOUCH,
+            height: MIN_TOUCH,
+            borderRadius: radius.pill,
             backgroundColor: colors.accentStrong,
             alignItems: "center",
             justifyContent: "center",
@@ -584,7 +628,7 @@ const makeStyles = (colors) =>
             borderRadius: 4,
         },
         legendText: {
-            fontSize: 11,
+            fontSize: type.caption.fontSize,
             fontWeight: "700",
             color: colors.textSecondary,
         },
@@ -634,7 +678,7 @@ const makeStyles = (colors) =>
             marginRight: space.md,
         },
         eventTitle: { fontSize: 14, fontWeight: "700", color: colors.text },
-        eventSubtitle: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+        eventSubtitle: { fontSize: type.caption.fontSize, color: colors.textMuted, marginTop: 2 },
         modalBg: {
             flex: 1,
             backgroundColor: "rgba(28,25,23,0.55)",
@@ -654,7 +698,7 @@ const makeStyles = (colors) =>
             ...shadow.raised,
         },
         modalTitle: { fontSize: 18, fontWeight: "800", color: colors.text, marginBottom: 4 },
-        modalSubtitle: { fontSize: 12, fontWeight: "700", color: colors.textMuted, marginBottom: space.md },
+        modalSubtitle: { fontSize: type.caption.fontSize, fontWeight: "700", color: colors.textMuted, marginBottom: space.md },
         modalNotes: { fontSize: 13, color: colors.textSecondary, lineHeight: 18, marginBottom: space.sm },
         modalCloseBtn: {
             height: 44,
@@ -667,7 +711,7 @@ const makeStyles = (colors) =>
         },
         modalCloseText: { color: colors.onAccent, fontWeight: "800", fontSize: 13 },
         formLabel: {
-            fontSize: 10,
+            fontSize: type.caption.fontSize,
             fontWeight: "700",
             color: colors.textMuted,
             textTransform: "uppercase",
@@ -687,6 +731,8 @@ const makeStyles = (colors) =>
         },
         leadRow: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, marginTop: 2 },
         leadOption: {
+            minHeight: MIN_TOUCH,
+            justifyContent: "center",
             paddingVertical: 8,
             paddingHorizontal: space.md,
             borderRadius: radius.pill,
@@ -695,7 +741,7 @@ const makeStyles = (colors) =>
             backgroundColor: colors.surface,
         },
         leadOptionActive: { borderColor: colors.primary, backgroundColor: colors.softGreen },
-        leadOptionText: { fontSize: 12, fontWeight: "700", color: colors.textMuted },
+        leadOptionText: { fontSize: type.caption.fontSize, fontWeight: "700", color: colors.textMuted },
         leadOptionTextActive: { color: colors.primaryDark },
         modalButtons: { flexDirection: "row", justifyContent: "flex-end", gap: space.md, marginTop: space.lg },
         modalCancelBtn: {

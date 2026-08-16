@@ -12,6 +12,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { RECORD_LABELS } from "../utils/shareStore";
 import { api } from "../utils/api";
 import { useTheme } from "../context/ThemeContext";
+import { space, type } from "../theme";
+import { fitsColumns } from "../utils/responsive";
 import QrScanner, { scannerAvailable } from "./QrScanner";
 import { shortDate, shortTime, overdueBy, spanText, todayLocal } from "../utils/dates";
 import { courseDayText, isActiveOn } from "../utils/medication";
@@ -136,7 +138,7 @@ export default function ProfessionalView({ onExit }) {
     }
 
     return (
-        <ScrollView contentContainerStyle={styles.entryScroll}>
+        <ScrollView contentContainerStyle={styles.entryScroll} keyboardShouldPersistTaps="handled">
             <View style={styles.entryCard}>
                 <View style={styles.logoCircle}>
                     <Ionicons name="medkit" size={26} color={colors.primary} />
@@ -279,13 +281,21 @@ function SnapshotTimestamp({ capturedAt }) {
     );
 }
 
+// A label/value pair. Stacks to two lines on a narrow screen rather than
+// squeezing both to ~142pt, which wrapped real values ("Metro General
+// Hospital") into a ragged two-line column beside a one-line label.
 function Row({ label, value }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const [width, setWidth] = useState(0);
+    const twoCol = fitsColumns(width, 2, space.md);
     return (
-        <View style={styles.dataRow}>
+        <View
+            style={[styles.dataRow, !twoCol && styles.dataRowStacked]}
+            onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+        >
             <Text style={styles.dataLabel}>{label}</Text>
-            <Text style={styles.dataValue}>{value || "—"}</Text>
+            <Text style={[styles.dataValue, !twoCol && styles.dataValueStacked]}>{value || "—"}</Text>
         </View>
     );
 }
@@ -297,8 +307,14 @@ function Section({ icon, title, count, children }) {
         <View style={styles.section}>
             <View style={styles.sectionHead}>
                 <Ionicons name={icon} size={16} color={colors.primary} />
-                <Text style={styles.sectionTitle}>{title}</Text>
-                {count != null ? <Text style={styles.sectionCount}>{count}</Text> : null}
+                <Text style={styles.sectionTitle} numberOfLines={2}>
+                    {title}
+                </Text>
+                {count != null ? (
+                    <Text style={styles.sectionCount} numberOfLines={1}>
+                        {count}
+                    </Text>
+                ) : null}
             </View>
             {children}
         </View>
@@ -314,10 +330,20 @@ function Item({ tone, statusIcon, title, sub, flag }) {
     return (
         <View style={styles.listItem}>
             <Ionicons name={statusIcon} size={15} color={tone} style={{ marginTop: 2 }} />
-            <View style={{ flex: 1 }}>
-                <Text style={styles.itemTitle}>{title}</Text>
-                {sub ? <Text style={styles.itemSub}>{sub}</Text> : null}
-                {flag ? <Text style={[styles.itemFlag, { color: tone }]}>{flag}</Text> : null}
+            <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.itemTitle} numberOfLines={2} ellipsizeMode="tail">
+                    {title}
+                </Text>
+                {sub ? (
+                    <Text style={styles.itemSub} numberOfLines={3} ellipsizeMode="tail">
+                        {sub}
+                    </Text>
+                ) : null}
+                {flag ? (
+                    <Text style={[styles.itemFlag, { color: tone }]} numberOfLines={2}>
+                        {flag}
+                    </Text>
+                ) : null}
             </View>
         </View>
     );
@@ -856,13 +882,15 @@ function RecordsView({ session, onEnd, onExit }) {
     };
 
     return (
-        <ScrollView contentContainerStyle={styles.recScroll}>
+        <ScrollView contentContainerStyle={styles.recScroll} keyboardShouldPersistTaps="handled">
             <View style={styles.viewOnlyBanner}>
                 <Ionicons name="eye" size={15} color={colors.onPrimary} />
                 <Text style={styles.viewOnlyText}>VIEW ONLY · authorized by parent</Text>
             </View>
 
-            <Text style={styles.childName}>{session.childName || "Child"}</Text>
+            <Text style={styles.childName} numberOfLines={2}>
+                {session.childName || "Child"}
+            </Text>
             <Text style={styles.childMeta}>
                 {(session.recordKeys || []).length} record types shared · code {session.code}
             </Text>
@@ -902,46 +930,46 @@ const makeStyles = (colors) => StyleSheet.create({
         alignItems: "center", justifyContent: "center", alignSelf: "center", marginBottom: 14,
         borderWidth: 1, borderColor: colors.border,
     },
-    title: { fontSize: 21, fontWeight: "800", color: colors.primary, textAlign: "center" },
-    subtitle: { fontSize: 13, color: colors.textMuted, textAlign: "center", marginTop: 6, marginBottom: 18, lineHeight: 17 },
+    title: { ...type.title, color: colors.primary, textAlign: "center" },
+    subtitle: { ...type.caption, color: colors.textMuted, textAlign: "center", marginTop: 6, marginBottom: 18, lineHeight: 18 },
     field: { marginBottom: 14 },
-    label: { fontSize: 13, fontWeight: "700", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 },
+    label: { ...type.subheading, color: colors.textMuted, letterSpacing: 1, marginBottom: 6 },
     inputWrap: {
         flexDirection: "row", alignItems: "center", backgroundColor: colors.surfaceAlt,
         borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 12, height: 46,
     },
-    input: { flex: 1, fontSize: 16, color: colors.text },
+    input: { flex: 1, ...type.body, color: colors.text },
     errorBox: {
         flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.dangerBg,
         borderRadius: 10, padding: 10, marginBottom: 12,
     },
-    errorText: { flex: 1, fontSize: 13, color: colors.danger, fontWeight: "600" },
-    accessNotice: { fontSize: 13, color: colors.textMuted, textAlign: "center", marginBottom: 10, lineHeight: 14 },
+    errorText: { flex: 1, ...type.caption, color: colors.danger, fontWeight: "600" },
+    accessNotice: { ...type.caption, color: colors.textMuted, textAlign: "center", marginBottom: 10, lineHeight: 18 },
     viewBtn: {
         flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
         backgroundColor: colors.primary, height: 48, borderRadius: 24, marginTop: 2,
     },
-    viewBtnText: { color: colors.onPrimary, fontWeight: "800", fontSize: 14.5 },
+    viewBtnText: { color: colors.onPrimary, ...type.label, fontWeight: "800" },
     scanHint: { flexDirection: "row", gap: 6, alignItems: "flex-start", marginTop: 14 },
-    scanHintText: { flex: 1, fontSize: 13, color: colors.textMuted, lineHeight: 15 },
+    scanHintText: { flex: 1, ...type.caption, color: colors.textMuted, lineHeight: 18 },
     exitLink: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 16 },
-    exitText: { fontSize: 13, color: colors.primary, fontWeight: "700" },
+    exitText: { ...type.caption, color: colors.primary, fontWeight: "700" },
     recScroll: { padding: 16, paddingBottom: 40 },
     viewOnlyBanner: {
         flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
         backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 9, marginBottom: 14,
     },
-    viewOnlyText: { color: colors.onPrimary, fontWeight: "800", fontSize: 13, letterSpacing: 1 },
-    childName: { fontSize: 24, fontWeight: "900", color: colors.text },
-    childMeta: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
+    viewOnlyText: { color: colors.onPrimary, ...type.caption, fontWeight: "800", letterSpacing: 1 },
+    childName: { ...type.display, fontSize: 24, lineHeight: 29, color: colors.text },
+    childMeta: { ...type.caption, color: colors.textMuted, marginTop: 2 },
     snapshotBanner: {
         flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: colors.surfaceAlt,
         borderRadius: 12, padding: 10, marginTop: 10, marginBottom: 14,
     },
     snapshotBannerStale: { backgroundColor: colors.warningBg },
-    snapshotText: { fontSize: 13, color: colors.textMuted, fontWeight: "600" },
+    snapshotText: { flex: 1, ...type.caption, color: colors.textMuted, fontWeight: "600" },
     snapshotTextStale: { color: colors.warning, fontWeight: "800" },
-    snapshotWarningText: { fontSize: 13, color: colors.warning, marginTop: 3, lineHeight: 15 },
+    snapshotWarningText: { ...type.caption, color: colors.warning, marginTop: 3, lineHeight: 18 },
     // Clinical summary band — the five-second read, above every section.
     summary: {
         backgroundColor: colors.surface,
@@ -952,7 +980,7 @@ const makeStyles = (colors) => StyleSheet.create({
         marginBottom: 14,
         gap: 8,
     },
-    summaryIdentity: { fontSize: 17, fontWeight: "800", color: colors.text },
+    summaryIdentity: { ...type.heading, fontWeight: "800", color: colors.text },
     summaryRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
     summaryRowAlert: {
         backgroundColor: colors.dangerBg,
@@ -968,7 +996,7 @@ const makeStyles = (colors) => StyleSheet.create({
         paddingHorizontal: 8,
         marginHorizontal: -2,
     },
-    summaryText: { flex: 1, fontSize: 14, color: colors.textSecondary, lineHeight: 19 },
+    summaryText: { flex: 1, ...type.label, fontWeight: "400", color: colors.textSecondary, lineHeight: 20 },
     summaryTextAlert: { color: colors.danger, fontWeight: "700" },
     summaryTextWarn: { color: colors.warning, fontWeight: "700" },
 
@@ -978,31 +1006,33 @@ const makeStyles = (colors) => StyleSheet.create({
         borderRadius: 18, padding: 16, borderWidth: 1, borderColor: colors.border, marginBottom: 12,
     },
     sectionHead: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
-    sectionTitle: { fontSize: 15, fontWeight: "800", color: colors.primary, flex: 1 },
+    sectionTitle: { ...type.bodyStrong, fontSize: 15, fontWeight: "800", color: colors.primary, flex: 1, minWidth: 0 },
     sectionCount: {
-        fontSize: 13, fontWeight: "700", color: colors.textMuted,
+        ...type.caption, fontWeight: "700", color: colors.textMuted, flexShrink: 0,
         backgroundColor: colors.surfaceAlt, borderRadius: 999,
         paddingHorizontal: 8, paddingVertical: 2, overflow: "hidden",
     },
     dataRow: { flexDirection: "row", justifyContent: "space-between", gap: 12, paddingVertical: 7, borderTopWidth: 1, borderTopColor: colors.hairline },
-    dataLabel: { fontSize: 13, color: colors.textMuted, flex: 1 },
-    dataValue: { fontSize: 13, color: colors.text, fontWeight: "700", flex: 1, textAlign: "right" },
+    dataLabel: { ...type.caption, color: colors.textMuted, flex: 1, minWidth: 0 },
+    dataValue: { ...type.caption, color: colors.text, fontWeight: "700", flex: 1, minWidth: 0, textAlign: "right" },
+    dataRowStacked: { flexDirection: "column", gap: 2 },
+    dataValueStacked: { textAlign: "left", flex: 0 },
     listItem: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 8 },
-    itemTitle: { fontSize: 14, fontWeight: "700", color: colors.text },
-    itemSub: { fontSize: 13, color: colors.textMuted, marginTop: 1 },
+    itemTitle: { ...type.label, fontWeight: "700", color: colors.text },
+    itemSub: { ...type.caption, color: colors.textMuted, marginTop: 1 },
     // The one line a clinician scans for: overdue, or a feeding reaction.
-    itemFlag: { fontSize: 13, fontWeight: "700", marginTop: 1 },
+    itemFlag: { ...type.caption, fontWeight: "700", marginTop: 1 },
     showMore: {
         flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
         minHeight: 44, marginTop: 4, borderTopWidth: 1, borderTopColor: colors.hairline,
     },
-    showMoreText: { fontSize: 13, fontWeight: "700", color: colors.primary },
-    empty: { fontSize: 13, color: colors.textMuted, fontStyle: "italic" },
+    showMoreText: { ...type.caption, fontWeight: "700", color: colors.primary },
+    empty: { ...type.caption, color: colors.textMuted, fontStyle: "italic" },
     readOnlyNote: {
         flexDirection: "row", gap: 8, alignItems: "flex-start", backgroundColor: colors.surfaceAlt,
         borderRadius: 12, padding: 12, marginTop: 4, marginBottom: 14,
     },
-    readOnlyText: { flex: 1, fontSize: 13, color: colors.textMuted, lineHeight: 15 },
+    readOnlyText: { flex: 1, ...type.caption, color: colors.textMuted, lineHeight: 18 },
     endBtn: { backgroundColor: colors.accentStrong, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
-    endText: { color: colors.onPrimary, fontWeight: "800", fontSize: 14 },
+    endText: { color: colors.onPrimary, ...type.label, fontWeight: "800" },
 });

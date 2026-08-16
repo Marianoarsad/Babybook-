@@ -1,5 +1,13 @@
 import React, { useEffect, useMemo, useRef } from "react";
-import { View, Text, StyleSheet, Modal, ScrollView, TouchableOpacity } from "react-native";
+import {
+    View,
+    Text,
+    StyleSheet,
+    Modal,
+    ScrollView,
+    TouchableOpacity,
+    useWindowDimensions,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { radius, space, shadow, type, MIN_TOUCH } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
@@ -32,6 +40,7 @@ export default function OptionSheet({
     onClose,
 }) {
     const { colors } = useTheme();
+    const { height: windowHeight } = useWindowDimensions();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const scrollRef = useRef(null);
 
@@ -63,7 +72,7 @@ export default function OptionSheet({
                         </Text>
                     ) : null}
 
-                    <ScrollView ref={scrollRef} style={styles.scroll} showsVerticalScrollIndicator={false}>
+                    <ScrollView ref={scrollRef} style={[styles.scroll, { maxHeight: windowHeight * 0.55 }]} showsVerticalScrollIndicator={false}>
                         {options.map((o) => {
                             const on = o.key === selectedKey;
                             return (
@@ -125,7 +134,10 @@ const makeStyles = (colors) =>
             marginBottom: space.md,
         },
         title: { ...type.heading, color: colors.text, textAlign: "center", marginBottom: space.sm },
-        scroll: { maxHeight: 460 },
+        // maxHeight is applied inline as a fraction of the window — a fixed
+        // 460 was taller than the room a short phone actually has once the
+        // grabber, title, cancel row and safe-area inset are accounted for.
+        scroll: {},
         item: {
             flexDirection: "row",
             alignItems: "center",

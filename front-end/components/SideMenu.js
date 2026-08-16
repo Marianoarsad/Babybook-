@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
-import { space, radius, shadow } from "../theme";
+import { space, radius, shadow, type, MIN_TOUCH } from "../theme";
 
 const DRAWER_WIDTH = Math.min(300, Dimensions.get("window").width * 0.82);
 
@@ -190,16 +190,16 @@ const makeStyles = (colors) =>
             color: colors.text,
         },
         closeBtn: {
-            width: 32,
-            height: 32,
-            borderRadius: 16,
+            width: MIN_TOUCH,
+            height: MIN_TOUCH,
+            borderRadius: radius.pill,
             alignItems: "center",
             justifyContent: "center",
             backgroundColor: colors.surfaceAlt,
         },
         section: { marginBottom: space.lg },
         sectionLabel: {
-            fontSize: 11,
+            ...type.caption,
             fontWeight: "800",
             color: colors.textMuted,
             letterSpacing: 0.6,

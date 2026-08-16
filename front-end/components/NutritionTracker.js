@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { radius, space, shadow, type, MIN_TOUCH } from "../theme";
+import { useScreenPadBottom } from "../utils/responsive";
 import { useTheme } from "../context/ThemeContext";
 import { api } from "../utils/api";
 import { nutritionToApp, nutritionFormToRecord, feedVolumeMl } from "../utils/adapters";
@@ -97,6 +98,7 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
     const toast = useToast();
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
     const [entries, setEntries] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
@@ -395,7 +397,12 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
     ].filter(Boolean);
 
     return (
-        <ScrollView style={styles.container} refreshControl={refreshControl}>
+        <ScrollView
+            style={styles.container}
+            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+            refreshControl={refreshControl}
+            keyboardShouldPersistTaps="handled"
+        >
             {/* Today — the glance layer. Everything here is derived from the
                 entries already loaded; none of it costs a request. */}
             <SectionContainerCard title="Today" subtitle={shortDate(today)}>
@@ -544,19 +551,19 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                 <SectionContainerCard title="Solid Foods" subtitle="Foods this child has tried">
                     <View style={styles.tileRow}>
                         <View style={styles.tile}>
-                            <Text style={styles.tileValue}>{solidStats.distinct}</Text>
+                            <Text style={styles.tileValue} numberOfLines={1}>{solidStats.distinct}</Text>
                             <Text style={styles.tileLabel} numberOfLines={2}>
                                 Different foods
                             </Text>
                         </View>
                         <View style={styles.tile}>
-                            <Text style={styles.tileValue}>{solidStats.newThisMonth}</Text>
+                            <Text style={styles.tileValue} numberOfLines={1}>{solidStats.newThisMonth}</Text>
                             <Text style={styles.tileLabel} numberOfLines={2}>
                                 New this month
                             </Text>
                         </View>
                         <View style={styles.tile}>
-                            <Text style={styles.tileValue}>{solidStats.reactions.length}</Text>
+                            <Text style={styles.tileValue} numberOfLines={1}>{solidStats.reactions.length}</Text>
                             <Text style={styles.tileLabel} numberOfLines={2}>
                                 With a reaction
                             </Text>
@@ -682,11 +689,21 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                         }
                         iconBg={e.entryType === "milk" ? colors.infoBg : colors.recNutrition.bg}
                         actions={
-                            <View style={{ flexDirection: "row", gap: space.sm }}>
-                                <TouchableOpacity onPress={() => openEdit(e)} accessibilityRole="button" accessibilityLabel="Edit entry">
+                            <View style={{ flexDirection: "row" }}>
+                                <TouchableOpacity
+                                    onPress={() => openEdit(e)}
+                                    style={styles.rowIconBtn}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Edit entry"
+                                >
                                     <Ionicons name="create-outline" size={20} color={colors.textSecondary} />
                                 </TouchableOpacity>
-                                <TouchableOpacity onPress={() => handleDelete(e.id)} accessibilityRole="button" accessibilityLabel="Delete entry">
+                                <TouchableOpacity
+                                    onPress={() => handleDelete(e.id)}
+                                    style={styles.rowIconBtn}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Delete entry"
+                                >
                                     <Ionicons name="trash-outline" size={20} color={colors.danger} />
                                 </TouchableOpacity>
                             </View>
@@ -705,7 +722,10 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
             <Modal visible={showModal} transparent animationType="slide" onRequestClose={() => setShowModal(false)}>
                 <KeyboardAvoider>
                     <View style={styles.modalBg}>
-                        <ScrollView contentContainerStyle={styles.modalScroll}>
+                        <ScrollView
+                            contentContainerStyle={styles.modalScroll}
+                            keyboardShouldPersistTaps="handled"
+                        >
                             <View style={styles.modalCard}>
                                 <Text style={styles.modalTitle}>
                                     {editingId ? "Edit Nutrition Entry" : "Add Nutrition Entry"}
@@ -1001,12 +1021,15 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
+        container: { flex: 1, backgroundColor: colors.background },
+        // Padding on the content, not the ScrollView box — see Health.js.
+        content: { padding: space.lg },
 
         // Stat tiles
         tileRow: { flexDirection: "row", gap: space.sm },
         tile: {
             flex: 1,
+            minWidth: 0,
             alignItems: "center",
             gap: 2,
             paddingVertical: space.md,
@@ -1024,6 +1047,8 @@ const makeStyles = (colors) =>
         // Chips — measures, ranges and list filters all read the same
         chipRow: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginBottom: space.md },
         chip: {
+            minHeight: MIN_TOUCH,
+            justifyContent: "center",
             paddingHorizontal: space.md,
             paddingVertical: 8,
             borderRadius: radius.pill,
@@ -1107,6 +1132,14 @@ const makeStyles = (colors) =>
         reactionMeta: { ...type.caption, color: colors.textSecondary, marginTop: 2 },
         reactionNote: { ...type.caption, color: colors.textMuted },
 
+        // Bare 20px icons were the whole tap target (20 x 21.6). The button
+        // takes the 44pt box; the glyph inside stays the same size.
+        rowIconBtn: {
+            width: MIN_TOUCH,
+            height: MIN_TOUCH,
+            alignItems: "center",
+            justifyContent: "center",
+        },
         addBtn: {
             width: MIN_TOUCH,
             height: MIN_TOUCH,
@@ -1168,6 +1201,8 @@ const makeStyles = (colors) =>
             alignItems: "center",
         },
         foodChip: {
+            minHeight: MIN_TOUCH,
+            justifyContent: "center",
             paddingHorizontal: space.md,
             paddingVertical: 8,
             borderRadius: radius.pill,

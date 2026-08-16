@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
-import { space, radius, shadow } from "../theme";
+import { space, radius, shadow, type, MIN_TOUCH } from "../theme";
+import { useScreenPadBottom } from "../utils/responsive";
 import { api } from "../utils/api";
 import {
     vaccinationToApp,
@@ -32,6 +33,7 @@ import { useRefreshControl } from "./ui/useRefreshControl";
 export default function Search({ profile, onClose, onNavigate }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [query, setQuery] = useState("");
@@ -224,7 +226,11 @@ export default function Search({ profile, onClose, onNavigate }) {
                 )}
             </View>
 
-            <ScrollView contentContainerStyle={styles.content} refreshControl={refreshControl}>
+            <ScrollView
+                contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+                refreshControl={refreshControl}
+                keyboardShouldPersistTaps="handled"
+            >
                 {loading && items.length === 0 ? (
                     <AppointmentsSkeleton />
                 ) : query.trim().length === 0 ? (
@@ -279,8 +285,8 @@ const makeStyles = (colors) =>
             borderBottomWidth: 1,
             borderBottomColor: colors.hairline,
         },
-        headerBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-        headerTitle: { fontSize: 18, fontWeight: "800", color: colors.primary },
+        headerBtn: { width: MIN_TOUCH, height: MIN_TOUCH, alignItems: "center", justifyContent: "center" },
+        headerTitle: { ...type.heading, fontWeight: "800", color: colors.primary, flex: 1, minWidth: 0 },
         searchBarWrap: {
             flexDirection: "row",
             alignItems: "center",
@@ -296,7 +302,7 @@ const makeStyles = (colors) =>
             height: 44,
         },
         searchInput: { flex: 1, fontSize: 16, color: colors.text, height: 44 },
-        content: { padding: space.lg, paddingBottom: space.xxl },
+        content: { padding: space.lg },
         resultsCard: {
             backgroundColor: colors.surface,
             borderRadius: radius.xl,
@@ -315,7 +321,7 @@ const makeStyles = (colors) =>
         },
         rowBorder: { borderBottomWidth: 1, borderBottomColor: colors.hairline },
         rowIcon: { width: 40, height: 40, borderRadius: radius.md, borderCurve: "continuous", alignItems: "center", justifyContent: "center" },
-        rowTitle: { fontSize: 14, fontWeight: "700", color: colors.text },
-        rowSubtitle: { fontSize: 12, fontWeight: "500", color: colors.textMuted, marginTop: 1 },
-        rowDate: { fontSize: 11, fontWeight: "600", color: colors.textMuted, marginLeft: space.xs },
+        rowTitle: { ...type.label, fontWeight: "700", color: colors.text },
+        rowSubtitle: { ...type.caption, fontWeight: "500", color: colors.textMuted, marginTop: 1 },
+        rowDate: { ...type.caption, fontWeight: "600", color: colors.textMuted, marginLeft: space.xs, flexShrink: 0 },
     });

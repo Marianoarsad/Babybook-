@@ -2,7 +2,7 @@ import React, { useMemo } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
-import { radius, space, shadow, MIN_TOUCH } from "../theme";
+import { radius, space, shadow, type, MIN_TOUCH } from "../theme";
 import { useResponsive } from "../utils/responsive";
 import Gradient from "./ui/Gradient";
 
@@ -375,7 +375,7 @@ const makeStyles = (colors) =>
             alignItems: "center",
             justifyContent: "center",
         },
-        pillLabel: { fontSize: 12, fontWeight: "600", color: colors.textSecondary, letterSpacing: 0.2 },
+        pillLabel: { ...type.caption, fontWeight: "600", color: colors.textSecondary, letterSpacing: 0.2 },
         pillValue: { fontSize: 18, fontWeight: "800", color: colors.text },
 
         // Trust
@@ -385,7 +385,7 @@ const makeStyles = (colors) =>
             paddingVertical: space.xxl,
         },
         eyebrow: {
-            fontSize: 12,
+            ...type.caption,
             fontWeight: "700",
             color: colors.primary,
             letterSpacing: 1.6,
@@ -452,7 +452,7 @@ const makeStyles = (colors) =>
         featureBody: { fontSize: 14, lineHeight: 20, color: colors.textSecondary },
         chipRow: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, marginTop: space.md },
         chip: { paddingHorizontal: space.sm, paddingVertical: 3, borderRadius: radius.pill },
-        chipText: { fontSize: 12, fontWeight: "700" },
+        chipText: { ...type.caption, fontWeight: "700" },
 
         // CTA
         ctaSection: { padding: space.lg, backgroundColor: colors.background },
@@ -522,8 +522,8 @@ const makeStyles = (colors) =>
         footerBrand: { fontSize: 18, fontWeight: "800", color: colors.primary },
         copyright: { fontSize: 14, color: colors.textSecondary },
         disclaimer: {
-            fontSize: 12,
-            lineHeight: 17,
+            ...type.caption,
+            lineHeight: 18,
             color: colors.textMuted,
             textAlign: "center",
             maxWidth: 360,

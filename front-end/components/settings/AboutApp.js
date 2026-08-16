@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { SectionContainerCard } from "../common/Cards";
 import { useTheme } from "../../context/ThemeContext";
+import { useScreenPadBottom } from "../../utils/responsive";
 import { space, radius, type } from "../../theme";
 
 const APP_VERSION = "1.0.0";
@@ -9,9 +10,14 @@ const APP_VERSION = "1.0.0";
 export default function AboutApp() {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
 
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView
+            style={styles.container}
+            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+            keyboardShouldPersistTaps="handled"
+        >
             {/* Version-plate hero — anchors the app identity + clinical
                 credibility claim before the reference sections below. */}
             <View style={styles.brandBox}>
@@ -44,7 +50,9 @@ export default function AboutApp() {
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
+        container: { flex: 1, backgroundColor: colors.background },
+        // Padding on the content so the bottom clearance scrolls with it.
+        content: { padding: space.lg },
         brandBox: { alignItems: "center", marginVertical: space.lg },
         brandTitle: { ...type.display, color: colors.primary },
         brandVersion: { ...type.caption, color: colors.textMuted, marginTop: 4 },

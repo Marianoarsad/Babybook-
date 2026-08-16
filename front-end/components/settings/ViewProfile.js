@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../context/ThemeContext";
+import { useScreenPadBottom } from "../../utils/responsive";
 import { space, radius, type, shadow } from "../../theme";
 import { api } from "../../utils/api";
 import { SkeletonBlock } from "../ui/Skeleton";
@@ -17,6 +18,7 @@ import { SkeletonBlock } from "../ui/Skeleton";
 export default function ViewProfile({ parentName, parentAvatar, parentGender, onEdit }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
     const [email, setEmail] = useState("");
     const [phone, setPhone] = useState("");
     const [loading, setLoading] = useState(true);
@@ -45,7 +47,11 @@ export default function ViewProfile({ parentName, parentAvatar, parentGender, on
     ];
 
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView
+            style={styles.container}
+            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+            keyboardShouldPersistTaps="handled"
+        >
             <View style={styles.profileCard}>
                 <View style={styles.headerRow}>
                     <Image source={{ uri: parentAvatar }} style={styles.avatarMain} />
@@ -84,7 +90,9 @@ export default function ViewProfile({ parentName, parentAvatar, parentGender, on
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
+        container: { flex: 1, backgroundColor: colors.background },
+        // Padding on the content so the bottom clearance scrolls with it.
+        content: { padding: space.lg },
         profileCard: {
             backgroundColor: colors.surface,
             borderRadius: radius.xl,

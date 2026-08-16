@@ -5,6 +5,7 @@ import { SectionContainerCard, RadioRow } from "../common/Cards";
 import { storage } from "../../utils/storageAdapter";
 import { notificationsAvailable } from "../../utils/notifications";
 import { useTheme } from "../../context/ThemeContext";
+import { useScreenPadBottom } from "../../utils/responsive";
 import { space } from "../../theme";
 
 export const LEAD_TIME_KEY = "bb_default_reminder_lead";
@@ -21,6 +22,7 @@ export const LEAD_TIME_OPTIONS = [
 export default function GeneralSettings() {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
     const [leadDays, setLeadDays] = useState("1");
 
     useEffect(() => {
@@ -36,7 +38,11 @@ export default function GeneralSettings() {
     };
 
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView
+            style={styles.container}
+            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+            keyboardShouldPersistTaps="handled"
+        >
             <SectionContainerCard
                 title="Reminder Notifications"
                 subtitle={
@@ -62,5 +68,7 @@ export default function GeneralSettings() {
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
+        container: { flex: 1, backgroundColor: colors.background },
+        // Padding on the content so the bottom clearance scrolls with it.
+        content: { padding: space.lg },
     });

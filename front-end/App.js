@@ -4,7 +4,6 @@ import {
     Text,
     StyleSheet,
     TouchableOpacity,
-    SafeAreaView,
     StatusBar,
     Modal,
     TextInput,
@@ -14,7 +13,15 @@ import {
     AppState,
     Animated,
     Easing,
+    useWindowDimensions,
 } from "react-native";
+// react-native-safe-area-context, NOT React Native's own SafeAreaView, which
+// this file used to use. RN's version is a no-op on Android — it renders a
+// plain View — so the header sat under the Android status bar, and it exposes
+// no inset VALUES, which meant the tab bar's bottom padding and the floating
+// button's `bottom: 92` were both hardcoded guesses that could not account for
+// a home indicator or gesture bar.
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LanguageProvider, useLanguage } from "./context/LanguageContext";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { Archivo_600SemiBold, Archivo_700Bold } from "@expo-google-fonts/archivo";
@@ -24,7 +31,7 @@ import {
     PublicSans_600SemiBold,
     PublicSans_700Bold,
 } from "@expo-google-fonts/public-sans";
-import { radius, space, shadow, type, MIN_TOUCH, motion } from "./theme";
+import { radius, space, shadow, type, MIN_TOUCH, TEXT_COL_MIN, motion } from "./theme";
 import ActionSheet from "./components/ui/ActionSheet";
 
 // Guarded expo-haptics, same pattern as ui/Toast.js — a no-op if the module
@@ -57,6 +64,7 @@ try {
     SplashScreen = null;
 }
 import ThemeProvider, { useTheme } from "./context/ThemeContext";
+import { fitsColumns } from "./utils/responsive";
 import { storage } from "./utils/storageAdapter";
 import { seen, markSeen } from "./utils/firstRun";
 
@@ -124,6 +132,23 @@ function MainAppShell({
     const { language, t } = useLanguage();
     const { colors, scheme } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const insets = useSafeAreaInsets();
+    // The tab bar is MEASURED rather than assumed. Its height moves with the
+    // OS font scale (it contains a text label) and with the bottom inset, so
+    // the floating button's old hardcoded `bottom: 92` was only ever correct
+    // on one device at one font size.
+    const [tabBarHeight, setTabBarHeight] = useState(0);
+
+    // Room inside the child-profile sheet, so its paired fields (birth weight /
+    // birth height) can drop to one per line rather than squeezing to ~130pt
+    // each on a small phone. Derived from the sheet's own geometry — screen,
+    // less the backdrop padding, capped at maxWidth, less the card padding.
+    const { width: windowWidth } = useWindowDimensions();
+    const modalTwoCol = fitsColumns(
+        Math.min(windowWidth - space.xl * 2, 440) - space.xl * 2,
+        2,
+        space.sm,
+    );
 
     // Preload the icon fonts (@expo/vector-icons) so buttons/icons never render
     // blank. The app shows AppLoadingScreen until these are ready.
@@ -724,7 +749,15 @@ function MainAppShell({
     }
 
     return (
-        <SafeAreaView style={styles.container}>
+        <View
+            style={[
+                styles.container,
+                // Top inset only — the bottom one belongs to the tab bar, which
+                // must paint its own background all the way down behind the
+                // home indicator rather than leaving a bare strip.
+                { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right },
+            ]}
+        >
             <StatusBar barStyle={scheme === "dark" ? "light-content" : "dark-content"} backgroundColor={colors.background} />
 
             {/* Dynamic Header */}
@@ -745,7 +778,13 @@ function MainAppShell({
                             </Text>
                         </>
                     ) : (
-                        <Text style={styles.babyName}>{activeProfile.name}</Text>
+                        // numberOfLines is load-bearing: headerLeft and
+                        // headerRight were both unbounded in a space-between
+                        // row, so a long child name grew the left side until
+                        // it pushed the search / QR / menu buttons off-screen.
+                        <Text style={styles.babyName} numberOfLines={1} ellipsizeMode="tail">
+                            {activeProfile.name}
+                        </Text>
                     )}
                 </View>
                 <View style={styles.headerRight}>
@@ -903,7 +942,10 @@ function MainAppShell({
             </Animated.View>
 
             {/* Modern bottom navigation tabs */}
-            <View style={styles.tabBar}>
+            <View
+                style={[styles.tabBar, { paddingBottom: space.md + insets.bottom }]}
+                onLayout={(e) => setTabBarHeight(e.nativeEvent.layout.height)}
+            >
                 {[
                     { key: "dashboard", icon: "home", label: t("navDashboard") },
                     { key: "health", icon: "shield-checkmark", label: t("navHealth") },
@@ -949,7 +991,14 @@ function MainAppShell({
             {showFab ? (
                 <TouchableOpacity
                     onPress={() => setActionSheetVisible(true)}
-                    style={styles.fab}
+                    style={[
+                        styles.fab,
+                        // Sits a fixed gap above the MEASURED tab bar, so it
+                        // stays clear of it at any font scale and above any
+                        // home indicator. The 72 fallback matches the bar's
+                        // natural height for the first frame before onLayout.
+                        { bottom: (tabBarHeight || 72 + insets.bottom) + space.md },
+                    ]}
                     accessibilityRole="button"
                     accessibilityLabel="Add a record"
                 >
@@ -971,7 +1020,7 @@ function MainAppShell({
             >
                 <KeyboardAvoider>
                 <View style={styles.modalBg}>
-                    <ScrollView contentContainerStyle={styles.modalScroll}>
+                    <ScrollView contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled">
                         <View style={styles.modalCard}>
                             <Text style={styles.modalTitle}>
                                 {t("profileAddTitle")}
@@ -1048,8 +1097,8 @@ function MainAppShell({
                                 </TouchableOpacity>
                             </View>
 
-                            <View style={{ flexDirection: "row", gap: 8 }}>
-                                <View style={{ flex: 1 }}>
+                            <View style={modalTwoCol ? styles.formRow : styles.formStack}>
+                                <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
                                     <Text style={styles.modalLabel}>
                                         Birth Weight (kg)
                                     </Text>
@@ -1060,7 +1109,7 @@ function MainAppShell({
                                         onChangeText={setFormWeight}
                                     />
                                 </View>
-                                <View style={{ flex: 1 }}>
+                                <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
                                     <Text style={styles.modalLabel}>
                                         Birth Height (cm)
                                     </Text>
@@ -1159,7 +1208,7 @@ function MainAppShell({
             >
                 <KeyboardAvoider>
                 <View style={styles.modalBg}>
-                    <ScrollView contentContainerStyle={styles.modalScroll}>
+                    <ScrollView contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled">
                         <View style={styles.modalCard}>
                             <Text style={styles.modalTitle}>
                                 {t("profileEditTitle")}
@@ -1234,8 +1283,8 @@ function MainAppShell({
                                 </TouchableOpacity>
                             </View>
 
-                            <View style={{ flexDirection: "row", gap: 8 }}>
-                                <View style={{ flex: 1 }}>
+                            <View style={modalTwoCol ? styles.formRow : styles.formStack}>
+                                <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
                                     <Text style={styles.modalLabel}>
                                         Current Weight (kg)
                                     </Text>
@@ -1246,7 +1295,7 @@ function MainAppShell({
                                         onChangeText={setFormWeight}
                                     />
                                 </View>
-                                <View style={{ flex: 1 }}>
+                                <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
                                     <Text style={styles.modalLabel}>
                                         Current Height (cm)
                                     </Text>
@@ -1397,7 +1446,7 @@ function MainAppShell({
                     handleLogOut();
                 }}
             />
-        </SafeAreaView>
+        </View>
     );
 }
 
@@ -1443,19 +1492,21 @@ export default function App() {
     };
 
     return (
-        <LanguageProvider>
-            <ThemeProvider gender={themeGender} override={themeOverride} schemeOverride={schemeOverride}>
-                <ToastProvider>
-                    <MainAppShell
-                        onThemeGenderChange={setThemeGender}
-                        themeOverride={themeOverride}
-                        onThemeOverrideChange={changeThemeOverride}
-                        schemeOverride={schemeOverride}
-                        onSchemeOverrideChange={changeSchemeOverride}
-                    />
-                </ToastProvider>
-            </ThemeProvider>
-        </LanguageProvider>
+        <SafeAreaProvider>
+            <LanguageProvider>
+                <ThemeProvider gender={themeGender} override={themeOverride} schemeOverride={schemeOverride}>
+                    <ToastProvider>
+                        <MainAppShell
+                            onThemeGenderChange={setThemeGender}
+                            themeOverride={themeOverride}
+                            onThemeOverrideChange={changeThemeOverride}
+                            schemeOverride={schemeOverride}
+                            onSchemeOverrideChange={changeSchemeOverride}
+                        />
+                    </ToastProvider>
+                </ThemeProvider>
+            </LanguageProvider>
+        </SafeAreaProvider>
     );
 }
 
@@ -1472,17 +1523,24 @@ const makeStyles = (colors) => StyleSheet.create({
         paddingVertical: space.md,
         backgroundColor: colors.background,
     },
+    // The left side takes the slack and shrinks; the right side (three fixed
+    // 42pt buttons) never does. Previously both were unbounded, so whichever
+    // had more content won and the other overflowed the screen edge.
     headerLeft: {
         flexDirection: "row",
         alignItems: "center",
+        flex: 1,
+        minWidth: 0,
+        marginRight: space.sm,
     },
     headerRight: {
         flexDirection: "row",
         alignItems: "center",
+        flexShrink: 0,
     },
     headerQrBtn: {
-        width: 42,
-        height: 42,
+        width: MIN_TOUCH,
+        height: MIN_TOUCH,
         borderRadius: radius.lg,
         borderCurve: "continuous",
         backgroundColor: colors.softGreen,
@@ -1504,12 +1562,13 @@ const makeStyles = (colors) => StyleSheet.create({
         borderWidth: 2,
         borderColor: colors.surface,
     },
-    headerBadgeText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
+    headerBadgeText: { color: "#FFFFFF", fontSize: 11, fontWeight: "800" },
     babyName: {
-        fontSize: 16,
+        ...type.bodyStrong,
         fontWeight: "800",
         color: colors.primary,
         letterSpacing: -0.2,
+        flexShrink: 1,
     },
     backBtn: {
         width: MIN_TOUCH,
@@ -1520,8 +1579,8 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     screenTitle: { ...type.heading, color: colors.text, flexShrink: 1 },
     menuBtn: {
-        width: 42,
-        height: 42,
+        width: MIN_TOUCH,
+        height: MIN_TOUCH,
         borderRadius: radius.lg,
         borderCurve: "continuous",
         backgroundColor: colors.softGreen,
@@ -1539,16 +1598,22 @@ const makeStyles = (colors) => StyleSheet.create({
         alignItems: "flex-start",
         justifyContent: "space-around",
         paddingTop: space.sm,
-        paddingBottom: space.md,
+        // paddingBottom is applied inline as space.md + insets.bottom, so the
+        // bar paints its own background behind the home indicator instead of
+        // ending above it.
     },
     tabItem: {
         alignItems: "center",
         justifyContent: "center",
         flex: 1,
+        minWidth: 0,
+        minHeight: MIN_TOUCH,
+        paddingHorizontal: 2,
         gap: 3,
     },
     tabPill: {
-        width: 56,
+        width: "100%",
+        maxWidth: 56,
         height: 32,
         borderRadius: radius.pill,
         alignItems: "center",
@@ -1558,9 +1623,10 @@ const makeStyles = (colors) => StyleSheet.create({
         backgroundColor: colors.primarySoft,
     },
     tabLabel: {
-        fontSize: 11,
+        ...type.caption,
         fontWeight: "600",
         color: colors.textMuted,
+        textAlign: "center",
     },
     tabLabelActive: {
         color: colors.accentStrong,
@@ -1569,7 +1635,8 @@ const makeStyles = (colors) => StyleSheet.create({
     fab: {
         position: "absolute",
         right: space.lg,
-        bottom: 92,
+        // `bottom` is applied inline from the measured tab-bar height — it was
+        // a hardcoded 92 that only cleared the bar at one font scale.
         width: 56,
         height: 56,
         borderRadius: 28,
@@ -1626,7 +1693,7 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     avatarHint: {
         marginTop: space.sm,
-        fontSize: 12,
+        ...type.caption,
         fontWeight: "600",
         color: colors.textMuted,
     },
@@ -1636,7 +1703,9 @@ const makeStyles = (colors) => StyleSheet.create({
         borderCurve: "continuous",
         padding: space.xl,
         width: "100%",
-        maxWidth: 360,
+        // 440, not 360: at 360 the sheet stayed narrower than the phone it was
+        // sitting on once the screen reached 390 or 430pt.
+        maxWidth: 440,
         borderWidth: 1,
         borderColor: colors.hairline,
         ...shadow.raised,
@@ -1649,7 +1718,7 @@ const makeStyles = (colors) => StyleSheet.create({
         marginBottom: space.lg,
     },
     modalLabel: {
-        fontSize: 13,
+        ...type.caption,
         fontWeight: "700",
         color: colors.textSecondary,
         marginBottom: 6,
@@ -1666,9 +1735,17 @@ const makeStyles = (colors) => StyleSheet.create({
         color: colors.text,
         marginBottom: space.lg,
     },
+    // Paired form fields. `formStack` is the same two fields one per line, used
+    // whenever a column would fall below TEXT_COL_MIN — at which point a label
+    // like "Current Weight (kg)" no longer fits on one line beside its twin.
+    formRow: { flexDirection: "row", gap: space.sm },
+    formStack: { flexDirection: "column" },
+    formCell: { flex: 1, minWidth: 0 },
+    formCellFull: { width: "100%" },
     modalButtons: {
         flexDirection: "row",
         justifyContent: "flex-end",
+        flexWrap: "wrap",
         gap: space.md,
     },
     modalCancelBtn: {
@@ -1718,7 +1795,7 @@ const makeStyles = (colors) => StyleSheet.create({
         ...shadow.card,
     },
     genderButtonText: {
-        fontSize: 12,
+        ...type.caption,
         fontWeight: "600",
         color: colors.textMuted,
     },

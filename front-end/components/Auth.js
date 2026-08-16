@@ -3,7 +3,7 @@ import { View, Text, ScrollView, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLanguage } from "../context/LanguageContext";
 import { api } from "../utils/api";
-import { space, radius, shadow, MIN_TOUCH } from "../theme";
+import { space, radius, shadow, type, MIN_TOUCH } from "../theme";
 import { useTheme } from "../context/ThemeContext";
 import Field from "./ui/Field";
 import Button from "./ui/Button";
@@ -195,7 +195,7 @@ export default function Auth({ onLoginSuccess, onProfessional, onBack, initialSc
                             accessibilityRole="button"
                             style={{ alignSelf: "flex-end", paddingVertical: space.xs, marginBottom: space.sm }}
                         >
-                            <Text style={{ fontSize: 12.5, fontWeight: "700", color: colors.accentStrong }}>
+                            <Text style={{ fontSize: 13, fontWeight: "700", color: colors.accentStrong }}>
                                 Forgot password?
                             </Text>
                         </TouchableOpacity>
@@ -211,7 +211,7 @@ export default function Auth({ onLoginSuccess, onProfessional, onBack, initialSc
 
                         <View style={{ flexDirection: "row", alignItems: "center", marginVertical: space.lg }}>
                             <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
-                            <Text style={{ marginHorizontal: space.md, fontSize: 11, fontWeight: "800", color: colors.textMuted }}>OR</Text>
+                            <Text style={{ marginHorizontal: space.md, fontSize: 13, fontWeight: "800", color: colors.textMuted }}>OR</Text>
                             <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
                         </View>
 
@@ -266,7 +266,7 @@ export default function Auth({ onLoginSuccess, onProfessional, onBack, initialSc
                                         accessibilityState={{ selected: on }}
                                         style={{ flex: 1, minHeight: 40, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, backgroundColor: on ? colors.surface : "transparent" }}
                                     >
-                                        <Text style={{ fontSize: 12.5, fontWeight: on ? "800" : "600", color: on ? colors.primary : colors.textMuted }}>{opt.label}</Text>
+                                        <Text style={{ fontSize: 13, fontWeight: on ? "800" : "600", color: on ? colors.primary : colors.textMuted }}>{opt.label}</Text>
                                     </TouchableOpacity>
                                 );
                             })}
@@ -284,11 +284,11 @@ export default function Auth({ onLoginSuccess, onProfessional, onBack, initialSc
                                 marginBottom: space.sm,
                             }}
                         >
-                            <Text style={{ fontSize: 12, fontWeight: "800", color: colors.text, marginBottom: 6 }}>
+                            <Text style={{ fontSize: 13, fontWeight: "800", color: colors.text, marginBottom: 6 }}>
                                 Data Retention & Privacy Agreement
                             </Text>
                             <ScrollView style={{ maxHeight: 150 }} nestedScrollEnabled>
-                                <Text style={{ fontSize: 12, color: colors.textSecondary, lineHeight: 18 }}>
+                                <Text style={{ fontSize: 13, color: colors.textSecondary, lineHeight: 18 }}>
                                     By creating an account, you agree that BabyBook+ will retain your and your
                                     child's health and development records in its database to support your child's
                                     first six (6) years of health and development.
@@ -326,7 +326,7 @@ export default function Auth({ onLoginSuccess, onProfessional, onBack, initialSc
                             >
                                 {termsAgreed ? <Ionicons name="checkmark" size={14} color="#FFFFFF" /> : null}
                             </View>
-                            <Text style={{ fontSize: 12.5, color: colors.textSecondary, flex: 1 }}>
+                            <Text style={{ fontSize: 13, color: colors.textSecondary, flex: 1 }}>
                                 I have read and agree to the Data Retention & Privacy Agreement above.
                             </Text>
                         </TouchableOpacity>

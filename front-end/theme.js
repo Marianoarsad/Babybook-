@@ -299,6 +299,26 @@ export const shadow = {
 
 export const MIN_TOUCH = 44;
 
+// The narrowest a text column may get before a side-by-side row must stack
+// into a column instead. Below this, real content stops fitting: a section
+// title breaks mid-word ("Immunizati / on Records"), a two-up form row clips
+// its labels, and a fact value ellipsizes away the part that mattered.
+// Layouts compare against this rather than against a screen-width breakpoint,
+// because what overflows is the *content's* width — which grows when the OS
+// font scale is raised, and which a static breakpoint cannot see.
+export const TEXT_COL_MIN = 150;
+
+// Bottom clearance for a scrolling screen behind the app chrome.
+//
+// The tab bar is ~70pt tall and the floating "+" sits 92pt up from the bottom
+// at 56pt across, and BOTH float over the scroll view rather than shortening
+// it. Every screen previously ended its content 16pt from the bottom, so the
+// last card on all five tab screens was unreachable underneath them.
+//
+// Screens add the device's own bottom inset on top of this (the home
+// indicator / gesture bar) via useSafeAreaInsets.
+export const SCREEN_PAD_BOTTOM = 96 + space.xxl;
+
 // Motion vocabulary. Durations + bezier tuples rather than RN `Easing`
 // objects, so this file stays import-free — consumers call
 // Easing.bezier(...motion.standard.bezier); the files that need it already
@@ -312,4 +332,17 @@ export const motion = {
     pulse: { duration: 400, cycles: 2, scale: 1.04, bezier: [0.4, 0, 0.6, 1] },
 };
 
-export default { colors, PALETTES, DARK_PALETTES, paletteFor, space, radius, type, shadow, MIN_TOUCH, motion };
+export default {
+    colors,
+    PALETTES,
+    DARK_PALETTES,
+    paletteFor,
+    space,
+    radius,
+    type,
+    shadow,
+    MIN_TOUCH,
+    TEXT_COL_MIN,
+    SCREEN_PAD_BOTTOM,
+    motion,
+};

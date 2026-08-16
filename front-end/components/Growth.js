@@ -15,6 +15,7 @@ import { useToast } from "./ui/Toast";
 import { useLanguage } from "../context/LanguageContext";
 import { useTheme } from "../context/ThemeContext";
 import { radius, space, type, shadow, MIN_TOUCH } from "../theme";
+import { useScreenPadBottom } from "../utils/responsive";
 import {
     SectionContainerCard,
     ListEntryCard,
@@ -81,6 +82,7 @@ export default function Growth({
     const toast = useToast();
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
     const [growthTab, setGrowthTab] = useState("milestones");
 
     // The checklist band this child's own age falls in. Everything about the
@@ -380,7 +382,12 @@ export default function Growth({
     };
 
     return (
-        <ScrollView style={styles.container} refreshControl={refreshControl}>
+        <ScrollView
+            style={styles.container}
+            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+            refreshControl={refreshControl}
+            keyboardShouldPersistTaps="handled"
+        >
             <TipStrip tipKey="tip_growth">
                 Measurements plot against WHO growth curves, so you can see where your child sits versus the
                 standard for their age.
@@ -984,7 +991,11 @@ const makeStyles = (colors) => StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: colors.background,
-        padding: 16,
+    },
+    // See the note on Health.js's `content`: padding on the ScrollView's own
+    // box does not scroll, so the bottom clearance has to live on the content.
+    content: {
+        padding: space.lg,
     },
     tabContainer: {
         flexDirection: "row",
@@ -998,22 +1009,33 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     tabButton: {
         flex: 1,
+        minWidth: 0,
         paddingVertical: space.sm + 2,
+        // Zero, so the longest label gets the button's full share of the row —
+        // the same fix Health.js's tab bar already carries.
+        paddingHorizontal: 0,
         borderRadius: radius.lg,
         borderCurve: "continuous",
         alignItems: "center",
+        justifyContent: "center",
     },
     tabButtonActive: {
         backgroundColor: colors.surface,
         ...shadow.card,
     },
+    // Both states are the SAME SIZE, differing only in weight and colour —
+    // DESIGN.md's Weight Ladder Rule. This spread `type.label` (14px) AFTER
+    // `type.caption` (13px), so selecting a tab GREW its own text inside a
+    // flex:1 box with nothing to absorb the extra width. It is the identical
+    // defect already fixed in Health.js, which had survived here unnoticed
+    // because Growth has three tabs rather than four and clipped later.
     tabButtonText: {
         ...type.caption,
         color: colors.textMuted,
     },
     tabButtonTextActive: {
         color: colors.primaryDark,
-        ...type.label,
+        fontWeight: "700",
     },
     // Opens the age menu. Shows the band being viewed so the age is readable
     // without opening anything — the twelve-pill scroller it replaced pushed
@@ -1148,7 +1170,7 @@ const makeStyles = (colors) => StyleSheet.create({
         marginBottom: 12,
     },
     metricChip: {
-        minHeight: 34,
+        minHeight: MIN_TOUCH,
         justifyContent: "center",
         paddingHorizontal: 14,
         paddingVertical: 7,
@@ -1167,8 +1189,8 @@ const makeStyles = (colors) => StyleSheet.create({
 
     // Gallery tab
     addBtn: {
-        width: 32,
-        height: 32,
+        width: MIN_TOUCH,
+        height: MIN_TOUCH,
         borderRadius: radius.pill,
         borderCurve: "continuous",
         backgroundColor: colors.primary,
@@ -1243,7 +1265,8 @@ const makeStyles = (colors) => StyleSheet.create({
         borderCurve: "continuous",
         padding: 20,
         width: "100%",
-        maxWidth: 340,
+        // 440, not 340 — the sheet was narrower than the phone under it.
+        maxWidth: 440,
         borderWidth: 1,
         borderColor: colors.border,
     },

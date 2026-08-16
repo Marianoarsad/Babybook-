@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
-import { radius, space, shadow } from "../theme";
+import { radius, space, shadow, type } from "../theme";
 import { ageAtDate, shortDate } from "../utils/dates";
 
 // The private ageAt() and prettyDate() that used to live here are now
@@ -176,7 +176,7 @@ const makeStyles = (colors) =>
             justifyContent: "center",
             backgroundColor: colors.softGreen,
         },
-        photoPlaceholderText: { marginTop: space.sm, fontSize: 12, color: colors.textMuted, fontWeight: "600" },
+        photoPlaceholderText: { marginTop: space.sm, ...type.caption, color: colors.textMuted, fontWeight: "600" },
 
         chipGrid: {
             flexDirection: "row",
@@ -198,7 +198,7 @@ const makeStyles = (colors) =>
         },
         chipLabelRow: { flexDirection: "row", alignItems: "center", gap: 6 },
         chipLabel: {
-            fontSize: 11,
+            ...type.caption,
             fontWeight: "700",
             color: colors.textMuted,
             letterSpacing: 0.6,

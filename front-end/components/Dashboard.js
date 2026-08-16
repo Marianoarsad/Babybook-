@@ -15,6 +15,7 @@ import GrowthChart from "./GrowthChart";
 import { DashboardSkeleton } from "./ui/Skeleton";
 import { Ionicons } from "@expo/vector-icons";
 import { radius, space, shadow, type, MIN_TOUCH } from "../theme";
+import { useScreenPadBottom, fitsColumns } from "../utils/responsive";
 import { useTheme } from "../context/ThemeContext";
 import { api } from "../utils/api";
 import { memoryToApp, toMilliliters, feedRowSummary } from "../utils/adapters";
@@ -176,6 +177,12 @@ export default function Dashboard({
     const { t } = useLanguage();
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
+    // The measurement strip is three cells wide. Measured rather than assumed,
+    // because "7.8 kg" plus its label has to fit at whatever font scale the OS
+    // is set to — at three columns a 360pt card gives each only ~97pt.
+    const [statRowWidth, setStatRowWidth] = useState(0);
+    const statThreeCol = fitsColumns(statRowWidth, 3, 0);
     const toast = useToast();
 
     // Recent Activity, the upcoming-appointment box, vaccination progress,
@@ -673,8 +680,9 @@ export default function Dashboard({
     return (
         <ScrollView
             style={styles.container}
-            contentContainerStyle={{ paddingBottom: space.xxl }}
+            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
             refreshControl={refreshControl}
+            keyboardShouldPersistTaps="handled"
         >
             {/* Baby switcher — only shown with more than one child. With a
                 single child there's nothing to switch between, so just the
@@ -814,7 +822,7 @@ export default function Dashboard({
                             onPress={dismissSetup}
                             accessibilityRole="button"
                             accessibilityLabel="Dismiss setup checklist"
-                            hitSlop={8}
+                            hitSlop={10}
                             style={styles.setupCloseBtn}
                         >
                             <Ionicons name="close" size={16} color={colors.textMuted} />
@@ -1088,11 +1096,14 @@ export default function Dashboard({
                 <View style={styles.idDivider} />
                 {measurements.length ? (
                     <View>
-                        <View style={styles.statRow}>
+                        <View
+                            style={[styles.statRow, !statThreeCol && styles.statRowStacked]}
+                            onLayout={(e) => setStatRowWidth(e.nativeEvent.layout.width)}
+                        >
                             {measurements.map((m) => (
                                 <View
                                     key={m.key}
-                                    style={styles.statCell}
+                                    style={[styles.statCell, !statThreeCol && styles.statCellStacked]}
                                     accessible
                                     accessibilityLabel={
                                         m.value != null
@@ -1100,10 +1111,12 @@ export default function Dashboard({
                                             : `${m.label}: not recorded`
                                     }
                                 >
-                                    <Text style={styles.statValue}>
+                                    <Text style={styles.statValue} numberOfLines={1} ellipsizeMode="clip">
                                         {m.value != null ? `${m.value} ${m.unit}` : "—"}
                                     </Text>
-                                    <Text style={styles.statLabel}>{m.label}</Text>
+                                    <Text style={styles.statLabel} numberOfLines={2}>
+                                        {m.label}
+                                    </Text>
                                 </View>
                             ))}
                         </View>
@@ -1237,8 +1250,10 @@ export default function Dashboard({
                 <View style={styles.progressCard}>
                     <View style={styles.progressHeader}>
                         <Ionicons name="shield-checkmark-outline" size={16} color={colors.primary} />
-                        <Text style={styles.progressTitle}>Vaccination Progress</Text>
-                        <Text style={styles.progressCount}>
+                        <Text style={styles.progressTitle} numberOfLines={1}>
+                            Vaccination Progress
+                        </Text>
+                        <Text style={styles.progressCount} numberOfLines={1}>
                             {vaxProgress.completed} of {vaxProgress.total} doses
                         </Text>
                     </View>
@@ -1332,6 +1347,7 @@ export default function Dashboard({
                 action={
                     <TouchableOpacity
                         onPress={() => nav("growth", "gallery")}
+                        style={styles.seeAll}
                         accessibilityRole="button"
                         accessibilityLabel="See all photos and milestones"
                     >
@@ -1365,6 +1381,7 @@ export default function Dashboard({
                 action={
                     <TouchableOpacity
                         onPress={() => nav("allActivity")}
+                        style={styles.seeAll}
                         accessibilityRole="button"
                         accessibilityLabel="See all activity"
                     >
@@ -1418,6 +1435,11 @@ const makeStyles = (colors) => StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: colors.background,
+    },
+    // Padding lives on the content, not the ScrollView box — see Health.js.
+    // The old contentContainerStyle only carried space.xxl (32) of bottom
+    // padding, well short of the tab bar and floating button above it.
+    content: {
         padding: space.lg,
     },
 
@@ -1549,8 +1571,13 @@ const makeStyles = (colors) => StyleSheet.create({
     factValueLink: { color: colors.primary },
 
     // Measurement strip — value above label, so the number reads first.
+    // Wraps to two-up rather than squeezing three cells below a readable width;
+    // "34.5 cm" with a "Head" label under it needs more than ~97pt once the OS
+    // font scale is raised.
     statRow: { flexDirection: "row" },
-    statCell: { flex: 1, alignItems: "flex-start" },
+    statRowStacked: { flexDirection: "row", flexWrap: "wrap", rowGap: space.md },
+    statCell: { flex: 1, minWidth: 0, alignItems: "flex-start" },
+    statCellStacked: { flex: 0, width: "50%" },
     statValue: { ...type.bodyStrong, color: colors.text },
     statLabel: { ...type.caption, color: colors.textMuted, marginTop: 1 },
     statCaption: { ...type.caption, color: colors.textMuted, marginTop: space.sm },
@@ -1748,6 +1775,8 @@ const makeStyles = (colors) => StyleSheet.create({
         marginBottom: space.sm,
     },
     setupTitle: { ...type.bodyStrong, color: colors.text },
+    // 26.4pt of visible button. The hitSlop at the call site is what brings the
+    // real target to 44 — it was 8 (giving 42.4), a rounding error short.
     setupCloseBtn: {
         width: MIN_TOUCH * 0.6,
         height: MIN_TOUCH * 0.6,
@@ -1758,6 +1787,7 @@ const makeStyles = (colors) => StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         gap: space.sm,
+        minHeight: MIN_TOUCH,
         paddingVertical: space.sm,
         borderTopWidth: 1,
         borderTopColor: colors.hairline,
@@ -1766,6 +1796,9 @@ const makeStyles = (colors) => StyleSheet.create({
     setupRowTextDone: { color: colors.textMuted, textDecorationLine: "line-through" },
 
     // Section heading
+    // A bare text line is 18pt tall. The link needs a real box, not just
+    // its own glyph height, to be a 44pt target.
+    seeAll: { minHeight: MIN_TOUCH, justifyContent: "center", paddingLeft: space.sm },
     seeAllText: { ...type.label, color: colors.accentStrong },
 
     // Vaccination progress
@@ -1779,9 +1812,17 @@ const makeStyles = (colors) => StyleSheet.create({
         marginBottom: space.md,
         ...shadow.card,
     },
-    progressHeader: { flexDirection: "row", alignItems: "center", gap: space.sm, marginBottom: space.sm },
-    progressTitle: { ...type.label, color: colors.text, flex: 1 },
-    progressCount: { ...type.caption, color: colors.textMuted },
+    // Wraps rather than clipping: title plus count already used ~267pt of the
+    // 292pt available at 360pt, leaving no headroom for a raised font scale.
+    progressHeader: {
+        flexDirection: "row",
+        alignItems: "center",
+        flexWrap: "wrap",
+        gap: space.sm,
+        marginBottom: space.sm,
+    },
+    progressTitle: { ...type.label, color: colors.text, flex: 1, minWidth: 0 },
+    progressCount: { ...type.caption, color: colors.textMuted, flexShrink: 0 },
     progressTrack: {
         height: 8,
         borderRadius: 4,

@@ -455,7 +455,9 @@ const makeStyles = (colors) =>
             borderCurve: "continuous",
             padding: space.xl,
             width: "100%",
-            maxWidth: 360,
+            // 440, not 360 — the sheet was narrower than every reference
+            // phone width (390, 430), wasting room the fields needed.
+            maxWidth: 440,
             maxHeight: "88%",
             borderWidth: 1,
             borderColor: colors.hairline,

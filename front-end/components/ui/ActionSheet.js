@@ -1,5 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, Modal, ScrollView, TouchableOpacity } from "react-native";
+import {
+    View,
+    Text,
+    StyleSheet,
+    Modal,
+    ScrollView,
+    TouchableOpacity,
+    useWindowDimensions,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { radius, space, shadow, type, MIN_TOUCH } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
@@ -50,6 +58,7 @@ const SHORTCUTS = 3;
 
 export default function ActionSheet({ visible, onClose, onSelect }) {
     const { colors } = useTheme();
+    const { height: windowHeight } = useWindowDimensions();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const [usage, setUsage] = useState({});
 
@@ -102,7 +111,7 @@ export default function ActionSheet({ visible, onClose, onSelect }) {
                         Add a record
                     </Text>
 
-                    <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+                    <ScrollView style={[styles.scroll, { maxHeight: windowHeight * 0.55 }]} showsVerticalScrollIndicator={false}>
                         <Text style={styles.groupTitle} accessibilityRole="header">
                             Most used
                         </Text>
@@ -197,7 +206,10 @@ const makeStyles = (colors) =>
             marginBottom: space.md,
         },
         title: { ...type.heading, color: colors.text, textAlign: "center", marginBottom: space.sm },
-        scroll: { maxHeight: 460 },
+        // maxHeight is applied inline as a fraction of the window — a fixed
+        // 460 was taller than the room a short phone actually has once the
+        // grabber, title, cancel row and safe-area inset are accounted for.
+        scroll: {},
         groupTitle: {
             ...type.subheading,
             color: colors.textMuted,

@@ -3,6 +3,7 @@ import { View, StyleSheet, ScrollView } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SectionContainerCard, RadioRow } from "../common/Cards";
 import { useTheme } from "../../context/ThemeContext";
+import { useScreenPadBottom } from "../../utils/responsive";
 import { space, PALETTES, paletteFor } from "../../theme";
 
 const OPTIONS = [
@@ -41,9 +42,14 @@ export default function ThemePreferences({
 }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
 
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView
+            style={styles.container}
+            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+            keyboardShouldPersistTaps="handled"
+        >
             <SectionContainerCard title="App Appearance" subtitle="How the app's colors are themed">
                 {OPTIONS.map((opt) => {
                     const on = (themeOverride || "auto") === opt.key;
@@ -88,5 +94,7 @@ export default function ThemePreferences({
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
+        container: { flex: 1, backgroundColor: colors.background },
+        // Padding on the content so the bottom clearance scrolls with it.
+        content: { padding: space.lg },
     });
