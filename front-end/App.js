@@ -104,7 +104,7 @@ import AboutApp from "./components/settings/AboutApp";
 import ChangePassword from "./components/settings/ChangePassword";
 import PrivacySettings from "./components/settings/PrivacySettings";
 import { api, getToken, setToken, clearToken } from "./utils/api";
-import { scheduleReminder, morningOf } from "./utils/notifications";
+import { scheduleReminder, morningOf, cancelRemindersOfKind } from "./utils/notifications";
 import { childToProfile, profileFormToChild } from "./utils/adapters";
 import { pickImage, pickerAvailable } from "./utils/imagePicker";
 
@@ -403,9 +403,15 @@ function MainAppShell({
                     r.reminder_date &&
                     r.reminder_date <= cutoffStr,
             );
+            // Withdraw the previous set first. This runs on every launch, and
+            // scheduleNotificationAsync mints a NEW id each time — so without
+            // this line ten launches queued ten identical notifications for
+            // the same dose, and the iOS 64-pending cap this function exists to
+            // respect was being burned by the function itself.
+            await cancelRemindersOfKind("vaccination");
             for (const r of upcoming) {
                 const when = morningOf(r.reminder_date);
-                if (when) scheduleReminder("Vaccination reminder", `${r.title} due`, when);
+                if (when) scheduleReminder("Vaccination reminder", `${r.title} due`, when, "vaccination");
             }
         } catch (e) {
             console.log("scheduleUpcomingVaccineReminders:", e.message);

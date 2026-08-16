@@ -16,6 +16,7 @@ import { LEAD_TIME_KEY, LEAD_TIME_OPTIONS } from "./settings/GeneralSettings";
 import TipStrip from "./ui/TipStrip";
 import KeyboardAvoider from "./ui/KeyboardAvoider";
 import { todayLocal, toLocalISO } from "../utils/dates";
+import { plannedEnd } from "../utils/medication";
 
 // Category -> theme-derived dot/accent color. Kept to semantic status tones
 // (not brand hex) so it stays consistent across the girl/boy palette switch.
@@ -121,14 +122,32 @@ export default function CalendarView({ profile }) {
                         : m.category === "Hospitalization"
                           ? "hospitalization"
                           : "illness";
-                add(m.date_recorded, {
+                const entry = {
                     id: `med-${m.id}`,
                     category,
                     title: m.title,
                     subtitle: m.category,
                     notes: m.description || m.notes || "",
                     completed: !!m.resolved,
-                });
+                };
+                add(m.date_recorded, entry);
+                // A course runs for days, and marking only its first day made a
+                // week of antibiotics look like a one-off event. Fill in every
+                // day up to the end — the actual finish date if the parent
+                // recorded one, otherwise the planned one. Capped so a
+                // mistyped course length cannot paint a year of the calendar.
+                if (m.category === "Medication" && m.date_recorded) {
+                    const last = m.resolved_date || plannedEnd(m.date_recorded, m.course_days);
+                    if (last && last > String(m.date_recorded).slice(0, 10)) {
+                        const cursor = new Date(`${String(m.date_recorded).slice(0, 10)}T00:00:00`);
+                        for (let i = 0; i < 120; i++) {
+                            cursor.setDate(cursor.getDate() + 1);
+                            const iso = toLocalISO(cursor);
+                            if (!iso || iso > last) break;
+                            add(iso, { ...entry, id: `med-${m.id}-${iso}` });
+                        }
+                    }
+                }
             });
             (customEvents || []).forEach((e) =>
                 add(e.event_date, {

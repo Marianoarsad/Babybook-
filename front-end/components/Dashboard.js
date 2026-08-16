@@ -782,10 +782,14 @@ export default function Dashboard({
             ) : (
                 <>
             {/* Needs Attention — only renders when something actually needs it,
-                so a normal day still looks calm. Medications are deliberately
-                left out: the medication record has no start/end date or
-                resolved flag, so "currently taking this" can't be worked out
-                reliably from the data as it stands. */}
+                so a normal day still looks calm. Medications stay out, but the
+                reason has changed: migration 006 gave them a start, a course
+                length and a finished flag, so "currently taking this" IS now
+                answerable (the Medicine tab and the professional portal both
+                answer it). They are excluded because a child taking medicine as
+                prescribed is not a problem — flagging every course would make an
+                ordinary week look alarming, which is exactly what this card
+                exists not to do. */}
             {/* Zero-data rule for this screen's sections:
                  - Always-present habitual-log cards (Feeding) show an inline
                    zero-state CTA inside the same persistent card.

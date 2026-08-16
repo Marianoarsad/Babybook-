@@ -96,14 +96,21 @@ async function buildSnapshot(child, keys) {
 
     if (keys.includes("medicalHistory")) {
         const { rows } = await query(
-            `SELECT category, title, description, date_recorded, resolved, resolved_date,
-                    care_level, facility, notes
+            `SELECT id, category, title, description, date_recorded, resolved, resolved_date,
+                    care_level, facility, notes,
+                    dose_amount, frequency_per_day, course_days, prescribed_by, treats_id
              FROM medical_history
              WHERE child_id = $1 AND category IN ('Illness', 'Medication', 'Hospitalization')
              ORDER BY date_recorded DESC NULLS LAST`,
             [child.id]
         );
-        snap.medicalHistory = rows.map((r) => decryptRow(r, ["title", "description", "facility", "notes"]));
+        // `id` and `treats_id` ship so the professional view can name the
+        // illness a medicine is for ("for Ear Infection") without a second
+        // request. dose_times is deliberately left out: it is the parent's
+        // phone-reminder setting, not a clinical fact.
+        snap.medicalHistory = rows.map((r) =>
+            decryptRow(r, ["title", "description", "facility", "notes", "dose_amount", "prescribed_by"]),
+        );
     }
 
     return snap;

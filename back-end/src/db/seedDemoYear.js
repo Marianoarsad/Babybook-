@@ -257,14 +257,20 @@ async function seed() {
             await c.query(
                 `INSERT INTO medical_history
                     (child_id, category, title, description, date_recorded, resolved,
-                     resolved_date, care_level, facility, notes)
+                     resolved_date, care_level, facility, notes,
+                     dose_amount, frequency_per_day, dose_times, course_days, prescribed_by)
                  VALUES
-                  ($1,'Hereditary Condition','Asthma (Paternal Grandfather)','Family history noted at birth.',$2,FALSE,NULL,NULL,NULL,'Monitor for wheezing or respiratory symptoms.'),
-                  ($1,'Illness','Common Cold','Runny nose, mild cough, low-grade fever.',$3,TRUE,$4,'home',NULL,'Resolved within a week with rest and fluids.'),
-                  ($1,'Allergy','Mild Egg Sensitivity','Slight rash around the mouth after first egg exposure.',$5,FALSE,NULL,NULL,NULL,'Pediatrician says likely mild; continue small exposures and monitor.'),
-                  ($1,'Illness','Ear Infection (Otitis Media)','Fussiness, tugging at ear, fever up to 38.4°C.',$6,TRUE,$7,'doctor','Metro General Pediatric Clinic','Treated with amoxicillin; follow-up exam clear.'),
-                  ($1,'Medication','Amoxicillin','400mg/5mL suspension, twice daily.',$6,TRUE,NULL,NULL,NULL,'10-day course completed, no side effects.'),
-                  ($1,'Hospitalization','Neonatal Jaundice — Phototherapy','Elevated bilirubin noted before discharge; kept an extra day for phototherapy.',$8,TRUE,$9,NULL,'Metro General Hospital','Levels normalized; cleared by pediatrician, see Newborn Jaundice Follow-up checkup.')`,
+                  ($1,'Hereditary Condition','Asthma (Paternal Grandfather)','Family history noted at birth.',$2,FALSE,NULL,NULL,NULL,'Monitor for wheezing or respiratory symptoms.',NULL,NULL,NULL,NULL,NULL),
+                  ($1,'Illness','Common Cold','Runny nose, mild cough, low-grade fever.',$3,TRUE,$4,'home',NULL,'Resolved within a week with rest and fluids.',NULL,NULL,NULL,NULL,NULL),
+                  ($1,'Allergy','Mild Egg Sensitivity','Slight rash around the mouth after first egg exposure.',$5,FALSE,NULL,NULL,NULL,'Pediatrician says likely mild; continue small exposures and monitor.',NULL,NULL,NULL,NULL,NULL),
+                  ($1,'Illness','Ear Infection (Otitis Media)','Fussiness, tugging at ear, fever up to 38.4°C.',$6,TRUE,$7,'doctor','Metro General Pediatric Clinic','Treated with amoxicillin; follow-up exam clear.',NULL,NULL,NULL,NULL,NULL),
+                  -- A finished course: real amount, frequency and length, so the
+                  -- Finished list shows "10 days" rather than a bare date.
+                  ($1,'Medication','Amoxicillin','Give with food. Finish the whole course even if he seems better.',$6,TRUE,$7,NULL,NULL,'10-day course completed, no side effects.','5 mL',2,$10,10,'Dr. Michael Tan'),
+                  -- A course running RIGHT NOW, so the tab demonstrates the dose
+                  -- tracker on a part-finished day instead of an empty state.
+                  ($1,'Medication','Paracetamol (Biogesic)','For fever above 38°C. Not more than four doses in a day.',$11,FALSE,NULL,NULL,NULL,NULL,'2.5 mL',3,$12,5,NULL),
+                  ($1,'Hospitalization','Neonatal Jaundice — Phototherapy','Elevated bilirubin noted before discharge; kept an extra day for phototherapy.',$8,TRUE,$9,NULL,'Metro General Hospital','Levels normalized; cleared by pediatrician, see Newborn Jaundice Follow-up checkup.',NULL,NULL,NULL,NULL,NULL)`,
                 [
                     childId,
                     ymd(DOB),
@@ -275,8 +281,57 @@ async function seed() {
                     ymd(addDays(earStart, 10)),
                     ymd(jaundiceStart),
                     ymd(addDays(jaundiceStart, 2)),
+                    JSON.stringify(["08:00", "20:00"]),
+                    ymd(addDays(NOW, -1)),
+                    JSON.stringify(["08:00", "14:00", "20:00"]),
                 ]
             );
+
+            // Link the antibiotic to the infection it treated, and record the
+            // doses already given for the course that is still running. Titles
+            // are seeded as plaintext (decryptRow passes unencrypted values
+            // straight through), so they can be matched on directly here.
+            const earRow = (
+                await c.query(
+                    `SELECT id FROM medical_history WHERE child_id = $1 AND title = 'Ear Infection (Otitis Media)' LIMIT 1`,
+                    [childId]
+                )
+            ).rows[0];
+            const amoxRow = (
+                await c.query(
+                    `SELECT id FROM medical_history WHERE child_id = $1 AND title = 'Amoxicillin' LIMIT 1`,
+                    [childId]
+                )
+            ).rows[0];
+            const paraRow = (
+                await c.query(
+                    `SELECT id FROM medical_history WHERE child_id = $1 AND title = 'Paracetamol (Biogesic)' LIMIT 1`,
+                    [childId]
+                )
+            ).rows[0];
+            if (earRow && amoxRow) {
+                await c.query(`UPDATE medical_history SET treats_id = $1 WHERE id = $2`, [
+                    earRow.id,
+                    amoxRow.id,
+                ]);
+            }
+            if (paraRow) {
+                // Yesterday complete, today one of three — the state a parent
+                // is actually in when they open the app mid-course.
+                const doseRows = [
+                    [ymd(addDays(NOW, -1)), "08:00"],
+                    [ymd(addDays(NOW, -1)), "14:00"],
+                    [ymd(addDays(NOW, -1)), "20:00"],
+                    [ymd(NOW), "08:00"],
+                ];
+                for (const [d, t] of doseRows) {
+                    await c.query(
+                        `INSERT INTO medication_doses (child_id, medication_id, given_date, given_time)
+                         VALUES ($1,$2,$3,$4)`,
+                        [childId, paraRow.id, d, t]
+                    );
+                }
+            }
 
             // ================= GROWTH RECORDS =================
             for (const g of GROWTH_CURVE) {

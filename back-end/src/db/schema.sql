@@ -14,6 +14,7 @@ DROP TABLE IF EXISTS memories CASCADE;
 DROP TABLE IF EXISTS nutrition_records CASCADE;
 DROP TABLE IF EXISTS milestones CASCADE;
 DROP TABLE IF EXISTS growth_records CASCADE;
+DROP TABLE IF EXISTS medication_doses CASCADE;
 DROP TABLE IF EXISTS medical_history CASCADE;
 DROP TABLE IF EXISTS checkups CASCADE;
 DROP TABLE IF EXISTS vaccinations CASCADE;
@@ -164,12 +165,47 @@ CREATE TABLE medical_history (
                   CHECK (care_level IN ('home', 'doctor', 'hospital')),
     facility      TEXT,              -- hospital / clinic name, encrypted at rest
     notes         TEXT,
+    -- ---- Medication rows only (migration 006) ----
+    -- How much per dose, as the parent was told: "5 mL", "1 tablet". Free text
+    -- and never parsed, validated or converted — the app records what a doctor
+    -- said and is not a pharmacist (PRODUCT.md Principle 5).
+    dose_amount   TEXT,              -- encrypted at rest
+    -- Structured, unlike the amount, so "2 of 3 doses today" is countable.
+    frequency_per_day INTEGER
+                  CHECK (frequency_per_day IS NULL OR (frequency_per_day > 0 AND frequency_per_day <= 12)),
+    dose_times    JSONB,             -- ["08:00","14:00","20:00"] — the parent's chosen times
+    course_days   INTEGER            -- NULL means ongoing / as needed
+                  CHECK (course_days IS NULL OR (course_days > 0 AND course_days <= 365)),
+    prescribed_by TEXT,              -- encrypted at rest
+    -- Which illness this medicine is for. Self-referencing; SET NULL so
+    -- removing the illness never takes the medicine record with it.
+    treats_id     INTEGER REFERENCES medical_history(id) ON DELETE SET NULL,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_medical_history_child ON medical_history(child_id);
 CREATE TRIGGER trg_medical_history_updated BEFORE UPDATE ON medical_history
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =========================================================
+-- MEDICATION DOSES — one row per dose actually given.
+--
+-- Without this the app can list what was prescribed but can never answer the
+-- question a parent has three times a day. given_date / given_time are
+-- separate columns (like nutrition_records): every date this app stores is a
+-- plain local calendar date with no timezone.
+-- =========================================================
+CREATE TABLE medication_doses (
+    id            SERIAL PRIMARY KEY,
+    child_id      INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    medication_id INTEGER NOT NULL REFERENCES medical_history(id) ON DELETE CASCADE,
+    given_date    DATE NOT NULL,
+    given_time    TIME,
+    notes         TEXT,              -- encrypted at rest
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_medication_doses_child ON medication_doses(child_id);
+CREATE INDEX idx_medication_doses_med ON medication_doses(medication_id, given_date);
 
 -- =========================================================
 -- GROWTH RECORDS — includes head circumference.

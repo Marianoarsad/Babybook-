@@ -233,6 +233,146 @@ describe("BabyBook+ API", () => {
         });
     });
 
+    // A medicine is a course, not a one-line note. Before migration 006 the
+    // record held a name and a free-text "dosage guidelines" string, the start
+    // was forced to today, and there was nowhere at all to record that a dose
+    // had actually been given.
+    describe("medication tracking", () => {
+        let medId;
+        let illnessId;
+        const post = (body) =>
+            request(app)
+                .post(`/api/children/${childId}/medical-history`)
+                .set("Authorization", `Bearer ${token}`)
+                .send(body);
+
+        test("saves a full course", async () => {
+            const ill = await post({ category: "Illness", title: "Ear Infection", date_recorded: "2026-04-01" });
+            illnessId = ill.body.id;
+
+            const res = await post({
+                category: "Medication",
+                title: "Amoxicillin",
+                description: "Give with food.",
+                date_recorded: "2026-04-02",
+                dose_amount: "5 mL",
+                frequency_per_day: 2,
+                dose_times: ["08:00", "20:00"],
+                course_days: 10,
+                prescribed_by: "Dr. Tan",
+                treats_id: illnessId,
+            });
+            expect(res.status).toBe(201);
+            medId = res.body.id;
+            expect(res.body.dose_amount).toBe("5 mL");
+            expect(res.body.frequency_per_day).toBe(2);
+            expect(res.body.course_days).toBe(10);
+            expect(res.body.prescribed_by).toBe("Dr. Tan");
+            expect(res.body.treats_id).toBe(illnessId);
+            expect(res.body.dose_times).toEqual(["08:00", "20:00"]);
+            // The start date is no longer forced to today.
+            expect(String(res.body.date_recorded).slice(0, 10)).toBe("2026-04-02");
+        });
+
+        test("the free-text fields are encrypted at rest", async () => {
+            const { rows } = await pool.query(
+                "SELECT dose_amount, prescribed_by, frequency_per_day FROM medical_history WHERE id = $1",
+                [medId],
+            );
+            expect(rows[0].dose_amount.startsWith("enc:v1:")).toBe(true);
+            expect(rows[0].prescribed_by.startsWith("enc:v1:")).toBe(true);
+            // The integer is deliberately NOT encrypted — ciphertext on a
+            // number buys no privacy and blocks counting.
+            expect(rows[0].frequency_per_day).toBe(2);
+        });
+
+        test("rejects a frequency outside the sane range", async () => {
+            const res = await post({ category: "Medication", title: "X", frequency_per_day: 99 });
+            expect(res.status).toBeGreaterThanOrEqual(400);
+        });
+
+        // "nobody answered" and "once a day" must stay distinguishable.
+        test("an unanswered schedule is null, not a default", async () => {
+            const res = await post({ category: "Medication", title: "Paracetamol" });
+            expect(res.status).toBe(201);
+            expect(res.body.frequency_per_day).toBeNull();
+            expect(res.body.dose_amount).toBeNull();
+            expect(res.body.course_days).toBeNull();
+            expect(res.body.dose_times).toBeNull();
+        });
+
+        test("records and lists doses given", async () => {
+            const a = await request(app)
+                .post(`/api/children/${childId}/medication-doses`)
+                .set("Authorization", `Bearer ${token}`)
+                .send({ medication_id: medId, given_date: "2026-04-02", given_time: "08:00" });
+            expect(a.status).toBe(201);
+            expect(String(a.body.given_time).slice(0, 5)).toBe("08:00");
+
+            await request(app)
+                .post(`/api/children/${childId}/medication-doses`)
+                .set("Authorization", `Bearer ${token}`)
+                .send({ medication_id: medId, given_date: "2026-04-02", given_time: "20:00" });
+
+            const list = await request(app)
+                .get(`/api/children/${childId}/medication-doses`)
+                .set("Authorization", `Bearer ${token}`);
+            expect(list.status).toBe(200);
+            expect(list.body.filter((d) => d.medication_id === medId).length).toBe(2);
+        });
+
+        // Tapping a filled slot undoes it — a double-tap has to be correctable.
+        test("a dose can be removed again", async () => {
+            const made = await request(app)
+                .post(`/api/children/${childId}/medication-doses`)
+                .set("Authorization", `Bearer ${token}`)
+                .send({ medication_id: medId, given_date: "2026-04-03", given_time: "08:00" });
+            const del = await request(app)
+                .delete(`/api/children/${childId}/medication-doses/${made.body.id}`)
+                .set("Authorization", `Bearer ${token}`);
+            expect(del.status).toBe(204);
+        });
+
+        test("marking the course finished stores the end date", async () => {
+            const res = await request(app)
+                .put(`/api/children/${childId}/medical-history/${medId}`)
+                .set("Authorization", `Bearer ${token}`)
+                .send({ resolved: true, resolved_date: "2026-04-11" });
+            expect(res.status).toBe(200);
+            expect(res.body.resolved).toBe(true);
+            expect(String(res.body.resolved_date).slice(0, 10)).toBe("2026-04-11");
+            // A partial update must not wipe the course details.
+            expect(res.body.dose_amount).toBe("5 mL");
+            expect(res.body.frequency_per_day).toBe(2);
+        });
+
+        // Deleting the illness must not take the medicine with it — what the
+        // child was given stays true regardless of why.
+        test("removing the linked illness leaves the medicine, unlinked", async () => {
+            await request(app)
+                .delete(`/api/children/${childId}/medical-history/${illnessId}`)
+                .set("Authorization", `Bearer ${token}`);
+            const list = await request(app)
+                .get(`/api/children/${childId}/medical-history`)
+                .set("Authorization", `Bearer ${token}`);
+            const med = list.body.find((m) => m.id === medId);
+            expect(med).toBeTruthy();
+            expect(med.treats_id).toBeNull();
+        });
+
+        // Doses belong to their medicine and go with it.
+        test("doses cascade when the medicine is deleted", async () => {
+            await request(app)
+                .delete(`/api/children/${childId}/medical-history/${medId}`)
+                .set("Authorization", `Bearer ${token}`);
+            const { rows } = await pool.query(
+                "SELECT count(*)::int n FROM medication_doses WHERE medication_id = $1",
+                [medId],
+            );
+            expect(rows[0].n).toBe(0);
+        });
+    });
+
     describe("nutrition entries", () => {
         const post = (body) =>
             request(app)

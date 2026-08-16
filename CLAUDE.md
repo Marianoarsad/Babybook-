@@ -396,6 +396,99 @@ so the demo shows real durations instead of bare dates.
 is unreliable on the web build); a symptom checklist; temperature (removed deliberately, see §5);
 linking a medication to the illness it treated.
 
+**Also done — Medication became a tracker instead of a list.**
+
+The form collected a name and a free-text "Dosage guidelines", under a section
+titled **"Medication Reminders"** — and the app had never scheduled a medication
+notification in its life. The `reminders` table's CHECK constraint only permitted
+`'Vaccination'` and `'Checkup'`, so the data model excluded them outright. Same
+class of defect as the vaccine bulletin's "Real-time updates" claim.
+
+Every row also read **"Duration: As prescribed"**. `medHistoryToMed` fell back to
+that string when `notes` was empty, and the form never wrote `notes` — so a
+duration nobody had entered was displayed on every medicine a parent had ever
+recorded. The start date was hard-coded to today, nothing could be edited, and
+there was nowhere at all to record that a dose had been *given*.
+
+**Migration `006_medication_detail.sql` — the user must run `npm run db:migrate:up`.**
+Adds `dose_amount` (encrypted), `frequency_per_day`, `dose_times` (jsonb),
+`course_days`, `prescribed_by` (encrypted) and `treats_id` (a self-referencing FK
+to the illness, `ON DELETE SET NULL` so removing the illness never takes the
+medicine with it) to `medical_history`, plus a new **`medication_doses`** table —
+one row per dose actually given. `date_recorded` / `resolved` / `resolved_date`
+are reused from 005 as started / finished / finished-on, and `description` keeps
+its meaning as the instructions.
+
+**THE LINE THIS FEATURE MUST NOT CROSS.** PRODUCT.md Principle 5 is unusually
+load-bearing here. There is **no drug database, no suggested dose, no frequency
+recommendation, no mg-per-kg, no unit conversion, no interaction or allergy
+cross-check, and no "you missed a dose" nag** — and none may be added.
+Specifically:
+
+- **Name suggestions come only from medicines already on this child's record.**
+  A built-in list of paediatric drug names would read as the app proposing a
+  medicine. That is a different act from `commonConditions.js`, which names
+  things that happen *to* a child. The guard is written into the header of
+  `ui/MedicineModal.js` and `utils/medication.js`; read it before editing either.
+- **An untaken dose slot is drawn as simply not filled** — never coral, never
+  amber, never "late". The app records doses; it does not grade the parent.
+- **`defaultDoseTimes()` spreads N slots across a 07:00–22:00 waking day** and is
+  labelled "when will you give it?". That is arithmetic and a convenience. Do not
+  reword it into a recommendation.
+
+**The tab** now has "Taking now" — each running course showing `5 mL · 3 times a
+day`, `Day 3 of 7`, what it treats, and a row of today's dose slots that fill as
+they are recorded ("2 of 3 today · next at 8:00 PM"). Tapping a filled slot
+undoes it, because a double-tap must be correctable. Finished courses drop to
+their own section with a real span. `utils/medication.js` holds all the
+arithmetic (68 assertions in `medication.check.js`); note `isActiveOn()`
+treats a course whose planned end has passed as over even if nobody ticked it,
+which is what stops March's antibiotics reading as current in August.
+
+**Reminders, and a live bug they collided with.** `notifications.js` had **no
+cancel function at all**, and `App.js` re-scheduled every pending vaccination
+reminder on **every app launch** — ten launches, ten copies of the same
+notification, burning the iOS cap of 64 pending that the function's own comment
+said it existed to respect. `scheduleReminder` now takes a `kind` tag and
+`cancelRemindersOfKind()` withdraws by it; vaccinations cancel before
+rescheduling. Medicine doses are armed in a **rolling 48-hour window capped at
+24**, topped up when the tab opens — one 3×daily week-long course is 21
+notifications, so scheduling whole courses would exhaust the budget immediately.
+No `reminders` rows are written for medications; the schedule is derivable from
+`dose_times`, so restating it in 21 rows per course would be duplication.
+
+**`notificationsAvailable()` now returns false on web, and that is the point.**
+`expo-notifications` *resolves* in the web bundle, so the old `!!Notifications`
+returned true there and every caller concluded reminders were working — they
+were not, since a future-triggered notification is native-only. `GeneralSettings`
+and the Medicine tab both tell the parent the truth off the back of this
+function. `ensureReady()` also guards on it now, so the web build no longer pops
+a browser permission prompt to arm a reminder that can never fire.
+
+**`utils/resource.js` gained a `json` column list.** node-postgres serializes a
+plain object to JSON but turns a JS **array** into a Postgres array literal,
+which a `jsonb` column rejects — `dose_times` failed with "invalid input syntax
+for type json" until `pickBody` stringified it. `calendar_events.reminder_settings`
+never hit this because the client sends an object.
+
+**A pre-existing bug fixed in `ProfessionalView.js`:** medications got their
+status back. Last pass made them neutral *because* `resolved` was a column
+nothing could set for them; 006 made "still taking / finished" real. A running
+course is **teal**, not coral — a medicine taken as prescribed is context, not an
+alarm. The ClinicalSummary band gained a "Currently taking" line, which is the
+single fact a clinician most needs before prescribing anything else.
+
+**Also:** the Calendar spans a course across its days instead of dotting only day
+one; `Dashboard.js`'s comment explaining why medications are excluded from Needs
+Attention was rewritten (they are now answerable — they stay out because taking
+medicine as prescribed is not a problem); and the demo seed gives Amoxicillin a
+real dose, frequency, length and link to the Ear Infection, plus a **currently
+running** Paracetamol course with a part-finished day of doses.
+
+**Layout note worth keeping:** "Record a dose" sits on the LEFT of its row. The
+floating "+" is anchored bottom-right and floats over the list, so a
+right-aligned primary action ends up underneath it at the wrong scroll position.
+
 **Migrations — resolved 2026-08-10:** the three additive migrations under `back-end/src/db/migrations/` (`000_calendar_events.sql`, `001_access_log_context.sql`, `002_vaccination_source.sql`) were previously applied only to the local dev database. `npm run db:migrate:up` has since been run against Supabase's Session pooler (`DB_SSL=true`) and verified via the `schema_migrations` table — all three are now confirmed applied to the live database. Custom calendar events, auto-generated EPI vaccination doses, and the QR consultation `POST /api/consult/resolve` flow (which writes to `access_logs.ip_address`/`user_agent`) all now have the columns/tables they need on the deployed backend. If a *new* migration is added later, remember: use `npm run db:migrate:up` (additive) — never `db:migrate`, which drops and recreates every table and is intentionally left for the user to run, not something Claude should do unattended.
 
 **Demo account** (officially adopted, replaces the old `sarah@example.com` seed creds for live testing): `demo.parent@babybookplus.app` / `Demo1234!`.

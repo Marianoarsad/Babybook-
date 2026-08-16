@@ -28,6 +28,7 @@ function createResourceRouter({
     orderBy = "created_at DESC, id DESC",
     validate,
     encrypted = [],
+    json = [],
     photoColumn = null,
     photoField = "photo",
 }) {
@@ -36,7 +37,16 @@ function createResourceRouter({
     const pickBody = (body) => {
         const out = {};
         for (const col of columns) {
-            if (body[col] !== undefined) out[col] = body[col];
+            if (body[col] === undefined) continue;
+            // node-postgres serializes a plain object to JSON but turns a JS
+            // ARRAY into a Postgres array literal ({a,b}), which a jsonb column
+            // rejects outright — "invalid input syntax for type json". Columns
+            // declared here are stringified so an array reaches jsonb as JSON.
+            // null stays null rather than becoming the string "null".
+            out[col] =
+                json.includes(col) && body[col] !== null && typeof body[col] === "object"
+                    ? JSON.stringify(body[col])
+                    : body[col];
         }
         return out;
     };

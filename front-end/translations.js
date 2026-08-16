@@ -64,9 +64,14 @@ export const translations = {
             "Example of how local health centre stock notices would appear",
         healthCheckupReminders: "Pediatric Checkup Reminders",
         healthCheckupRemindersSub: "Upcoming schedules and clinic guidelines",
-        healthMedicationReminders: "Medication Reminders",
+        // Was "Medication Reminders" / "Prescribed drugs schedules and
+        // instructions" for a year while the app scheduled no reminder of any
+        // kind and the reminders table did not even permit the type. It sends
+        // them now, but the tab holds records first and the title should say
+        // what is in it rather than name one feature of it.
+        healthMedicationReminders: "Taking now",
         healthMedicationRemindersSub:
-            "Prescribed drugs schedules and instructions",
+            "Tick off each dose as you give it",
         healthLogConsultation: "Log Clinical Consultations",
         healthLogConsultationSub: "Save remarks from pediatric checkups",
         healthVaxCompleted: "Completed Dose",
@@ -218,9 +223,9 @@ export const translations = {
         healthCheckupReminders: "Paalala sa Checkup ni Baby",
         healthCheckupRemindersSub:
             "Mga darating na iskedyul at gabay mula sa klinika",
-        healthMedicationReminders: "Paalala sa Gamot",
+        healthMedicationReminders: "Iniinom ngayon",
         healthMedicationRemindersSub:
-            "Mga oras at tagubilin para sa mga iniresetang gamot",
+            "Markahan ang bawat dose habang ibinibigay mo",
         healthLogConsultation: "Itala ang Konsultasyon sa Klinika",
         healthLogConsultationSub:
             "I-save ang mga payo mula sa doktor ng iyong anak",
@@ -375,9 +380,9 @@ export const translations = {
         healthCheckupReminders: "Checkup Reminders",
         healthCheckupRemindersSub:
             "Upcoming schedules at guidelines sa klinika",
-        healthMedicationReminders: "Medication Reminders",
+        healthMedicationReminders: "Iniinom ngayon",
         healthMedicationRemindersSub:
-            "Schedule ng reresetang gamot para kay baby",
+            "I-check ang bawat dose na naibigay mo",
         healthLogConsultation: "I-log ang Clinical Consult",
         healthLogConsultationSub: "Save natin ang payo ng pediatrician ni baby",
         healthVaxCompleted: "Completed Dose (Bakunado Na)",

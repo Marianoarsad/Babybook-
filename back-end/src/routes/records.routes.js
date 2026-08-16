@@ -100,7 +100,10 @@ const RESOURCES = [
         // resolved_date / care_level stay OUT of `encrypted`: a date and a
         // three-value vocabulary, where encryption buys no privacy and blocks
         // any future counting. `facility` is in, because it locates a real
-        // family at a real place on a real date.
+        // family at a real place on a real date. Same call for the medication
+        // fields: `dose_amount` and `prescribed_by` are free text and are
+        // encrypted; the frequency, the course length, the times array and the
+        // treats_id foreign key are not.
         columns: [
             "category",
             "title",
@@ -111,9 +114,28 @@ const RESOURCES = [
             "care_level",
             "facility",
             "notes",
+            // Medication rows only (migration 006).
+            "dose_amount",
+            "frequency_per_day",
+            "dose_times",
+            "course_days",
+            "prescribed_by",
+            "treats_id",
         ],
         orderBy: "date_recorded DESC NULLS LAST, id DESC",
-        encrypted: ["title", "description", "facility", "notes"],
+        encrypted: ["title", "description", "facility", "notes", "dose_amount", "prescribed_by"],
+        // jsonb, and the client sends an array — see the note in pickBody.
+        json: ["dose_times"],
+    },
+    {
+        // One row per dose actually given. Kept separate from the medication
+        // record for the same reason a feed is not stored on the child: it is
+        // an event that happens many times, not a property of the thing.
+        path: "medication-doses",
+        table: "medication_doses",
+        columns: ["medication_id", "given_date", "given_time", "notes"],
+        orderBy: "given_date DESC, given_time DESC NULLS LAST, id DESC",
+        encrypted: ["notes"],
     },
     {
         path: "growth",

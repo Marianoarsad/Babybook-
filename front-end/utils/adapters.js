@@ -248,12 +248,44 @@ export function medHistoryToIllness(r) {
 }
 
 // Backend medical_history row (category Medication) -> app medication shape.
+//
+// The old version returned three fields and invented one of them: `duration`
+// fell back to the string "As prescribed" whenever `notes` was empty — and the
+// form never wrote `notes`, so every medicine a parent had ever recorded
+// displayed a duration nobody entered. A blank field must read as "not
+// recorded"; the UI decides how to say that, this function does not make it up.
 export function medHistoryToMed(r) {
     return {
         id: String(r.id),
         title: r.title,
-        dosage: r.description || "",
-        duration: r.notes || "As prescribed",
+        // Started on / finished, shared with the illness shape (migration 005).
+        date: r.date_recorded ? String(r.date_recorded).slice(0, 10) : "",
+        resolved: !!r.resolved,
+        resolvedDate: r.resolved_date ? String(r.resolved_date).slice(0, 10) : "",
+        // How much per dose, exactly as it was typed. Never parsed or converted.
+        doseAmount: r.dose_amount || "",
+        frequencyPerDay:
+            r.frequency_per_day != null && r.frequency_per_day !== "" ? Number(r.frequency_per_day) : null,
+        // jsonb: normalized by doseTimesOf() in utils/medication.js, because a
+        // driver or an older row can hand this back as a string or as null.
+        doseTimes: r.dose_times ?? null,
+        courseDays: r.course_days != null && r.course_days !== "" ? Number(r.course_days) : null,
+        prescribedBy: r.prescribed_by || "",
+        treatsId: r.treats_id != null ? String(r.treats_id) : "",
+        // What the parent was told: "with food", "finish the whole course".
+        instructions: r.description || "",
+        notes: r.notes || "",
+    };
+}
+
+// Backend medication_doses row -> app dose shape. One row per dose given.
+export function medicationDoseToApp(d) {
+    return {
+        id: String(d.id),
+        medicationId: String(d.medication_id),
+        date: d.given_date ? String(d.given_date).slice(0, 10) : "",
+        time: d.given_time ? String(d.given_time).slice(0, 5) : "",
+        notes: d.notes || "",
     };
 }
 

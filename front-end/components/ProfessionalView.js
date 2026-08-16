@@ -13,7 +13,8 @@ import { RECORD_LABELS } from "../utils/shareStore";
 import { api } from "../utils/api";
 import { useTheme } from "../context/ThemeContext";
 import QrScanner, { scannerAvailable } from "./QrScanner";
-import { shortDate, shortTime, overdueBy, spanText } from "../utils/dates";
+import { shortDate, shortTime, overdueBy, spanText, todayLocal } from "../utils/dates";
+import { courseDayText, isActiveOn } from "../utils/medication";
 import { feedRowSummary } from "../utils/adapters";
 import { ageText } from "./Dashboard";
 import {
@@ -39,6 +40,15 @@ const CARE_LABELS = {
     doctor: "seen by a doctor",
     hospital: "admitted to hospital",
 };
+
+// The snapshot ships snake_case straight from the database, while
+// utils/medication.js works on the app's camelCase shape. Rather than teach
+// that module two vocabularies, translate the three fields it reads.
+const medFromSnapshot = (m) => ({
+    date: m.date_recorded ? String(m.date_recorded).slice(0, 10) : "",
+    courseDays: m.course_days ?? null,
+    resolved: !!m.resolved,
+});
 
 // Clinical reading order. The old order was Profile, Vaccinations, Allergies,
 // Growth, Milestones, Checkups, Nutrition, Medical History — which put the
@@ -356,6 +366,13 @@ function ClinicalSummary({ payload }) {
     const ongoing = (p.medicalHistory || []).filter(
         (m) => !m.resolved && (m.category === "Illness" || m.category === "Hospitalization"),
     );
+    // What the child is on right now. Kept as its own line rather than folded
+    // into "Unresolved", because taking a prescribed medicine is not a problem
+    // — it is context, and the single fact a clinician most needs before
+    // prescribing anything else.
+    const onNow = (p.medicalHistory || []).filter(
+        (m) => m.category === "Medication" && isActiveOn(medFromSnapshot(m), todayLocal()),
+    );
 
     const identity = [
         dob ? ageText(dob) : null,
@@ -401,6 +418,22 @@ function ClinicalSummary({ payload }) {
                     <Ionicons name="medkit" size={16} color={colors.danger} style={{ marginTop: 1 }} />
                     <Text style={[styles.summaryText, styles.summaryTextAlert]}>
                         Unresolved: {ongoing.map((m) => m.title || m.category).join(", ")}
+                    </Text>
+                </View>
+            ) : null}
+
+            {onNow.length ? (
+                <View style={styles.summaryRow}>
+                    <Ionicons name="flask" size={16} color={colors.info} style={{ marginTop: 1 }} />
+                    <Text style={styles.summaryText}>
+                        Currently taking:{" "}
+                        {onNow
+                            .map((m) =>
+                                [m.title, m.dose_amount, m.frequency_per_day ? `${m.frequency_per_day}x daily` : null]
+                                    .filter(Boolean)
+                                    .join(" "),
+                            )
+                            .join(", ")}
                     </Text>
                 </View>
             ) : null}
@@ -531,37 +564,53 @@ function RecordsView({ session, onEnd, onExit }) {
                     rows={p.medicalHistory}
                     noun="entries"
                     render={(m, i) => {
-                        // A medication is neither ongoing nor resolved — the
-                        // column is just FALSE for every one of them, so this
-                        // row used to render every prescription in coral with
-                        // an alert icon. Only the two categories that actually
-                        // have a course carry a status.
-                        const hasStatus =
-                            m.category === "Illness" || m.category === "Hospitalization";
+                        // Every category here has a course now. Medications
+                        // were rendered neutral for one pass, correctly, while
+                        // `resolved` was a column nothing could ever set for
+                        // them — migration 006 made "still taking / finished"
+                        // real, so they carry a status again.
+                        const isMed = m.category === "Medication";
                         // Coral for a child in hospital right now, amber for an
                         // illness still being got over, green once it is over.
                         // Same ladder the Dashboard's Needs Attention card uses.
-                        const tone = !hasStatus
-                            ? colors.textSecondary
-                            : m.resolved
-                              ? colors.success
+                        // A medicine still being taken is teal — informational,
+                        // not a problem: a course running as prescribed is not
+                        // something to alarm a clinician about.
+                        const tone = m.resolved
+                            ? colors.success
+                            : isMed
+                              ? colors.info
                               : m.category === "Hospitalization"
                                 ? colors.danger
                                 : colors.warning;
+                        // Currently on it is the single most decision-relevant
+                        // thing on this screen, so it leads the line.
+                        const doseLine = isMed
+                            ? [
+                                  m.dose_amount,
+                                  m.frequency_per_day ? `${m.frequency_per_day}x daily` : null,
+                              ]
+                                  .filter(Boolean)
+                                  .join(", ")
+                            : "";
+                        const treats = isMed && m.treats_id
+                            ? (p.medicalHistory.find((x) => String(x.id) === String(m.treats_id)) || {}).title
+                            : "";
                         return (
                             <Item
                                 key={i}
                                 tone={tone}
                                 statusIcon={
-                                    !hasStatus
-                                        ? "ellipse-outline"
-                                        : m.resolved
-                                          ? "checkmark-circle"
+                                    m.resolved
+                                        ? "checkmark-circle"
+                                        : isMed
+                                          ? "ellipse"
                                           : "alert-circle"
                                 }
                                 title={`${m.title || m.category} · ${m.category}`}
                                 sub={[
                                     shortDate(m.date_recorded),
+                                    doseLine,
                                     // How long it ran, which is what a clinician
                                     // is reading this list for. A bare start
                                     // date leaves "three days" and "three
@@ -569,13 +618,17 @@ function RecordsView({ session, onEnd, onExit }) {
                                     // with no end date (possible before
                                     // migration 005) says so plainly rather
                                     // than claiming to be ongoing.
-                                    !hasStatus
-                                        ? null
-                                        : m.resolved
-                                          ? m.resolved_date
-                                              ? spanText(m.date_recorded, m.resolved_date)
+                                    m.resolved
+                                        ? m.resolved_date
+                                            ? spanText(m.date_recorded, m.resolved_date)
+                                            : isMed
+                                              ? "finished"
                                               : "resolved"
+                                        : isMed
+                                          ? courseDayText(m.date_recorded, m.course_days, todayLocal()).toLowerCase()
                                           : spanText(m.date_recorded, ""),
+                                    treats ? `for ${treats}` : null,
+                                    m.prescribed_by ? `by ${m.prescribed_by}` : null,
                                     CARE_LABELS[m.care_level],
                                     m.facility,
                                 ]

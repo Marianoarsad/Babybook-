@@ -14,9 +14,23 @@ import {
     vaccinationToApp,
     medHistoryToIllness,
     medHistoryToMed,
+    medicationDoseToApp,
     checkupToApp,
 } from "../utils/adapters";
-import { scheduleReminder, morningOf } from "../utils/notifications";
+import {
+    scheduleReminder,
+    morningOf,
+    cancelRemindersOfKind,
+    notificationsAvailable,
+} from "../utils/notifications";
+import {
+    doseTimesOf,
+    dosesOn,
+    courseDayText,
+    isActiveOn,
+    nextDoseTime,
+    upcomingDoseSlots,
+} from "../utils/medication";
 import { exportChildRecordsPdf, pdfExportAvailable } from "../utils/exportPdf";
 import { pickImage, pickerAvailable } from "../utils/imagePicker";
 import { useToast } from "./ui/Toast";
@@ -36,9 +50,10 @@ import { DateField, TimeField } from "./ui/DateField";
 import ImageViewer from "./ui/ImageViewer";
 import OptionSheet from "./ui/OptionSheet";
 import MedicalEventModal from "./ui/MedicalEventModal";
+import MedicineModal from "./ui/MedicineModal";
 import TipStrip from "./ui/TipStrip";
 import KeyboardAvoider from "./ui/KeyboardAvoider";
-import { shortDate, shortTime, overdueBy, todayLocal, spanText } from "../utils/dates";
+import { shortDate, shortTime, overdueBy, todayLocal, nowLocalTime, spanText } from "../utils/dates";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
 // How the care level a parent picked reads back on the row. A record of what
@@ -48,6 +63,120 @@ const CARE_LABELS = {
     doctor: "Saw a doctor",
     hospital: "Admitted to hospital",
 };
+
+// One running medicine course, with today's doses along the bottom.
+//
+// This is the part that makes the tab a tracker rather than a list: the
+// question a parent actually has, several times a day, is "have I given this
+// yet?" — and until now the app could not answer it at all.
+//
+// An unfilled slot is drawn as simply not filled. It is never coloured coral or
+// amber and never labelled late or missed: the app records what happened and
+// does not grade the parent (PRODUCT.md Principle 5).
+function MedicineCourseCard({ med, doses, treats, thumbnailUrl, onThumbnailPress, onEdit, onGive, onUndo }) {
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
+    const times = doseTimesOf(med);
+    const given = doses.length;
+    const extra = Math.max(0, given - times.length);
+    const next = nextDoseTime(times, given);
+    const dayText = courseDayText(med.date, med.courseDays, todayLocal());
+    const detail = [med.doseAmount, med.frequencyPerDay ? `${med.frequencyPerDay} times a day` : ""]
+        .filter(Boolean)
+        .join("  ·  ");
+
+    return (
+        <View style={styles.courseCard}>
+            <View style={styles.courseHead}>
+                <View style={[styles.listIconTile, { backgroundColor: colors.recMedication.bg }]}>
+                    <Ionicons name="flask-outline" size={18} color={colors.recMedication.on} />
+                </View>
+                <View style={{ flex: 1 }}>
+                    <Text style={styles.courseTitle}>{med.title}</Text>
+                    {detail ? <Text style={styles.courseDetail}>{detail}</Text> : null}
+                    <Text style={styles.courseMeta}>
+                        {[dayText, treats ? `for ${treats}` : ""].filter(Boolean).join("  ·  ")}
+                    </Text>
+                </View>
+                {thumbnailUrl ? (
+                    <TouchableOpacity
+                        onPress={onThumbnailPress}
+                        style={styles.courseThumbWrap}
+                        accessibilityRole="imagebutton"
+                        accessibilityLabel="View attached photo"
+                    >
+                        <Image source={{ uri: thumbnailUrl }} style={styles.courseThumb} />
+                    </TouchableOpacity>
+                ) : null}
+                <TouchableOpacity
+                    onPress={onEdit}
+                    style={styles.rowEditBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Edit ${med.title}`}
+                >
+                    <Ionicons name="create-outline" size={16} color={colors.primary} />
+                </TouchableOpacity>
+            </View>
+
+            {times.length > 0 && (
+                <>
+                    <View style={styles.doseRowWrap}>
+                        {times.map((tval, i) => {
+                            const done = i < given;
+                            return (
+                                <TouchableOpacity
+                                    key={`${tval}-${i}`}
+                                    style={[styles.doseSlot, done && styles.doseSlotOn]}
+                                    disabled={!done}
+                                    onPress={() => done && onUndo(doses[i])}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={
+                                        done
+                                            ? `Dose at ${shortTime(tval)} given — tap to undo`
+                                            : `Dose at ${shortTime(tval)} not given yet`
+                                    }
+                                >
+                                    <Ionicons
+                                        name={done ? "checkmark-circle" : "ellipse-outline"}
+                                        size={14}
+                                        color={done ? colors.onPrimary : colors.textMuted}
+                                    />
+                                    <Text style={[styles.doseSlotText, done && styles.doseSlotTextOn]}>
+                                        {shortTime(tval)}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+                        {extra > 0 && <Text style={styles.doseExtra}>+{extra} more today</Text>}
+                    </View>
+
+                    {/* Button on the LEFT. The floating "+" is anchored to the
+                        bottom-right of the screen and floats over this list, so
+                        a right-aligned primary action ends up underneath it at
+                        the wrong scroll position. The status text takes the
+                        right-hand side, where being partly covered costs
+                        nothing. */}
+                    <View style={styles.courseFoot}>
+                        <TouchableOpacity
+                            onPress={onGive}
+                            style={styles.giveBtn}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Record a dose of ${med.title}`}
+                        >
+                            <Ionicons name="add" size={15} color={colors.onPrimary} />
+                            <Text style={styles.giveBtnText}>Record a dose</Text>
+                        </TouchableOpacity>
+                        <Text style={styles.courseNext} numberOfLines={2}>
+                            {given >= times.length
+                                ? `All ${times.length} recorded today`
+                                : `${given} of ${times.length} today${next ? ` · next at ${shortTime(next)}` : ""}`}
+                        </Text>
+                    </View>
+                </>
+            )}
+        </View>
+    );
+}
 
 export default function Health({
     profile,
@@ -91,7 +220,7 @@ export default function Health({
         };
         const modalFor = {
             vaccine: () => setShowVaxModal(true),
-            medication: () => setShowMedModal(true),
+            medication: () => setMedicineForm({ record: null }),
             illness: () => setMedEvent({ kind: "illness", record: null }),
             checkup: () => setShowApptModal(true),
             hospitalization: () => setMedEvent({ kind: "hospitalization", record: null }),
@@ -247,10 +376,11 @@ export default function Health({
     const [illnessVisible, setIllnessVisible] = useState(10);
 
     const [medications, setMedications] = useState([]);
-    const [showMedModal, setShowMedModal] = useState(false);
-    const [medTitle, setMedTitle] = useState("");
-    const [medDosage, setMedDosage] = useState("");
     const [medsVisible, setMedsVisible] = useState(10);
+    // { record } | null — absent record means "add". Same shape as medEvent.
+    const [medicineForm, setMedicineForm] = useState(null);
+    // One row per dose actually given, across every medicine for this child.
+    const [doses, setDoses] = useState([]);
 
     const [hospitalizations, setHospitalizations] = useState([]);
     const [hospVisible, setHospVisible] = useState(10);
@@ -291,6 +421,25 @@ export default function Health({
     // coral for overdue / error / destructive, and something a child is still
     // getting over is none of those. The word carries the state as well as the
     // colour, so it never rests on hue alone.
+    // The illness a medicine is linked to, by id. Illnesses and hospital stays
+    // are both offered, since a medicine can follow either.
+    const linkableConditions = useMemo(
+        () => [...illnesses, ...hospitalizations],
+        [illnesses, hospitalizations],
+    );
+    const conditionTitle = (id) => {
+        if (!id) return "";
+        const hit = linkableConditions.find((c) => String(c.id) === String(id));
+        return hit ? hit.title : "";
+    };
+
+    // A finished course, in one line: how long it ran and what it was for.
+    const medicineSubtitle = (m) => {
+        const span = m.resolvedDate ? spanText(m.date, m.resolvedDate) : shortDate(m.date);
+        const treats = conditionTitle(m.treatsId);
+        return [span, m.doseAmount, treats ? `for ${treats}` : ""].filter(Boolean).join("  ·  ");
+    };
+
     const statusPill = (resolved, doneWord) => (
         <View style={[styles.statusPill, resolved ? styles.statusPillDone : styles.statusPillOpen]}>
             <Text
@@ -340,6 +489,25 @@ export default function Health({
         };
     }, [profile.id]);
     useEffect(() => loadMedHistory(), [loadMedHistory]);
+
+    // Every dose given, for every medicine. Small rows, and the Medicine tab
+    // needs today's count for each active course, so one request beats one per
+    // medicine (PRODUCT.md Principle 3 — assume the worst connection).
+    const loadDoses = useCallback(() => {
+        let active = true;
+        (async () => {
+            try {
+                const rows = await api.listRecords(profile.id, "medication-doses");
+                if (active) setDoses(rows.map(medicationDoseToApp));
+            } catch (e) {
+                console.log("load medication doses:", e.message);
+            }
+        })();
+        return () => {
+            active = false;
+        };
+    }, [profile.id]);
+    useEffect(() => loadDoses(), [loadDoses]);
 
     // ===== Mandatory supporting-photo attachments =====
     const [attachUri, setAttachUri] = useState("");
@@ -670,29 +838,98 @@ export default function Health({
         setNewAllergy("");
     };
 
-    const handleAddMedication = async () => {
-        if (!medTitle) {
-            toast.error("Please enter medication name");
-            return;
+    // Courses running today, and the ones already done.
+    const activeMeds = useMemo(
+        () => medications.filter((m) => isActiveOn(m, todayLocal())),
+        [medications],
+    );
+    const pastMeds = useMemo(
+        () => medications.filter((m) => !isActiveOn(m, todayLocal())),
+        [medications],
+    );
+    // Names already on this child's record, for the form's chips. The ONLY
+    // source of name suggestions — see the header of ui/MedicineModal.js.
+    const previousMedNames = useMemo(() => {
+        const seen = new Set();
+        const out = [];
+        for (const m of medications) {
+            const key = String(m.title || "").trim().toLowerCase();
+            if (key && !seen.has(key)) {
+                seen.add(key);
+                out.push(m.title.trim());
+            }
         }
-        if (!requireAttach()) return;
-        const title = medTitle;
-        const dosage = medDosage;
-        setShowMedModal(false);
-        setMedTitle("");
-        setMedDosage("");
+        return out;
+    }, [medications]);
+
+    // Arm dose reminders for the next 48 hours only, replacing whatever was
+    // armed before. One 3x-daily week-long course is 21 notifications and iOS
+    // allows 64 pending in total, shared with vaccination and checkup
+    // reminders — so this is a rolling window topped up whenever the tab is
+    // opened, not a one-shot scheduling of the whole course.
+    useEffect(() => {
+        if (activeTab !== "medications" || !notificationsAvailable()) return;
+        let cancelled = false;
+        (async () => {
+            await cancelRemindersOfKind("medication");
+            if (cancelled) return;
+            for (const slot of upcomingDoseSlots(activeMeds, new Date(), 48, 24)) {
+                if (cancelled) return;
+                await scheduleReminder(
+                    `Time for ${slot.title}`,
+                    slot.dose ? `${slot.dose} for ${profile.name}` : `For ${profile.name}`,
+                    slot.at,
+                    "medication",
+                );
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [activeTab, activeMeds, profile.name]);
+
+    const handleMedicineSaved = (saved, wasEdit) => {
+        setMedications((prev) =>
+            wasEdit ? prev.map((m) => (m.id === saved.id ? saved : m)) : [saved, ...prev],
+        );
+        loadAttachments();
+    };
+
+    // Record a dose as given, now. Optimistic: a parent standing over a child
+    // with a syringe should see the slot fill immediately, not after a round
+    // trip on clinic wifi. Rolled back if the write fails.
+    const handleGiveDose = async (med) => {
+        const optimistic = {
+            id: `tmp-${Date.now()}`,
+            medicationId: String(med.id),
+            date: todayLocal(),
+            time: nowLocalTime(),
+            notes: "",
+        };
+        setDoses((prev) => [optimistic, ...prev]);
         try {
-            const saved = await api.createRecord(profile.id, "medical-history", {
-                category: "Medication",
-                title,
-                description: dosage || null,
-                date_recorded: todayLocal(),
+            const saved = await api.createRecord(profile.id, "medication-doses", {
+                medication_id: Number(med.id),
+                given_date: optimistic.date,
+                given_time: optimistic.time,
             });
-            setMedications((prev) => [medHistoryToMed(saved), ...prev]);
-            await uploadAttachFor("medication", saved.id);
-            toast.success("Prescribed medication logged successfully.");
+            setDoses((prev) => prev.map((d) => (d.id === optimistic.id ? medicationDoseToApp(saved) : d)));
         } catch (e) {
-            toast.error(e.message || "Could not save medication");
+            setDoses((prev) => prev.filter((d) => d.id !== optimistic.id));
+            toast.error(e.message || "Could not record the dose");
+        }
+    };
+
+    // Undo a dose. Tapping a filled slot removes it, because a double-tap has
+    // to be correctable — and a record of a dose that was never given is worse
+    // than no record at all.
+    const handleUndoDose = async (dose) => {
+        setDoses((prev) => prev.filter((d) => d.id !== dose.id));
+        try {
+            await api.deleteRecord(profile.id, "medication-doses", dose.id);
+        } catch (e) {
+            setDoses((prev) => [dose, ...prev]);
+            toast.error(e.message || "Could not undo the dose");
         }
     };
 
@@ -1198,7 +1435,7 @@ export default function Health({
                 </View>
             )}
 
-            {/* TAB: MEDICATIONS */}
+            {/* TAB: MEDICINES */}
             {activeTab === "medications" && (
                 <View>
                     <SectionContainerCard
@@ -1206,10 +1443,10 @@ export default function Health({
                         subtitle={t("healthMedicationRemindersSub")}
                         action={
                             <TouchableOpacity
-                                onPress={() => { resetAttach(); setShowMedModal(true); }}
+                                onPress={() => setMedicineForm({ record: null })}
                                 style={styles.actionBtn}
                                 accessibilityRole="button"
-                                accessibilityLabel="Add medication"
+                                accessibilityLabel="Add a medicine"
                             >
                                 <Ionicons name="add" size={16} color="#FFFFFF" />
                             </TouchableOpacity>
@@ -1217,44 +1454,85 @@ export default function Health({
                     >
                         {histLoading && <AppointmentsSkeleton count={3} />}
                         {!histLoading && medications.length === 0 && (
-                            <EmptyStateCard message="No medications logged yet." icon="flask-outline" />
+                            <EmptyStateCard message="Nothing recorded yet." icon="flask-outline" />
                         )}
-                        {!histLoading && medications.slice(0, medsVisible).map((med, idx) => (
-                            <ListEntryCard
-                                key={med.id || idx}
-                                thumbnailUrl={attachUrlFor("medication", med.id)}
-                                onThumbnailPress={() => openViewer("medication", med.id)}
-                                title={med.title}
-                                subtitle={`Dosage: ${med.dosage}`}
-                                label={
-                                    <Text
-                                        style={{
-                                            ...type.caption,
-                                            color: colors.textMuted,
-                                        }}
-                                    >
-                                        Duration: {med.duration}
-                                    </Text>
-                                }
-                                icon={
-                                    <Ionicons
-                                        name="flask-outline"
-                                        size={18}
-                                        color={colors.recMedication.on}
-                                    />
-                                }
-                                iconBg={colors.recMedication.bg}
-                            />
-                        ))}
-                        {!histLoading && (
+
+                        {/* Says plainly what this build can and cannot do. The
+                            section was called "Medication Reminders" for a year
+                            while the app sent none; it must not now imply the
+                            web preview sends them either. */}
+                        {!histLoading && activeMeds.length > 0 && !notificationsAvailable() && (
+                            <View style={styles.noteBox}>
+                                <Ionicons name="information-circle-outline" size={15} color={colors.info} />
+                                <Text style={styles.noteText}>
+                                    Dose reminders arrive on the phone app. This preview can&apos;t
+                                    send them, but everything you record here is saved.
+                                </Text>
+                            </View>
+                        )}
+
+                        {!histLoading &&
+                            activeMeds.map((med) => (
+                                <MedicineCourseCard
+                                    key={med.id}
+                                    med={med}
+                                    doses={dosesOn(doses, med.id, todayLocal())}
+                                    treats={conditionTitle(med.treatsId)}
+                                    thumbnailUrl={attachUrlFor("medication", med.id)}
+                                    onThumbnailPress={() => openViewer("medication", med.id)}
+                                    onEdit={() => setMedicineForm({ record: med })}
+                                    onGive={() => handleGiveDose(med)}
+                                    onUndo={handleUndoDose}
+                                />
+                            ))}
+                    </SectionContainerCard>
+
+                    {!histLoading && pastMeds.length > 0 && (
+                        <SectionContainerCard
+                            title="Finished"
+                            subtitle="Medicines your child is no longer taking"
+                        >
+                            {pastMeds.slice(0, medsVisible).map((med) => (
+                                <ListEntryCard
+                                    key={med.id}
+                                    thumbnailUrl={attachUrlFor("medication", med.id)}
+                                    onThumbnailPress={() => openViewer("medication", med.id)}
+                                    title={med.title}
+                                    label={statusPill(true, "Finished")}
+                                    subtitle={medicineSubtitle(med)}
+                                    notes={med.instructions}
+                                    icon={
+                                        <Ionicons
+                                            name="flask-outline"
+                                            size={18}
+                                            color={colors.recMedication.on}
+                                        />
+                                    }
+                                    iconBg={colors.recMedication.bg}
+                                    actions={
+                                        <TouchableOpacity
+                                            onPress={() => setMedicineForm({ record: med })}
+                                            style={styles.rowEditBtn}
+                                            accessibilityRole="button"
+                                            accessibilityLabel={`Edit ${med.title}`}
+                                        >
+                                            <Ionicons
+                                                name="create-outline"
+                                                size={16}
+                                                color={colors.primary}
+                                            />
+                                        </TouchableOpacity>
+                                    }
+                                />
+                            ))}
                             <ShowMore
-                                total={medications.length}
+                                total={pastMeds.length}
                                 visible={medsVisible}
                                 onPress={() => setMedsVisible((c) => c + 10)}
-                                noun="medications"
+                                noun="medicines"
                             />
-                        )}
-                    </SectionContainerCard>
+                        </SectionContainerCard>
+                    )}
                 </View>
             )}
 
@@ -1520,59 +1798,15 @@ export default function Health({
                 onSaved={handleMedEventSaved}
             />
 
-            {/* Medication Modal */}
-            <Modal visible={showMedModal} transparent animationType="slide">
-                <KeyboardAvoider>
-                <View style={styles.modalBg}>
-                    <View style={styles.modalCard}>
-                        <Text style={styles.modalTitle}>
-                            Add Prescribed Medication
-                        </Text>
-
-                        <Text style={styles.modalLabel}>Medication Name</Text>
-                        <TextInput
-                            style={styles.modalInput}
-                            value={medTitle}
-                            onChangeText={setMedTitle}
-                        />
-
-                        <Text style={styles.modalLabel}>
-                            Dosage guidelines (e.g. 5ml daily)
-                        </Text>
-                        <TextInput
-                            style={styles.modalInput}
-                            value={medDosage}
-                            onChangeText={setMedDosage}
-                        />
-
-                        <PhotoAttach
-                            required
-                            uri={attachUri}
-                            onChangeUri={setAttachUri}
-                        />
-
-                        <View style={styles.modalButtons}>
-                            <TouchableOpacity
-                                onPress={() => setShowMedModal(false)}
-                                style={styles.modalCancelBtn}
-                            >
-                                <Text style={styles.modalCancelText}>
-                                    {t("cancel")}
-                                </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                onPress={handleAddMedication}
-                                style={styles.modalSaveBtn}
-                            >
-                                <Text style={styles.modalSaveText}>
-                                    {t("save")}
-                                </Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
-                </KeyboardAvoider>
-            </Modal>
+            <MedicineModal
+                visible={!!medicineForm}
+                profile={profile}
+                record={medicineForm ? medicineForm.record : null}
+                previousNames={previousMedNames}
+                conditions={linkableConditions}
+                onClose={() => setMedicineForm(null)}
+                onSaved={handleMedicineSaved}
+            />
 
             {/* Add Vaccine Modal */}
             <Modal visible={showVaxModal} transparent animationType="slide">
@@ -2068,6 +2302,83 @@ const makeStyles = (colors) => StyleSheet.create({
     statusPillOpen: { backgroundColor: colors.warningBg },
     statusPillDone: { backgroundColor: colors.successBg },
     statusPillText: { ...type.caption, fontWeight: "700" },
+
+    // ---- A running medicine course ----
+    courseCard: {
+        backgroundColor: colors.surface,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
+        borderWidth: 1,
+        borderColor: colors.border,
+        padding: space.md,
+        marginBottom: space.sm,
+    },
+    courseHead: { flexDirection: "row", alignItems: "flex-start", gap: space.md },
+    listIconTile: {
+        width: 40,
+        height: 40,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    courseTitle: { ...type.bodyStrong, color: colors.text },
+    courseDetail: { ...type.caption, color: colors.textSecondary, marginTop: 3 },
+    courseMeta: { ...type.caption, color: colors.textMuted, marginTop: 3 },
+    courseThumbWrap: {
+        width: 40,
+        height: 40,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
+        overflow: "hidden",
+    },
+    courseThumb: { width: "100%", height: "100%" },
+
+    doseRowWrap: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: space.sm,
+        marginTop: space.md,
+    },
+    // An untaken slot is simply not filled. Never coral, never amber, never
+    // labelled late — the app records doses, it does not grade the parent.
+    doseSlot: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.xs,
+        paddingHorizontal: space.md,
+        minHeight: 34,
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surfaceAlt,
+    },
+    doseSlotOn: { backgroundColor: colors.success, borderColor: colors.success },
+    doseSlotText: { ...type.caption, color: colors.textSecondary },
+    doseSlotTextOn: { color: colors.onPrimary, fontWeight: "700" },
+    doseExtra: { ...type.caption, color: colors.textMuted },
+
+    courseFoot: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: space.sm,
+        marginTop: space.md,
+    },
+    courseNext: { ...type.caption, color: colors.textMuted, flex: 1, textAlign: "right" },
+    giveBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.xs,
+        minHeight: MIN_TOUCH,
+        paddingHorizontal: space.lg,
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
+        backgroundColor: colors.accentStrong,
+    },
+    giveBtnText: { ...type.label, color: colors.onPrimary },
     exportPdfBtn: {
         flexDirection: "row",
         alignItems: "center",
