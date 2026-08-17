@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import {
-    View,
+    Animated,View,
     Text,
     StyleSheet,
     ScrollView,
@@ -15,7 +15,8 @@ import { useToast } from "./ui/Toast";
 import { useLanguage } from "../context/LanguageContext";
 import { useTheme } from "../context/ThemeContext";
 import { radius, space, type, shadow, MIN_TOUCH } from "../theme";
-import { useScreenPadBottom } from "../utils/responsive";
+import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
+import { useScroll } from "../context/ScrollContext";
 import {
     SectionContainerCard,
     ListEntryCard,
@@ -83,6 +84,8 @@ export default function Growth({
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
+    const { scrollProps } = useScroll();
     const [growthTab, setGrowthTab] = useState("milestones");
 
     // The checklist band this child's own age falls in. Everything about the
@@ -382,10 +385,11 @@ export default function Growth({
     };
 
     return (
-        <ScrollView
+        <Animated.ScrollView
             style={styles.container}
-            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+            contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
             refreshControl={refreshControl}
+            {...scrollProps}
             keyboardShouldPersistTaps="handled"
         >
             <TipStrip tipKey="tip_growth">
@@ -983,14 +987,14 @@ export default function Growth({
                         : setMemories((prev) => [record, ...prev])
                 }
             />
-        </ScrollView>
+        </Animated.ScrollView>
     );
 }
 
 const makeStyles = (colors) => StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: colors.background,
+        backgroundColor: "transparent", // lets App.js's page gradient show through
     },
     // See the note on Health.js's `content`: padding on the ScrollView's own
     // box does not scroll, so the bottom clearance has to live on the content.

@@ -24,7 +24,13 @@ const SHARED = {
     onAccent: "#FFFFFF",
     text: "#16202A", // ink
     textSecondary: "#3D4A56",
-    textMuted: "#5C6873",
+    // Darkened from #5C6873 when pageGradient went to a 22% tint. textMuted is
+    // the LIGHTEST text that ever sits directly on the page background, so it
+    // is the token that decides how strong the gradient may be: on the 22%
+    // band the old value measured 4.14:1, under AA's 4.5. This measures 5.12:1
+    // there and 7.06:1 on white (was 5.70), so it is strictly an improvement
+    // everywhere else. Paired with pageGradient — read the note there first.
+    textMuted: "#4E5A65",
     // Neutral placeholder gray: readable contrast on light inputs, clearly
     // subtler than entered text (colors.text) and muted labels (textMuted).
     placeholder: "#5E6971",
@@ -94,6 +100,37 @@ const SHARED = {
     tintTeal: "#DBF0F1", // = infoBg
 };
 
+// Page background gradient — the one place a child's gender colors the PAGE
+// rather than an accent on it, so "whose record is this" is readable without
+// reading anything.
+//
+// THE RULE, and it is not cosmetic: the LAST stop of every ramp is that
+// scheme's own `background` token. Every rec* tint and every status color in
+// this file was contrast-verified against a flat `background`, and page-level
+// text — section headings, muted captions, anything not inside a white card —
+// sits directly on it. The ramp is allowed to be strongly tinted at the top
+// and to stay faintly tinted through the middle, but it must arrive back at
+// the plain token by the foot of the page.
+//
+// Stops are the primary mixed over the page ground at 22% (top) and 10%
+// (middle). 22% is DELIBERATELY past the safe ceiling for the old textMuted:
+// at that strength #5C6873 measured 4.14:1 against the band, below AA's 4.5.
+// The cost was paid once, on purpose, by darkening textMuted to #4E5A65
+// (5.12:1) and its dark-scheme partner to #9EA9B2 (5.40:1). So:
+//
+//   DO NOT restore the old textMuted values while these stops stand, and do
+//   not raise the tint past 22% without recomputing both. The two numbers are
+//   a pair; changing one alone silently breaks contrast on every screen.
+//
+// Below 15% no muted-text change is needed at all (15% measures 4.60:1), which
+// is the fallback if these ever need to be toned down.
+//
+// The three primaries are near-equal in luminance, so a flat 22% already reads
+// at equal strength across palettes (girl matches boy at 22.5%, neutral at
+// 21.5%) — no per-palette equalisation needed. Don't re-derive this.
+//
+// Explicit constants rather than a computed mix of `primary`: six values are
+// easier to contrast-check, and easier to nudge, than a blending helper.
 export const PALETTES = {
     girl: {
         ...SHARED,
@@ -101,6 +138,7 @@ export const PALETTES = {
         primaryDark: "#9E2D57",
         accent: "#DD6E97",
         accentStrong: "#C43D6E",
+        pageGradient: ["#F2D4DF", "#F9ECF1", "#F2F5F7"],
         // ponytail: deprecated aliases (softGreen/softCoral collapsed into
         // one primarySoft — they were two near-identical tints doing the
         // same "selected/active" job everywhere but 2 alert-context sites,
@@ -116,6 +154,7 @@ export const PALETTES = {
         primaryDark: "#0F4F8C",
         accent: "#4A93D6",
         accentStrong: "#1768B3",
+        pageGradient: ["#CCDEEE", "#E8F0F7", "#F2F5F7"],
         primarySoft: "#E4EEF8",
         softGreen: "#E4EEF8",
         softCoral: "#E4EEF8",
@@ -126,6 +165,7 @@ export const PALETTES = {
         primaryDark: "#423699",
         accent: "#8478D6",
         accentStrong: "#5A4FB8",
+        pageGradient: ["#DBD8EF", "#EFEDF8", "#F2F5F7"],
         primarySoft: "#E9E7F7",
         softGreen: "#E9E7F7",
         softCoral: "#E9E7F7",
@@ -144,7 +184,11 @@ const SHARED_DARK = {
     onAccent: "#FFFFFF",
     text: "#EDF1F4",
     textSecondary: "#B7C0C7",
-    textMuted: "#8A949C",
+    // Brightened from #8A949C, the dark-scheme half of the same trade: a tint
+    // over a dark ground raises its luminance, which squeezes light text
+    // instead of dark. Old value measured 4.19:1 on the 22% band; this is
+    // 5.40:1 there and 6.99:1 on `surface` (was 5.42).
+    textMuted: "#9EA9B2",
     placeholder: "#77828A",
     textOnDark: "#FFFFFF",
     textOnDarkMuted: "rgba(255,255,255,0.85)",
@@ -204,6 +248,10 @@ export const DARK_PALETTES = {
         primaryDark: "#F5B8CE",
         accent: "#F080A8",
         accentStrong: "#E8598C",
+        // Same rule as the light ramps: last stop IS `background` (#12151A).
+        // Tinting a DARK ground makes it lighter, so the contrast risk here is
+        // the mirror of light mode's — it squeezes light text, not dark text.
+        pageGradient: ["#412433", "#271C25", "#12151A"],
         primarySoft: "#33202A",
         softGreen: "#33202A",
         softCoral: "#33202A",
@@ -214,6 +262,7 @@ export const DARK_PALETTES = {
         primaryDark: "#B8DCF5",
         accent: "#7CBBED",
         accentStrong: "#4B9FE0",
+        pageGradient: ["#1F3346", "#18232E", "#12151A"],
         primarySoft: "#1A2833",
         softGreen: "#1A2833",
         softCoral: "#1A2833",
@@ -224,6 +273,7 @@ export const DARK_PALETTES = {
         primaryDark: "#D2CCF5",
         accent: "#A89EF0",
         accentStrong: "#8B7FE8",
+        pageGradient: ["#2D2C47", "#1E202F", "#12151A"],
         primarySoft: "#241F38",
         softGreen: "#241F38",
         softCoral: "#241F38",
@@ -319,6 +369,27 @@ export const TEXT_COL_MIN = 150;
 // indicator / gesture bar) via useSafeAreaInsets.
 export const SCREEN_PAD_BOTTOM = 96 + space.xxl;
 
+// Collapsing header. The child's name is large while the page is at the top and
+// shrinks as it scrolls, and the bar fades from the page gradient to opaque
+// white over the same distance.
+//
+// The name is laid out ONCE at HEADER_TITLE_MAX and scaled down to
+// HEADER_TITLE_MIN / HEADER_TITLE_MAX, rather than having its fontSize
+// animated — animating fontSize re-lays out the text on every scroll frame and
+// forces the animation off the native driver. Scale does neither.
+//
+// The ratio (0.667) is taken from the reference: a large title of ~28pt
+// collapsing to ~17.5pt. The absolute sizes are a little larger here because
+// this title sits beside three 44pt buttons and has to stay legible at the
+// small end.
+//
+// HEADER_COLLAPSE is the scroll distance over which both happen. Short enough
+// that a small flick completes it, long enough not to flicker on a rubber-band
+// overscroll.
+export const HEADER_TITLE_MAX = 30;
+export const HEADER_TITLE_MIN = 20;
+export const HEADER_COLLAPSE = 56;
+
 // Motion vocabulary. Durations + bezier tuples rather than RN `Easing`
 // objects, so this file stays import-free — consumers call
 // Easing.bezier(...motion.standard.bezier); the files that need it already
@@ -344,5 +415,8 @@ export default {
     MIN_TOUCH,
     TEXT_COL_MIN,
     SCREEN_PAD_BOTTOM,
+    HEADER_TITLE_MAX,
+    HEADER_TITLE_MIN,
+    HEADER_COLLAPSE,
     motion,
 };

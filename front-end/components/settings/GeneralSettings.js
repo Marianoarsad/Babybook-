@@ -5,7 +5,7 @@ import { SectionContainerCard, RadioRow } from "../common/Cards";
 import { storage } from "../../utils/storageAdapter";
 import { notificationsAvailable } from "../../utils/notifications";
 import { useTheme } from "../../context/ThemeContext";
-import { useScreenPadBottom } from "../../utils/responsive";
+import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
 import { space } from "../../theme";
 
 export const LEAD_TIME_KEY = "bb_default_reminder_lead";
@@ -23,6 +23,7 @@ export default function GeneralSettings() {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
     const [leadDays, setLeadDays] = useState("1");
 
     useEffect(() => {
@@ -40,7 +41,7 @@ export default function GeneralSettings() {
     return (
         <ScrollView
             style={styles.container}
-            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+            contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
             keyboardShouldPersistTaps="handled"
         >
             <SectionContainerCard
@@ -68,7 +69,9 @@ export default function GeneralSettings() {
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background },
+        // transparent, not colors.background: App.js paints the page gradient.
+
+        container: { flex: 1, backgroundColor: "transparent" },
         // Padding on the content so the bottom clearance scrolls with it.
         content: { padding: space.lg },
     });

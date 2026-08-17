@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../context/ThemeContext";
-import { useScreenPadBottom } from "../../utils/responsive";
+import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
 import { space, radius, type, shadow } from "../../theme";
 import { api } from "../../utils/api";
 import { SkeletonBlock } from "../ui/Skeleton";
@@ -19,6 +19,7 @@ export default function ViewProfile({ parentName, parentAvatar, parentGender, on
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
     const [email, setEmail] = useState("");
     const [phone, setPhone] = useState("");
     const [loading, setLoading] = useState(true);
@@ -49,7 +50,7 @@ export default function ViewProfile({ parentName, parentAvatar, parentGender, on
     return (
         <ScrollView
             style={styles.container}
-            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+            contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
             keyboardShouldPersistTaps="handled"
         >
             <View style={styles.profileCard}>
@@ -90,7 +91,9 @@ export default function ViewProfile({ parentName, parentAvatar, parentGender, on
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background },
+        // transparent, not colors.background: App.js paints the page gradient.
+
+        container: { flex: 1, backgroundColor: "transparent" },
         // Padding on the content so the bottom clearance scrolls with it.
         content: { padding: space.lg },
         profileCard: {

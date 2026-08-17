@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
-    View,
+    Animated,View,
     Text,
     StyleSheet,
     Image,
@@ -15,7 +15,8 @@ import GrowthChart from "./GrowthChart";
 import { DashboardSkeleton } from "./ui/Skeleton";
 import { Ionicons } from "@expo/vector-icons";
 import { radius, space, shadow, type, MIN_TOUCH } from "../theme";
-import { useScreenPadBottom, fitsColumns } from "../utils/responsive";
+import { useScreenPadBottom, useScreenPadTop, fitsColumns } from "../utils/responsive";
+import { useScroll } from "../context/ScrollContext";
 import { useTheme } from "../context/ThemeContext";
 import { api } from "../utils/api";
 import { memoryToApp, toMilliliters, feedRowSummary } from "../utils/adapters";
@@ -167,10 +168,7 @@ function useDashboardFetch(loader, deps) {
 
 export default function Dashboard({
     profile,
-    profiles,
     parentName,
-    onSelectProfile,
-    onOpenAddModal,
     onOpenEditModal,
     onChangeView,
 }) {
@@ -178,6 +176,8 @@ export default function Dashboard({
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
+    const { scrollProps } = useScroll();
     // The measurement strip is three cells wide. Measured rather than assumed,
     // because "7.8 kg" plus its label has to fit at whatever font scale the OS
     // is set to — at three columns a 360pt card gives each only ~97pt.
@@ -198,9 +198,6 @@ export default function Dashboard({
     const [todayFeeding, setTodayFeeding] = useState(null);
     const [activeShares, setActiveShares] = useState([]);
     const [detailsExpanded, setDetailsExpanded] = useState(false);
-    // { [childId]: boolean } — drives the switcher's alert dot. See the effect
-    // below the fetch bundle for how siblings get filled in.
-    const [childAlerts, setChildAlerts] = useState({});
     // Tracks profile IDs whose avatar URL is present but failed to actually
     // load — e.g. an upload that's since been wiped (see PRODUCT.md's known
     // gap: uploads sit on an ephemeral filesystem). A truthy-but-dead URL
@@ -354,14 +351,6 @@ export default function Dashboard({
                 );
                 setOngoingConcern(ongoing);
 
-                // Feed the switcher's alert dot for the child we just loaded,
-                // so the selected child never costs an extra request — and so
-                // its verdict is still there after switching away.
-                const selectedHasAlert =
-                    ongoing.length > 0 ||
-                    (vax || []).some((v) => v.status !== "completed" && v.due_date && v.due_date < todayStr);
-                setChildAlerts((prev) => ({ ...prev, [profile.id]: selectedHasAlert }));
-
                 // Active share codes — reuses the same shares list Share
                 // Records shows, just narrowed to ones still open right now.
                 const nowIso = new Date().toISOString();
@@ -414,66 +403,6 @@ export default function Dashboard({
         retry: retryActivity,
     } = useDashboardFetch(loadActivityBundle, [profile.id]);
 
-    // Alert dots for the OTHER children in the switcher. Without this a parent
-    // with two children has to switch back and forth to find out whether the
-    // other one has anything overdue, since Needs Attention is per-child.
-    //
-    // Kept as cheap as the signal allows: only children we have no verdict for
-    // yet (the selected one is filled in by the bundle above and stays cached
-    // after switching), only the two record types that can raise a dot, and a
-    // silent failure — a dot that can't load simply doesn't appear rather than
-    // showing an error for a child you aren't even looking at. This is a real
-    // cost on a slow connection (PRODUCT.md Principle 3), so it stays strictly
-    // additive to the screen and never blocks it.
-    // ponytail: 2 requests per unknown sibling. If a parent ever has enough
-    // children for that to bite, replace with one /children/alerts endpoint.
-    //
-    // requestedAlertsRef, not childAlerts, is what gates a fetch. childAlerts
-    // is in this effect's deps (the bundle writes the selected child into it),
-    // so keying off the map alone re-ran the effect while a sibling's request
-    // was still in flight and fetched that child a second time.
-    const profileIdKey = profiles.map((p) => p.id).join(",");
-    const requestedAlertsRef = useRef(new Set());
-    useEffect(() => {
-        const unknown = profiles.filter(
-            (p) => p.id !== profile.id && !requestedAlertsRef.current.has(p.id),
-        );
-        if (!unknown.length) return;
-        for (const p of unknown) requestedAlertsRef.current.add(p.id);
-        let active = true;
-        const todayStr = todayLocal();
-        Promise.all(
-            unknown.map(async (p) => {
-                try {
-                    const [vax, med] = await Promise.all([
-                        api.listRecords(p.id, "vaccinations"),
-                        api.listRecords(p.id, "medical-history"),
-                    ]);
-                    const overdue = (vax || []).some(
-                        (v) => v.status !== "completed" && v.due_date && v.due_date < todayStr,
-                    );
-                    const ongoing = (med || []).some(
-                        (m) => (m.category === "Illness" || m.category === "Hospitalization") && !m.resolved,
-                    );
-                    return [p.id, overdue || ongoing];
-                } catch {
-                    return null;
-                }
-            }),
-        ).then((results) => {
-            if (!active) return;
-            const next = {};
-            for (const r of results) if (r) next[r[0]] = r[1];
-            // Only set when something actually resolved, or this re-runs
-            // forever on a child whose fetch keeps failing.
-            if (Object.keys(next).length) setChildAlerts((prev) => ({ ...prev, ...next }));
-        });
-        return () => {
-            active = false;
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [profileIdKey, profile.id, childAlerts]);
-
     // Growth history — separate fetch, since nothing else on this screen
     // needs the measurement history. Kept raw (growthRows) for the chart, on
     // top of the latest measurement (growth) the Health ID card shows.
@@ -508,12 +437,6 @@ export default function Dashboard({
     const dashboardLoading = activityLoading || growthLoading || memoriesLoading;
     const dashboardError = activityError || growthError || memoriesError;
     const retryAll = () => {
-        // Let the switcher's sibling dots refetch too — otherwise a parent who
-        // just resolved the other child's overdue vaccine would keep seeing
-        // its dot for the rest of the session, since the ref above only ever
-        // lets each child be requested once.
-        requestedAlertsRef.current = new Set();
-        setChildAlerts({});
         retryActivity();
         retryGrowth();
         retryMemories();
@@ -678,100 +601,13 @@ export default function Dashboard({
         : null;
 
     return (
-        <ScrollView
+        <Animated.ScrollView
             style={styles.container}
-            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+            contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
             refreshControl={refreshControl}
+            {...scrollProps}
             keyboardShouldPersistTaps="handled"
         >
-            {/* Baby switcher — only shown with more than one child. With a
-                single child there's nothing to switch between, so just the
-                Add button shows on its own (evaluation doc, Section 2).
-
-                Each child is a named pill, not a bare photo. Photos alone
-                failed at the one job this control has: a child with no avatar
-                rendered as a generic grey person icon, so a two-child account
-                offered "this one, or… someone". Multiple children are a
-                first-class case in PRODUCT.md, and this is the control that
-                serves it.
-
-                The coral dot means that child has an overdue vaccine or an
-                unresolved illness/hospitalization — the same test the Needs
-                Attention card runs, so a parent can see the other child needs
-                something without switching to find out. */}
-            {profiles.length > 1 ? (
-                <View style={styles.profileBar}>
-                    <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={styles.profilesScroll}
-                    >
-                        {profiles.map((p) => {
-                            const selected = profile.id === p.id;
-                            // The selected child's verdict is live from the
-                            // bundle; siblings come from the cached map.
-                            const alert = selected ? hasNeedsAttention : childAlerts[p.id];
-                            return (
-                                <Pressable
-                                    key={p.id}
-                                    onPress={() => onSelectProfile(p.id)}
-                                    style={({ pressed, hovered, focused }) => [
-                                        styles.childPill,
-                                        selected && styles.childPillOn,
-                                        { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
-                                        focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.primary, "59")}` } : null,
-                                    ]}
-                                    accessibilityRole="button"
-                                    accessibilityState={{ selected }}
-                                    accessibilityLabel={`${
-                                        selected ? "Currently viewing" : "Switch to"
-                                    } ${p.name}${alert ? ", needs attention" : ""}`}
-                                >
-                                    <View>
-                                        {p.avatarUrl && !brokenAvatars.has(p.id) ? (
-                                            <Image
-                                                source={{ uri: p.avatarUrl }}
-                                                style={styles.avatarMini}
-                                                onError={() =>
-                                                    setBrokenAvatars((prev) => new Set(prev).add(p.id))
-                                                }
-                                            />
-                                        ) : (
-                                            <View style={[styles.avatarMini, styles.avatarFallback]}>
-                                                <Ionicons name="person" size={16} color={colors.primary} />
-                                            </View>
-                                        )}
-                                        {alert ? <View style={styles.childDot} /> : null}
-                                    </View>
-                                    <Text
-                                        style={[styles.childName, selected && styles.childNameOn]}
-                                        numberOfLines={1}
-                                    >
-                                        {p.nickname || String(p.name).split(" ")[0]}
-                                    </Text>
-                                </Pressable>
-                            );
-                        })}
-                        <TouchableOpacity
-                            onPress={onOpenAddModal}
-                            style={styles.addChildPill}
-                            accessibilityRole="button"
-                            accessibilityLabel="Add another child"
-                        >
-                            <Ionicons name="add" size={18} color={colors.primary} />
-                            <Text style={styles.addChildText}>Add</Text>
-                        </TouchableOpacity>
-                    </ScrollView>
-                </View>
-            ) : (
-                <View style={styles.profileBarSingle}>
-                    <TouchableOpacity onPress={onOpenAddModal} style={styles.addProfileButton}>
-                        <Ionicons name="add" size={18} color={colors.primary} />
-                        <Text style={styles.addProfileText}>Add another child</Text>
-                    </TouchableOpacity>
-                </View>
-            )}
-
             {dashboardError ? (
                 <TouchableOpacity
                     style={styles.errorBanner}
@@ -1427,14 +1263,14 @@ export default function Dashboard({
                 onClose={() => setDetailMemory(null)}
             />
 
-        </ScrollView>
+        </Animated.ScrollView>
     );
 }
 
 const makeStyles = (colors) => StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: colors.background,
+        backgroundColor: "transparent", // lets App.js's page gradient show through
     },
     // Padding lives on the content, not the ScrollView box — see Health.js.
     // The old contentContainerStyle only carried space.xxl (32) of bottom
@@ -1443,75 +1279,10 @@ const makeStyles = (colors) => StyleSheet.create({
         padding: space.lg,
     },
 
-    // Baby switcher
-    profileBar: { marginBottom: space.md },
-    profileBarSingle: { marginBottom: space.md, alignItems: "flex-start" },
-    profilesScroll: { alignItems: "center", paddingRight: space.xs },
-    // Named child pill. minHeight is the real 44 floor — the old photo-only
-    // version was 32px of avatar plus 4px of padding, i.e. 40.
-    childPill: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: space.sm,
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: radius.pill,
-        borderCurve: "continuous",
-        paddingLeft: space.xs + 2,
-        paddingRight: space.md,
-        paddingVertical: space.xs + 2,
-        minHeight: MIN_TOUCH,
-        marginRight: space.sm,
-        maxWidth: 190,
-        ...shadow.card,
-    },
-    // Selected reads as a filled pill, not a 1px border-colour change on a
-    // 32px circle, which was effectively invisible.
-    childPillOn: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
-    childName: { ...type.label, color: colors.textSecondary, flexShrink: 1 },
-    childNameOn: { color: colors.primaryDark },
-    // Coral = overdue, matching the Needs Attention card it mirrors.
-    childDot: {
-        position: "absolute",
-        top: -1,
-        right: -1,
-        width: 11,
-        height: 11,
-        borderRadius: 6,
-        borderCurve: "continuous",
-        backgroundColor: colors.danger,
-        borderWidth: 2,
-        borderColor: colors.surface,
-    },
-    addChildPill: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: space.xs,
-        backgroundColor: colors.softGreen,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: radius.pill,
-        borderCurve: "continuous",
-        paddingHorizontal: space.md,
-        minHeight: MIN_TOUCH,
-    },
-    addChildText: { ...type.label, color: colors.primaryDark },
+    // Kept after the baby switcher moved into the header: the Child Health ID
+    // card below still renders the avatar and needs both of these.
     avatarMini: { width: 32, height: 32, borderRadius: 16, borderCurve: "continuous" },
     avatarFallback: { backgroundColor: colors.softGreen, alignItems: "center", justifyContent: "center" },
-    addProfileButton: {
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: colors.softGreen,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: radius.pill,
-        borderCurve: "continuous",
-        paddingHorizontal: space.md,
-        paddingVertical: space.sm,
-        minHeight: 44,
-    },
-    addProfileText: { ...type.label, color: colors.primaryDark, marginLeft: 3 },
 
     // Child Health ID card. Matches the house section-card shell from
     // common/Cards.js (radius.xl, 18px padding, hairline + shadow.card) so it
@@ -1754,7 +1525,11 @@ const makeStyles = (colors) => StyleSheet.create({
         alignItems: "center",
         justifyContent: "center",
     },
-    offlineLabel: { ...type.bodyStrong, color: colors.primary },
+    // primaryDark, not primary. theme.js defines primaryDark as "the accessible
+    // text colour for a primarySoft chip", and this card's ground is primary at
+    // 6% alpha — the same pale wash. On `primary` this measured 4.14:1 even on
+    // the old flat page, under AA; the tinted page took it to 3.95. 5.64:1 now.
+    offlineLabel: { ...type.bodyStrong, color: colors.primaryDark },
     offlineSub: { ...type.caption, color: colors.textMuted },
 
     // Setup checklist

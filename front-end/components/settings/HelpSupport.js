@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Linking, TouchableOpacity } from "r
 import { Ionicons } from "@expo/vector-icons";
 import { SectionContainerCard } from "../common/Cards";
 import { useTheme } from "../../context/ThemeContext";
-import { useScreenPadBottom } from "../../utils/responsive";
+import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
 import { space, radius, type, MIN_TOUCH } from "../../theme";
 
 // Each FAQ gets its own icon + rec* tint, so the tint doubles as a topic
@@ -40,12 +40,13 @@ export default function HelpSupport() {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
     const [openIdx, setOpenIdx] = useState(null);
 
     return (
         <ScrollView
             style={styles.container}
-            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+            contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
             keyboardShouldPersistTaps="handled"
         >
             <SectionContainerCard title="Frequently Asked Questions">
@@ -92,7 +93,9 @@ export default function HelpSupport() {
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background },
+        // transparent, not colors.background: App.js paints the page gradient.
+
+        container: { flex: 1, backgroundColor: "transparent" },
         // Padding on the content so the bottom clearance scrolls with it.
         content: { padding: space.lg },
         faqItem: { marginBottom: space.sm, paddingBottom: space.sm, borderBottomWidth: 1, borderBottomColor: colors.hairline },

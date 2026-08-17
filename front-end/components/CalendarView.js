@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, TextInput } from "react-native";
+import { Animated, View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, TextInput } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Calendar, CalendarProvider, WeekCalendar } from "react-native-calendars";
 import { useTheme } from "../context/ThemeContext";
 import { space, radius, shadow, type, MIN_TOUCH } from "../theme";
-import { useScreenPadBottom } from "../utils/responsive";
+import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
+import { useScroll } from "../context/ScrollContext";
 import { api } from "../utils/api";
 import { EmptyStateCard } from "./common/Cards";
 import { AppointmentsSkeleton } from "./ui/Skeleton";
@@ -59,6 +60,8 @@ export default function CalendarView({ profile }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
+    const { scrollProps } = useScroll();
     const toast = useToast();
 
     const [viewMode, setViewMode] = useState("month"); // month | week | day
@@ -380,9 +383,10 @@ export default function CalendarView({ profile }) {
                 </TouchableOpacity>
             </View>
 
-            <ScrollView
-                contentContainerStyle={[styles.scrollContent, { paddingBottom: padBottom }]}
+            <Animated.ScrollView
+                contentContainerStyle={[styles.scrollContent, { paddingTop: padTop, paddingBottom: padBottom }]}
                 refreshControl={refreshControl}
+                {...scrollProps}
                 keyboardShouldPersistTaps="handled"
             >
                 <TipStrip tipKey="tip_calendar">
@@ -447,7 +451,7 @@ export default function CalendarView({ profile }) {
                         <EmptyStateCard message="No appointments or events on this day." icon="calendar-outline" />
                     )}
                 </View>
-            </ScrollView>
+            </Animated.ScrollView>
 
             <Modal visible={!!detailEvent} transparent animationType="fade" onRequestClose={() => setDetailEvent(null)}>
                 <View style={styles.modalBg}>
@@ -568,7 +572,9 @@ export default function CalendarView({ profile }) {
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background },
+        // transparent, not colors.background: App.js paints the page gradient.
+
+        container: { flex: 1, backgroundColor: "transparent" },
         // paddingBottom applied inline — space.xxl (32) left the last event
         // underneath the tab bar and the floating button.
         scrollContent: { padding: space.lg },
@@ -602,7 +608,10 @@ const makeStyles = (colors) =>
             paddingVertical: 8,
             paddingHorizontal: space.md,
         },
-        todayBtnText: { ...type.caption, fontWeight: "800", color: colors.accentStrong },
+        // This label sits on the bare page, which is now the tinted top of the
+        // gradient rather than flat grey — `accentStrong` (= primary) fell to
+        // 3.77:1 there. primaryDark is the token for text on a pale brand wash.
+        todayBtnText: { ...type.caption, fontWeight: "800", color: colors.primaryDark },
         addEventBtn: {
             width: MIN_TOUCH,
             height: MIN_TOUCH,

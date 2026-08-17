@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import {
     View,
     Text,
@@ -12,9 +12,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { RECORD_LABELS } from "../utils/shareStore";
 import { api } from "../utils/api";
 import { useTheme } from "../context/ThemeContext";
-import { space, type } from "../theme";
+import { space, type, MIN_TOUCH } from "../theme";
 import { fitsColumns } from "../utils/responsive";
 import QrScanner, { scannerAvailable } from "./QrScanner";
+import GrowthChart from "./GrowthChart";
 import { shortDate, shortTime, overdueBy, spanText, todayLocal } from "../utils/dates";
 import { courseDayText, isActiveOn } from "../utils/medication";
 import { feedRowSummary } from "../utils/adapters";
@@ -52,20 +53,36 @@ const medFromSnapshot = (m) => ({
     resolved: !!m.resolved,
 });
 
-// Clinical reading order. The old order was Profile, Vaccinations, Allergies,
-// Growth, Milestones, Checkups, Nutrition, Medical History — which put the
-// two things a clinician needs first (what is this child allergic to, what
-// have they had) behind the things they need last.
+// Consultation reading order: what could hurt this child, then what they need
+// today, then how they are growing, then history, then context.
+//
+// The order before this was Profile, Vaccinations, Allergies, Growth,
+// Milestones, Checkups, Nutrition, Medical History — which buried the two facts
+// a clinician needs first. `allergies` no longer appears as a section at all:
+// it is the safety band at the top, and repeating it lower down would only
+// invite the two copies to disagree.
 const SECTION_ORDER = [
-    "allergies",
-    "medicalHistory",
     "vaccinations",
     "growth",
+    "medicalHistory",
     "checkups",
-    "profile",
     "milestones",
     "nutrition",
+    "profile",
 ];
+
+// Short labels for the jump bar. RECORD_LABELS is written for the parent
+// choosing what to share ("Medical History (Illnesses, Medications,
+// Hospitalizations)") and is far too long to sit in a chip.
+const SECTION_SHORT = {
+    vaccinations: "Immunisation",
+    growth: "Growth",
+    medicalHistory: "History",
+    checkups: "Care",
+    milestones: "Development",
+    nutrition: "Feeding",
+    profile: "Profile",
+};
 
 // Secondary actor: healthcare professional. View-only access via a parent's
 // consultation code, resolved against the backend (works across devices).
@@ -108,6 +125,12 @@ export default function ProfessionalView({ onExit }) {
             const s = e.data && e.data.status;
             if (s === "expired") setError("This code has expired. Ask the parent to generate a new one.");
             else if (s === "revoked") setError("This code was revoked by the parent.");
+            // The snapshot could not be opened — purged with the code, or
+            // sealed under a key the server no longer has. Refusing is the only
+            // safe answer: an empty record set would read as a child with no
+            // allergies and no history.
+            else if (s === "unavailable")
+                setError("These shared records are no longer available. Ask the parent to generate a new code.");
             else if (s === "notfound") setError("Code not found. Please re-check with the parent.");
             else if (s === "invalid") setError("Unrecognized code. Check and try again.");
             else setError(e.message || "Could not resolve the code.");
@@ -375,15 +398,71 @@ function Capped({ rows, render, noun }) {
     );
 }
 
+// The parent's own words about why this consultation is happening — the one
+// thing on this screen no record can supply.
+//
+// Presented as a QUOTE and attributed. It is not a diagnosis, not a triage
+// category, and is never parsed for keywords: the app carries the sentence, it
+// does not interpret it (PRODUCT.md Principle 5).
+function VisitReason({ text }) {
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
+    if (!text) return null;
+    return (
+        <View style={styles.reasonCard}>
+            <View style={styles.reasonHead}>
+                <Ionicons name="chatbubble-ellipses-outline" size={14} color={colors.primaryDark} />
+                <Text style={styles.reasonLabel}>PARENT'S NOTE — WHY THEY CAME</Text>
+            </View>
+            <Text style={styles.reasonText}>“{text}”</Text>
+        </View>
+    );
+}
+
+// What the parent chose NOT to share.
+//
+// This exists because silence was ambiguous in the one place ambiguity is
+// dangerous. A withheld section used to render nothing at all, so a clinician
+// seeing no allergy line could not tell "none recorded" from "not shared" —
+// and would reasonably assume the former. Naming the gaps is the whole point:
+// an absent section is now a stated absence.
+function NotShared({ recordKeys }) {
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
+    const shared = new Set(recordKeys || []);
+    const missing = Object.keys(RECORD_LABELS).filter((k) => !shared.has(k));
+    if (!missing.length) return null;
+    return (
+        <View style={styles.notSharedCard}>
+            <Ionicons name="eye-off-outline" size={15} color={colors.warning} style={{ marginTop: 1 }} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.notSharedTitle}>Not shared by the parent</Text>
+                <Text style={styles.notSharedBody}>
+                    {missing.map((k) => RECORD_LABELS[k]).join(" · ")}
+                </Text>
+                <Text style={styles.notSharedHint}>
+                    These records exist in the app but were withheld for this consultation. Treat
+                    them as unknown, not as empty.
+                </Text>
+            </View>
+        </View>
+    );
+}
+
 // The five-second read: who this is, what they react to, and what is overdue.
 // Everything here is derived from the snapshot already on screen — no extra
 // data, no interpretation, just the facts a clinician would otherwise have to
 // assemble by scrolling and doing date arithmetic.
-function ClinicalSummary({ payload }) {
+function ClinicalSummary({ payload, recordKeys }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const p = payload || {};
     const dob = p.profile?.dateOfBirth;
+    // Whether the parent shared the type at all, which is a different question
+    // from whether it holds anything. Read from recordKeys rather than from the
+    // payload, because an empty shared section and a withheld one both arrive
+    // as "nothing to render" otherwise.
+    const shared = new Set(recordKeys || []);
     const allergies = (p.allergies?.allergies || []).filter(Boolean);
     const hereditary = (p.allergies?.hereditaryConditions || []).filter(Boolean);
     const overdueCount = (p.vaccinations || []).filter(
@@ -400,22 +479,23 @@ function ClinicalSummary({ payload }) {
         (m) => m.category === "Medication" && isActiveOn(medFromSnapshot(m), todayLocal()),
     );
 
-    const identity = [
-        dob ? ageText(dob) : null,
-        p.profile?.sex,
-        p.profile?.bloodType ? `Blood ${p.profile.bloodType}` : null,
-    ].filter(Boolean);
+    // Prior vaccine reactions, promoted from a row buried in the immunisation
+    // list. Before giving another dose this is the single most decision-
+    // relevant fact on the screen, and it used to be visible only if the
+    // clinician happened to scroll to the right row.
+    const vaxReactions = (p.vaccinations || []).filter(
+        (v) => v.reaction_severity === "mild" || v.reaction_severity === "severe",
+    );
 
-    // Only the allergy line is unconditional. It reads "None recorded" rather
-    // than disappearing, because a blank allergy field and a child with no
-    // known allergies must never look the same to a clinician.
-    const allergyShared = !!p.allergies;
+    // The allergy line has THREE states, and the third is why this band was
+    // rewritten. "Shared but empty" and "withheld" must never look alike:
+    // the first means nobody has recorded an allergy, the second means the
+    // clinician has not been told either way.
+    const allergyShared = shared.has("allergies");
     const feeding = feedingSummary(p.nutrition, dob);
 
     return (
         <View style={styles.summary}>
-            {identity.length ? <Text style={styles.summaryIdentity}>{identity.join(" · ")}</Text> : null}
-
             {allergyShared ? (
                 <View style={[styles.summaryRow, allergies.length && styles.summaryRowAlert]}>
                     <Ionicons
@@ -428,6 +508,29 @@ function ClinicalSummary({ payload }) {
                         style={[styles.summaryText, allergies.length && styles.summaryTextAlert]}
                     >
                         {allergies.length ? `Allergies: ${allergies.join(", ")}` : "Allergies: none recorded"}
+                    </Text>
+                </View>
+            ) : (
+                <View style={[styles.summaryRow, styles.summaryRowWarn]}>
+                    <Ionicons name="eye-off" size={16} color={colors.warning} style={{ marginTop: 1 }} />
+                    <Text style={[styles.summaryText, styles.summaryTextWarn]}>
+                        Allergies: NOT SHARED — ask the parent directly
+                    </Text>
+                </View>
+            )}
+
+            {vaxReactions.length ? (
+                <View style={[styles.summaryRow, styles.summaryRowAlert]}>
+                    <Ionicons name="warning" size={16} color={colors.danger} style={{ marginTop: 1 }} />
+                    <Text style={[styles.summaryText, styles.summaryTextAlert]}>
+                        Prior vaccine reaction:{" "}
+                        {vaxReactions
+                            .map((v) =>
+                                [v.vaccine_name, v.reaction_severity, v.reaction]
+                                    .filter(Boolean)
+                                    .join(" — "),
+                            )
+                            .join("; ")}
                     </Text>
                 </View>
             ) : null}
@@ -477,6 +580,247 @@ function ClinicalSummary({ payload }) {
                 <View style={styles.summaryRow}>
                     <Ionicons name="restaurant" size={16} color={colors.textMuted} style={{ marginTop: 1 }} />
                     <Text style={styles.summaryText}>{feeding}</Text>
+                </View>
+            ) : null}
+        </View>
+    );
+}
+
+// Hides a long, low-signal list behind one tap. Not a cap — everything is
+// still reachable; it just stops hundreds of feed rows from sitting between a
+// clinician and the next section.
+function ShowRaw({ count, children }) {
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
+    const [open, setOpen] = useState(false);
+    if (!count) return null;
+    return (
+        <>
+            <TouchableOpacity
+                onPress={() => setOpen((v) => !v)}
+                style={styles.showMore}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: open }}
+                accessibilityLabel={`${open ? "Hide" : "Show"} the full log of ${count} entries`}
+            >
+                <Ionicons name={open ? "chevron-up" : "chevron-down"} size={14} color={colors.primary} />
+                <Text style={styles.showMoreText}>
+                    {open ? "Hide" : "Show"} full log ({count} entries)
+                </Text>
+            </TouchableOpacity>
+            {open ? children : null}
+        </>
+    );
+}
+
+// The feeding pattern and every reaction — the two things a clinician can act
+// on. feedingSummary() already computed the pattern for the top band; this
+// reuses it rather than deriving the same numbers a second way.
+function FeedingBrief({ rows, dob }) {
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
+    const summary = feedingSummary(rows, dob);
+    const reactions = (rows || []).filter(
+        (r) => r.reaction_severity === "mild" || r.reaction_severity === "severe" ||
+            (!r.reaction_severity && !!r.reaction),
+    );
+    if (!summary && !reactions.length) return null;
+    return (
+        <View style={styles.briefCard}>
+            {summary ? <Text style={styles.briefText}>{summary}</Text> : null}
+            {reactions.length ? (
+                <>
+                    <Text style={styles.briefLabel}>
+                        FOOD REACTIONS ({reactions.length})
+                    </Text>
+                    {reactions.map((r, i) => (
+                        <Text key={i} style={styles.briefReaction} numberOfLines={3}>
+                            {[
+                                r.food_introduced || "unspecified food",
+                                r.reaction_severity || "reaction",
+                                r.reaction,
+                                shortDate(r.entry_date),
+                            ]
+                                .filter(Boolean)
+                                .join(" — ")}
+                        </Text>
+                    ))}
+                </>
+            ) : (
+                <Text style={styles.briefNone}>No food reactions recorded.</Text>
+            )}
+        </View>
+    );
+}
+
+// Last seen, and what is already booked. Two facts a clinician reaches for at
+// the start of a consultation, pulled out of the date-ordered list rather than
+// left to be found in it.
+function CareTimeline({ rows }) {
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
+    const today = todayLocal();
+    const dated = (rows || []).filter((c) => c.checkup_date);
+    const past = dated
+        .filter((c) => String(c.checkup_date).slice(0, 10) <= today)
+        .sort((a, b) => String(b.checkup_date).localeCompare(String(a.checkup_date)));
+    const future = dated
+        .filter((c) => String(c.checkup_date).slice(0, 10) > today)
+        .sort((a, b) => String(a.checkup_date).localeCompare(String(b.checkup_date)));
+
+    if (!past.length && !future.length) return null;
+    const line = (c) =>
+        [c.title || "Checkup", c.doctor_name, c.clinic].filter(Boolean).join(" · ");
+
+    return (
+        <View style={styles.timelineCard}>
+            <View style={styles.timelineCol}>
+                <Text style={styles.timelineLabel}>LAST SEEN</Text>
+                <Text style={styles.timelineValue} numberOfLines={3}>
+                    {past.length
+                        ? `${shortDate(past[0].checkup_date)} — ${line(past[0])}`
+                        : "No past visit recorded"}
+                </Text>
+            </View>
+            <View style={styles.timelineCol}>
+                <Text style={styles.timelineLabel}>SCHEDULED</Text>
+                <Text style={styles.timelineValue} numberOfLines={3}>
+                    {future.length
+                        ? `${shortDate(future[0].checkup_date)} — ${line(future[0])}${
+                              future.length > 1 ? ` (+${future.length - 1} more)` : ""
+                          }`
+                        : "Nothing booked"}
+                </Text>
+            </View>
+        </View>
+    );
+}
+
+// Percentile movement between the earliest and latest usable measurement.
+//
+// PRINCIPLE 5 BOUNDARY, and it is a fine one. A percentile is a published
+// reference position and the difference between two of them is arithmetic —
+// both are facts. "Falling off the curve", "poor growth", "catch-up" are
+// verdicts, and none of them appear here or may be added. The app states the
+// movement and the interval; reading it is the clinician's job, and they are
+// the one person on either side of this screen qualified to do it.
+function GrowthTrend({ rows, sex, dateOfBirth }) {
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
+    const sexKey = normalizeSex(sex);
+
+    const lines = useMemo(() => {
+        if (!sexKey || !dateOfBirth) return [];
+        const out = [];
+        for (const [indicator, field, label] of [
+            ["weight", "weight", "Weight"],
+            ["height", "height", "Height"],
+            ["head", "head_circumference", "Head"],
+        ]) {
+            const usable = (rows || [])
+                .filter((r) => r.date_recorded && r[field] != null && r[field] !== "")
+                .map((r) => {
+                    const day = ageInDays(dateOfBirth, String(r.date_recorded).slice(0, 10));
+                    if (day == null || day > WHO_MAX_DAY) return null;
+                    const z = zScore(indicator, sexKey, day, Number(r[field]));
+                    return z == null ? null : { date: String(r.date_recorded).slice(0, 10), z };
+                })
+                .filter(Boolean)
+                .sort((a, b) => a.date.localeCompare(b.date));
+            // Two distinct dates or there is no movement to report.
+            if (usable.length < 2) continue;
+            const first = usable[0];
+            const last = usable[usable.length - 1];
+            if (first.date === last.date) continue;
+            const p0 = percentileFromZ(first.z);
+            const p1 = percentileFromZ(last.z);
+            out.push({
+                label,
+                from: formatPercentile(p0),
+                to: formatPercentile(p1),
+                span: spanText(first.date, last.date),
+                n: usable.length,
+            });
+        }
+        return out;
+    }, [rows, sexKey, dateOfBirth]);
+
+    if (!lines.length) return null;
+
+    return (
+        <View style={styles.trendCard}>
+            <Text style={styles.trendTitle}>WHO percentile, first to latest recorded</Text>
+            {lines.map((l, i) => (
+                <Text key={i} style={styles.trendRow} numberOfLines={2}>
+                    {l.label}: {l.from} → {l.to}
+                    <Text style={styles.trendMeta}>
+                        {"  "}({l.n} measurements over {l.span})
+                    </Text>
+                </Text>
+            ))}
+        </View>
+    );
+}
+
+// "What does this child need today?" — the question the immunisation list was
+// not answering. Overdue doses named and sorted oldest-first, then the next
+// scheduled visit with everything falling due on it.
+//
+// Purely a re-presentation of rows already in the snapshot: no new data, no
+// schedule of its own, and no recommendation. Which doses exist and when they
+// are due was decided by the EPI generator on the parent's side.
+function VaccineStatus({ rows }) {
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
+    const pending = (rows || []).filter((v) => v.status !== "completed" && v.due_date);
+    const today = todayLocal();
+
+    const overdue = pending
+        .filter((v) => String(v.due_date).slice(0, 10) < today)
+        .sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)));
+
+    const upcoming = pending
+        .filter((v) => String(v.due_date).slice(0, 10) >= today)
+        .sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)));
+    // Everything due on the same day is one visit, which is how a clinic books
+    // it — listing four separate rows for one appointment reads as four trips.
+    const nextDate = upcoming.length ? String(upcoming[0].due_date).slice(0, 10) : null;
+    const nextBatch = nextDate
+        ? upcoming.filter((v) => String(v.due_date).slice(0, 10) === nextDate)
+        : [];
+
+    const label = (v) => [v.vaccine_name, v.dose_number ? `dose ${v.dose_number}` : null]
+        .filter(Boolean)
+        .join(" ");
+
+    if (!overdue.length && !nextBatch.length) return null;
+
+    return (
+        <View style={styles.vaxStatus}>
+            {overdue.length ? (
+                <View style={[styles.vaxBand, styles.vaxBandOverdue]}>
+                    <Text style={styles.vaxBandTitle}>
+                        {overdue.length} missed {overdue.length === 1 ? "dose" : "doses"}
+                    </Text>
+                    {overdue.slice(0, 6).map((v, i) => (
+                        <Text key={i} style={styles.vaxBandRow} numberOfLines={2}>
+                            {label(v)} — {overdueBy(v.due_date)}
+                        </Text>
+                    ))}
+                    {overdue.length > 6 ? (
+                        <Text style={styles.vaxBandRow}>+{overdue.length - 6} more, listed below</Text>
+                    ) : null}
+                </View>
+            ) : null}
+
+            {nextBatch.length ? (
+                <View style={[styles.vaxBand, styles.vaxBandNext]}>
+                    <Text style={styles.vaxBandTitleNext}>
+                        Next due {shortDate(nextDate)}
+                    </Text>
+                    <Text style={styles.vaxBandRowNext} numberOfLines={3}>
+                        {nextBatch.map(label).join(" · ")}
+                    </Text>
                 </View>
             ) : null}
         </View>
@@ -533,6 +877,11 @@ function RecordsView({ session, onEnd, onExit }) {
     const p = session.payload || {};
     const sexKey = normalizeSex(p.profile?.sex);
     const dob = p.profile?.dateOfBirth;
+    // Measured section offsets for the jump bar. A ref, not state: these are
+    // written on every layout pass and nothing should re-render because a
+    // section moved two pixels.
+    const scrollRef = useRef(null);
+    const sectionY = useRef({});
 
     // Where a measurement sits on the WHO reference. Shown here and nowhere
     // else in this file: a percentile is a published reference position, not a
@@ -565,18 +914,6 @@ function RecordsView({ session, onEnd, onExit }) {
             </Section>
         ),
 
-        allergies: p.allergies && (
-            <Section key="allergies" icon="warning-outline" title={RECORD_LABELS.allergies}>
-                <Row
-                    label="Allergies"
-                    value={(p.allergies.allergies || []).join(", ") || "None recorded"}
-                />
-                <Row
-                    label="Hereditary"
-                    value={(p.allergies.hereditaryConditions || []).join(", ") || "None recorded"}
-                />
-            </Section>
-        ),
 
         medicalHistory: p.medicalHistory && (
             <Section
@@ -671,10 +1008,15 @@ function RecordsView({ session, onEnd, onExit }) {
             <Section
                 key="vaccinations"
                 icon="medical-outline"
-                title={RECORD_LABELS.vaccinations}
+                title="Immunisation status"
                 count={p.vaccinations.length}
             >
                 {p.vaccinations.length === 0 && <Text style={styles.empty}>No records.</Text>}
+                {/* The actionable read, above the archive. "18 vaccines past
+                    due" told a clinician a number they could not act on; what
+                    they need is WHICH, oldest first, and what falls due next.
+                    Both are derived from rows already on screen. */}
+                <VaccineStatus rows={p.vaccinations} />
                 <Capped
                     rows={p.vaccinations}
                     noun="vaccines"
@@ -745,6 +1087,30 @@ function RecordsView({ session, onEnd, onExit }) {
                 {(p.growth.measurements || []).length === 0 && (
                     <Text style={styles.empty}>No measurements.</Text>
                 )}
+                {/* The chart, not just the numbers. "Is this child tracking or
+                    falling off?" is the question this section exists to answer,
+                    and a newest-first list capped at 10 could hide the older
+                    baseline that makes the comparison possible.
+
+                    GrowthChart is reused exactly as the parent's Dashboard uses
+                    it — it reads date_recorded / weight / height /
+                    head_circumference, which is the snapshot's own shape, so no
+                    adapter is involved and the two screens cannot plot the same
+                    child differently. */}
+                {(p.growth.measurements || []).length > 0 && dob && sexKey ? (
+                    <>
+                        <GrowthChart
+                            rows={p.growth.measurements}
+                            sex={p.profile?.sex}
+                            dateOfBirth={dob}
+                        />
+                        <GrowthTrend
+                            rows={p.growth.measurements}
+                            sex={p.profile?.sex}
+                            dateOfBirth={dob}
+                        />
+                    </>
+                ) : null}
                 <Capped
                     rows={p.growth.measurements || []}
                     noun="measurements"
@@ -784,10 +1150,14 @@ function RecordsView({ session, onEnd, onExit }) {
             <Section
                 key="checkups"
                 icon="calendar-outline"
-                title={RECORD_LABELS.checkups}
+                title="Care timeline"
                 count={p.checkups.length}
             >
                 {p.checkups.length === 0 && <Text style={styles.empty}>No records.</Text>}
+                {/* "When were they last seen" and "what is already booked" are
+                    two different questions, and a single date-ordered list made
+                    a clinician answer both by reading the whole thing. */}
+                <CareTimeline rows={p.checkups} />
                 <Capped
                     rows={p.checkups}
                     noun="checkups"
@@ -844,10 +1214,21 @@ function RecordsView({ session, onEnd, onExit }) {
             <Section
                 key="nutrition"
                 icon="restaurant-outline"
-                title={RECORD_LABELS.nutrition}
+                title="Feeding"
                 count={p.nutrition.length}
             >
                 {p.nutrition.length === 0 && <Text style={styles.empty}>No records.</Text>}
+                {/* Summary first, reactions in full, the raw log last and
+                    collapsed.
+
+                    The feed-by-feed log is the least useful thing on this
+                    screen: a real account holds hundreds of rows and the cap
+                    showed ten recent ones, which answers no clinical question.
+                    What a clinician needs from nutrition is the pattern and the
+                    reactions — so those lead, and the log stays available
+                    rather than being deleted. */}
+                <FeedingBrief rows={p.nutrition} dob={dob} />
+                <ShowRaw count={p.nutrition.length}>
                 <Capped
                     rows={p.nutrition}
                     noun="entries"
@@ -877,28 +1258,94 @@ function RecordsView({ session, onEnd, onExit }) {
                         );
                     }}
                 />
+                </ShowRaw>
             </Section>
         ),
     };
 
     return (
-        <ScrollView contentContainerStyle={styles.recScroll} keyboardShouldPersistTaps="handled">
+        <ScrollView
+            ref={scrollRef}
+            contentContainerStyle={styles.recScroll}
+            keyboardShouldPersistTaps="handled"
+        >
             <View style={styles.viewOnlyBanner}>
                 <Ionicons name="eye" size={15} color={colors.onPrimary} />
                 <Text style={styles.viewOnlyText}>VIEW ONLY · authorized by parent</Text>
             </View>
 
+            {/* Identity as one block. Age used to sit in the summary band while
+                the name sat above it, so the fact every paediatric judgment
+                hangs on was separated from the person it belongs to. */}
             <Text style={styles.childName} numberOfLines={2}>
                 {session.childName || "Child"}
+            </Text>
+            <Text style={styles.childIdentity} numberOfLines={2}>
+                {[
+                    dob ? ageText(dob) : null,
+                    p.profile?.sex,
+                    p.profile?.bloodType ? `Blood ${p.profile.bloodType}` : null,
+                    dob ? `born ${shortDate(dob)}` : null,
+                ]
+                    .filter(Boolean)
+                    .join(" · ") || "Profile not shared"}
             </Text>
             <Text style={styles.childMeta}>
                 {(session.recordKeys || []).length} record types shared · code {session.code}
             </Text>
             <SnapshotTimestamp capturedAt={session.capturedAt} />
 
-            <ClinicalSummary payload={p} />
+            <VisitReason text={p.visitReason} />
 
-            {SECTION_ORDER.map((k) => sections[k] || null)}
+            <ClinicalSummary payload={p} recordKeys={session.recordKeys} />
+
+            <NotShared recordKeys={session.recordKeys} />
+
+            {/* Jump bar. Eight sections and several long lists, read by someone
+                with a patient in front of them — scrolling to find growth is
+                time this screen should not be costing. */}
+            {/* One scrolling row rather than a wrapping block: seven chips at a
+                real 44pt would otherwise take two rows and ~90pt of a screen
+                whose whole purpose is to save the reader time. */}
+            <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.jumpBar}
+            >
+                {SECTION_ORDER.filter((k) => sections[k]).map((k) => (
+                    <TouchableOpacity
+                        key={k}
+                        style={styles.jumpChip}
+                        onPress={() => {
+                            const y = sectionY.current[k];
+                            if (y != null && scrollRef.current) {
+                                // scrollTo, not scrollToEnd: on react-native-web
+                                // the ref is the DOM node, which understands
+                                // `top`, while native wants `y`. Passing both
+                                // keeps one call working on both.
+                                scrollRef.current.scrollTo({ y, top: y, animated: true });
+                            }
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Jump to ${SECTION_SHORT[k]}`}
+                    >
+                        <Text style={styles.jumpChipText}>{SECTION_SHORT[k]}</Text>
+                    </TouchableOpacity>
+                ))}
+            </ScrollView>
+
+            {SECTION_ORDER.map((k) =>
+                sections[k] ? (
+                    <View
+                        key={k}
+                        onLayout={(e) => {
+                            sectionY.current[k] = e.nativeEvent.layout.y;
+                        }}
+                    >
+                        {sections[k]}
+                    </View>
+                ) : null,
+            )}
 
 
             <View style={styles.readOnlyNote}>
@@ -961,7 +1408,91 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     viewOnlyText: { color: colors.onPrimary, ...type.caption, fontWeight: "800", letterSpacing: 1 },
     childName: { ...type.display, fontSize: 24, lineHeight: 29, color: colors.text },
+    childIdentity: { ...type.bodyStrong, color: colors.textSecondary, marginTop: 2 },
     childMeta: { ...type.caption, color: colors.textMuted, marginTop: 2 },
+
+    // Parent's note. Primary-tinted so it reads as authored content rather than
+    // as a system status — and quoted, so it is never mistaken for a clinical
+    // assessment the app has made.
+    reasonCard: {
+        marginTop: space.md,
+        padding: space.md,
+        borderRadius: 14,
+        borderCurve: "continuous",
+        backgroundColor: colors.primarySoft,
+        borderWidth: 1,
+        borderColor: colors.primary,
+    },
+    reasonHead: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
+    reasonLabel: { ...type.caption, fontWeight: "800", color: colors.primaryDark, letterSpacing: 0.4 },
+    reasonText: { ...type.body, color: colors.text, fontStyle: "italic", lineHeight: 23 },
+
+    // Withheld record types. Amber, not coral: this is "you have not been told",
+    // which is a caution, not an error or an emergency (DESIGN.md's tone ladder).
+    notSharedCard: {
+        flexDirection: "row",
+        gap: space.sm,
+        marginTop: space.md,
+        padding: space.md,
+        borderRadius: 14,
+        borderCurve: "continuous",
+        backgroundColor: colors.warningBg,
+        borderWidth: 1,
+        borderColor: colors.warning,
+    },
+    notSharedTitle: { ...type.label, color: colors.warning, marginBottom: 2 },
+    notSharedBody: { ...type.caption, color: colors.text, lineHeight: 18 },
+    notSharedHint: { ...type.caption, color: colors.textSecondary, marginTop: 4, lineHeight: 18 },
+
+    jumpBar: { flexDirection: "row", gap: 6, paddingVertical: space.md, paddingRight: space.md },
+    jumpChip: {
+        minHeight: MIN_TOUCH,
+        justifyContent: "center",
+        paddingHorizontal: space.md,
+        borderRadius: 999,
+        borderCurve: "continuous",
+        backgroundColor: colors.surfaceAlt,
+        borderWidth: 1,
+        borderColor: colors.hairline,
+    },
+    jumpChipText: { ...type.caption, color: colors.textSecondary, fontWeight: "600" },
+
+    vaxStatus: { gap: 8, marginBottom: space.sm },
+    vaxBand: { padding: space.sm, borderRadius: 12, borderCurve: "continuous", borderWidth: 1 },
+    vaxBandOverdue: { backgroundColor: colors.dangerBg, borderColor: colors.danger },
+    vaxBandNext: { backgroundColor: colors.infoBg, borderColor: colors.info },
+    vaxBandTitle: { ...type.label, color: colors.danger, marginBottom: 3 },
+    vaxBandTitleNext: { ...type.label, color: colors.info, marginBottom: 3 },
+    vaxBandRow: { ...type.caption, color: colors.text, lineHeight: 18 },
+    vaxBandRowNext: { ...type.caption, color: colors.text, lineHeight: 18 },
+
+    trendCard: {
+        marginTop: space.sm,
+        padding: space.sm,
+        borderRadius: 12,
+        borderCurve: "continuous",
+        backgroundColor: colors.surfaceAlt,
+    },
+    trendTitle: { ...type.caption, fontWeight: "800", color: colors.textSecondary, marginBottom: 4 },
+    trendRow: { ...type.body, color: colors.text, lineHeight: 22 },
+    trendMeta: { ...type.caption, color: colors.textMuted },
+
+    timelineCard: { flexDirection: "row", gap: space.md, marginBottom: space.sm, flexWrap: "wrap" },
+    timelineCol: { flex: 1, minWidth: 140 },
+    timelineLabel: { ...type.caption, fontWeight: "800", color: colors.textMuted, letterSpacing: 0.4 },
+    timelineValue: { ...type.caption, color: colors.text, lineHeight: 18, marginTop: 2 },
+
+    briefCard: {
+        padding: space.sm,
+        borderRadius: 12,
+        borderCurve: "continuous",
+        backgroundColor: colors.surfaceAlt,
+        marginBottom: space.sm,
+    },
+    briefText: { ...type.body, color: colors.text, lineHeight: 22 },
+    briefLabel: { ...type.caption, fontWeight: "800", color: colors.danger, marginTop: 6, letterSpacing: 0.4 },
+    briefReaction: { ...type.caption, color: colors.text, lineHeight: 18, marginTop: 2 },
+    briefNone: { ...type.caption, color: colors.textMuted, marginTop: 4 },
     snapshotBanner: {
         flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: colors.surfaceAlt,
         borderRadius: 12, padding: 10, marginTop: 10, marginBottom: 14,

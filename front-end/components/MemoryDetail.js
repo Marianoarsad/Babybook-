@@ -143,7 +143,9 @@ export default function MemoryDetail({ visible, memory, dob, typeLabel, onClose 
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        root: { flex: 1, backgroundColor: colors.background },
+        // transparent, not colors.background: App.js paints the page gradient.
+
+        root: { flex: 1, backgroundColor: "transparent" },
         header: {
             flexDirection: "row",
             alignItems: "center",

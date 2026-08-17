@@ -4,7 +4,7 @@ import { SectionContainerCard } from "../common/Cards";
 import { api } from "../../utils/api";
 import { useToast } from "../ui/Toast";
 import { useTheme } from "../../context/ThemeContext";
-import { useScreenPadBottom } from "../../utils/responsive";
+import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
 import { space, radius, type } from "../../theme";
 import KeyboardAvoider from "../ui/KeyboardAvoider";
 
@@ -25,6 +25,7 @@ export default function ChangePassword() {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
     const toast = useToast();
 
     const [currentPassword, setCurrentPassword] = useState("");
@@ -70,7 +71,7 @@ export default function ChangePassword() {
         <KeyboardAvoider>
         <ScrollView
             style={styles.container}
-            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+            contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
             keyboardShouldPersistTaps="handled"
         >
             <SectionContainerCard title="Change Password" subtitle="Use your current password to set a new one">
@@ -135,7 +136,9 @@ export default function ChangePassword() {
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background },
+        // transparent, not colors.background: App.js paints the page gradient.
+
+        container: { flex: 1, backgroundColor: "transparent" },
         // Padding on the content so the bottom clearance scrolls with it.
         content: { padding: space.lg },
         formGroup: { marginBottom: space.md },

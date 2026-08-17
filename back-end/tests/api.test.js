@@ -476,39 +476,111 @@ describe("BabyBook+ API", () => {
         });
     });
 
-    test("full QR share -> resolve -> access-log flow", async () => {
-        // parent creates a share
-        const share = await request(app)
-            .post(`/api/children/${childId}/shares`)
-            .set("Authorization", `Bearer ${token}`)
-            .send({ recordKeys: ["profile", "vaccinations"], ttlMinutes: 60 });
-        expect(share.status).toBe(201);
-        const code = share.body.code;
-        expect(code).toBeTruthy();
+    // This block owns its OWN child, deliberately.
+    //
+    // It used to share the suite-wide `childId`, and asserted the snapshot held
+    // exactly one vaccination. That was true when it was written and silently
+    // stopped being true the moment the "vaccination detail" tests above were
+    // added — they post four more vaccinations to that same child, so the count
+    // became 5 and this test failed for a reason that had nothing to do with
+    // QR sharing. A test that breaks when an unrelated test is added is not
+    // testing what it claims to.
+    //
+    // With its own child the counts are exact and stay exact, so the assertions
+    // can be specific again.
+    describe("QR consultation share", () => {
+        let shareChildId;
+        let shareCode;
+        let shareId;
 
-        // professional resolves it (public, no auth)
-        const resolve = await request(app)
-            .post("/api/consult/resolve")
-            .send({ code, professionalName: "Dr. Chen" });
-        expect(resolve.status).toBe(200);
-        expect(resolve.body.status).toBe("ok");
-        expect(resolve.body.payload.profile.name).toContain("Maya");
-        expect(resolve.body.payload.vaccinations.length).toBe(1);
+        beforeAll(async () => {
+            const create = await request(app)
+                .post("/api/children")
+                .set("Authorization", `Bearer ${token}`)
+                .send({ first_name: "Rosa", last_name: "Share", blood_type: "A+", allergies: ["peanut"] });
+            expect(create.status).toBe(201);
+            shareChildId = create.body.id;
 
-        // access log recorded the view
-        const log = await request(app)
-            .get(`/api/children/${childId}/access-log`)
-            .set("Authorization", `Bearer ${token}`);
-        expect(log.status).toBe(200);
-        expect(log.body[0].professional_name).toBe("Dr. Chen");
+            const vax = await request(app)
+                .post(`/api/children/${shareChildId}/vaccinations`)
+                .set("Authorization", `Bearer ${token}`)
+                .send({ vaccine_name: "BCG", visit_name: "At Birth", status: "completed", date_given: "2025-12-16" });
+            expect(vax.status).toBe(201);
+        });
 
-        // revoke -> no longer resolves
-        await request(app)
-            .post(`/api/children/${childId}/shares/${share.body.id}/revoke`)
-            .set("Authorization", `Bearer ${token}`);
-        const after = await request(app).post("/api/consult/resolve").send({ code });
-        expect(after.status).toBe(410);
-        expect(after.body.status).toBe("revoked");
+        test("parent generates a share and a professional resolves it", async () => {
+            const share = await request(app)
+                .post(`/api/children/${shareChildId}/shares`)
+                .set("Authorization", `Bearer ${token}`)
+                .send({
+                    recordKeys: ["profile", "vaccinations", "allergies"],
+                    ttlMinutes: 60,
+                    visitReason: "Cough for four days",
+                });
+            expect(share.status).toBe(201);
+            shareCode = share.body.code;
+            shareId = share.body.id;
+            expect(shareCode).toBeTruthy();
+            // The snapshot must never travel back to the parent's own client —
+            // it has no use for it and it is the child's records in full.
+            expect(share.body.payload).toBeUndefined();
+
+            const resolve = await request(app)
+                .post("/api/consult/resolve")
+                .send({ code: shareCode, professionalName: "Dr. Chen" });
+            expect(resolve.status).toBe(200);
+            expect(resolve.body.status).toBe("ok");
+            expect(resolve.body.payload.profile.name).toContain("Rosa");
+            // Exactly one, and this child's own — no longer a hostage to what
+            // other tests happen to create.
+            expect(resolve.body.payload.vaccinations.length).toBe(1);
+            expect(resolve.body.payload.vaccinations[0].vaccine_name).toBe("BCG");
+            expect(resolve.body.payload.allergies.allergies).toContain("peanut");
+            // The parent's reason for the visit reaches the professional.
+            expect(resolve.body.payload.visitReason).toBe("Cough for four days");
+        });
+
+        test("the stored snapshot is encrypted at rest, not plaintext", async () => {
+            // Straight to the column, past the API. The snapshot is a DECRYPTED
+            // copy of records the rest of the schema protects, so if it lands in
+            // the clear then field-level encryption has been bypassed for any
+            // child who ever had a code generated.
+            const { rows } = await pool.query(
+                "SELECT payload FROM shared_records WHERE code = $1",
+                [shareCode],
+            );
+            const stored = JSON.stringify(rows[0].payload);
+            expect(stored).toContain("enc:v1:");
+            expect(stored).not.toContain("Rosa");
+            expect(stored).not.toContain("peanut");
+            expect(stored).not.toContain("BCG");
+        });
+
+        test("the view is written to the parent's access log", async () => {
+            const log = await request(app)
+                .get(`/api/children/${shareChildId}/access-log`)
+                .set("Authorization", `Bearer ${token}`);
+            expect(log.status).toBe(200);
+            expect(log.body[0].professional_name).toBe("Dr. Chen");
+        });
+
+        test("revoking stops resolution AND destroys the stored snapshot", async () => {
+            await request(app)
+                .post(`/api/children/${shareChildId}/shares/${shareId}/revoke`)
+                .set("Authorization", `Bearer ${token}`);
+
+            const after = await request(app).post("/api/consult/resolve").send({ code: shareCode });
+            expect(after.status).toBe(410);
+            expect(after.body.status).toBe("revoked");
+
+            // Revoking withdraws access; leaving the readable copy behind would
+            // honour the letter of that and not the intent.
+            const { rows } = await pool.query(
+                "SELECT payload FROM shared_records WHERE code = $1",
+                [shareCode],
+            );
+            expect(rows[0].payload).toEqual({});
+        });
     });
 
     test("blocks access to another user's child", async () => {

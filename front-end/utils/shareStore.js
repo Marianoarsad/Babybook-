@@ -16,6 +16,10 @@ export const RECORD_LABELS = {
   medicalHistory: "Medical History (Illnesses, Medications, Hospitalizations)",
 };
 
+// Keep in step with VISIT_REASON_MAX in back-end/src/utils/snapshot.js, which
+// is the authority — the server trims to it regardless of what the client does.
+export const VISIT_REASON_MAX = 500;
+
 // The string actually encoded into the QR image.
 export function qrPayloadForCode(code) {
   return "BABYBOOK+CONSULT:" + code;

@@ -6,6 +6,7 @@ const { asyncHandler } = require("../middleware/error");
 const { handleValidation } = require("../middleware/validate");
 const { codeFromQrPayload } = require("../utils/shareCode");
 const { decrypt } = require("../utils/crypto");
+const { openPayload, PURGED_PAYLOAD_SQL } = require("../utils/snapshot");
 
 const router = express.Router();
 
@@ -30,9 +31,27 @@ router.post(
         const expired = share.status === "expired" || new Date(share.expiration_date) <= new Date();
         if (expired) {
             if (share.status !== "expired") {
-                await query("UPDATE shared_records SET status = 'expired' WHERE id = $1", [share.id]);
+                // Expiring here also drops the snapshot, so a code that runs out
+                // between generation and use does not leave its readable copy
+                // behind waiting for the next sweep.
+                await query(
+                    "UPDATE shared_records SET status = 'expired', payload = $2 WHERE id = $1",
+                    [share.id, PURGED_PAYLOAD_SQL],
+                );
             }
             return res.status(410).json({ status: "expired", error: "This code has expired" });
+        }
+
+        // Open the sealed snapshot. Returns null if it cannot be read — a
+        // purged row, or ciphertext that will not decrypt because
+        // DATA_ENCRYPTION_KEY changed. Fail closed and say so: showing a
+        // clinician an empty record set that LOOKS like a healthy child with no
+        // history would be far worse than refusing the code.
+        const payload = openPayload(share.payload);
+        if (!payload || !Object.keys(payload).length) {
+            return res
+                .status(410)
+                .json({ status: "unavailable", error: "These shared records are no longer available. Ask the parent for a new code." });
         }
 
         // Resolve the child's display name and record the access.
@@ -55,7 +74,7 @@ router.post(
             status: "ok",
             childName,
             recordKeys: share.shared_record_keys,
-            payload: share.payload,
+            payload,
             expiresAt: share.expiration_date,
             capturedAt: share.generate_date,
         });

@@ -27,6 +27,12 @@ import { useTheme } from "../../context/ThemeContext";
 //   options:     [{ key, label, note }] — `note` is muted text on the right
 //   selectedKey: the currently chosen key
 //
+// For a short list that belongs to a specific control and should read as an
+// extension of it, use ui/AnchoredMenu.js instead. The split is by SHAPE: this
+// sheet owns the bottom of the screen and its size has nothing to do with
+// whatever opened it, which is right for a long list you commit to reading and
+// wrong for a menu hanging off a button.
+//
 // Rows are a fixed height so the selected one can be scrolled into view on
 // open without measuring. Keep ROW_STRIDE in step with styles.item.
 const ROW_STRIDE = 52;
@@ -84,7 +90,15 @@ export default function OptionSheet({
                                     accessibilityState={{ selected: on }}
                                     accessibilityLabel={o.note ? `${o.label}, ${o.note}` : o.label}
                                 >
-                                    <Text style={[styles.itemText, on && styles.itemTextOn]}>
+                                    {/* Capped at 2 lines because ROW_STRIDE
+                                        above assumes rows are a fixed height —
+                                        a long label (a full Filipino name in
+                                        the baby switcher) wrapped to three and
+                                        put scroll-to-selected off by a row. */}
+                                    <Text
+                                        style={[styles.itemText, on && styles.itemTextOn]}
+                                        numberOfLines={2}
+                                    >
                                         {o.label}
                                     </Text>
                                     {o.note ? <Text style={styles.itemNote}>{o.note}</Text> : null}

@@ -7,7 +7,7 @@ import { useToast } from "../ui/Toast";
 import { SkeletonBlock } from "../ui/Skeleton";
 import KeyboardAvoider from "../ui/KeyboardAvoider";
 import { useTheme } from "../../context/ThemeContext";
-import { useScreenPadBottom } from "../../utils/responsive";
+import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
 import { space, radius, type } from "../../theme";
 
 const PREDEFINED_AVATARS = [
@@ -29,6 +29,7 @@ export default function EditProfile({
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
     const toast = useToast();
 
     const [email, setEmail] = useState("");
@@ -78,7 +79,7 @@ export default function EditProfile({
         <KeyboardAvoider>
         <ScrollView
             style={styles.container}
-            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+            contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
             keyboardShouldPersistTaps="handled"
         >
             {/* Prominent ringed avatar hero — the photo picker moved up here
@@ -154,7 +155,9 @@ export default function EditProfile({
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background },
+        // transparent, not colors.background: App.js paints the page gradient.
+
+        container: { flex: 1, backgroundColor: "transparent" },
         // Padding on the content so the bottom clearance scrolls with it.
         content: { padding: space.lg },
         headerBox: { alignItems: "center", marginVertical: space.lg },

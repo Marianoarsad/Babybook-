@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
-    View,
+    Animated,View,
     Text,
     StyleSheet,
     ScrollView,
@@ -38,7 +38,8 @@ import { useToast } from "./ui/Toast";
 import { useLanguage } from "../context/LanguageContext";
 import { useTheme } from "../context/ThemeContext";
 import { radius, space, type, shadow, MIN_TOUCH } from "../theme";
-import { useScreenPadBottom, fitsColumns } from "../utils/responsive";
+import { useScreenPadBottom, useScreenPadTop, fitsColumns } from "../utils/responsive";
+import { useScroll } from "../context/ScrollContext";
 import {
     SectionContainerCard,
     ListEntryCard,
@@ -206,6 +207,8 @@ export default function Health({
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
+    const { scrollProps } = useScroll();
     // Room inside a modal sheet: screen, less the backdrop padding, capped at
     // the card's maxWidth, less the card's own padding. Paired fields (Date /
     // Time) drop to one per line when that can't give each a readable column.
@@ -1008,10 +1011,11 @@ export default function Health({
     };
 
     return (
-        <ScrollView
+        <Animated.ScrollView
             style={styles.container}
-            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+            contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
             refreshControl={refreshControl}
+            {...scrollProps}
             keyboardShouldPersistTaps="handled"
         >
             <TipStrip tipKey="tip_health">
@@ -2175,14 +2179,14 @@ export default function Health({
                 onReplace={replaceInViewer}
                 onDelete={deleteInViewer}
             />
-        </ScrollView>
+        </Animated.ScrollView>
     );
 }
 
 const makeStyles = (colors) => StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: colors.background,
+        backgroundColor: "transparent", // lets App.js's page gradient show through
     },
     // Padding belongs on the CONTENT, not the ScrollView itself: padding on
     // the scroll view's own box does not scroll with the content, so the
@@ -2476,8 +2480,11 @@ const makeStyles = (colors) => StyleSheet.create({
         marginBottom: 16,
     },
     exportPdfBtnText: {
+        // primaryDark: this sits on `surfaceAlt`, where `primary` measured
+        // 4.20:1 — under AA, and unrelated to the page gradient. Surfaced by
+        // the contrast sweep that came with it.
         ...type.label,
-        color: colors.primary,
+        color: colors.primaryDark,
     },
     actionBtnAlt: {
         backgroundColor: colors.softGreen,

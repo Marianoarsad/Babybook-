@@ -5,7 +5,7 @@ import { SectionContainerCard } from "../common/Cards";
 import { api } from "../../utils/api";
 import { useToast } from "../ui/Toast";
 import { useTheme } from "../../context/ThemeContext";
-import { useScreenPadBottom } from "../../utils/responsive";
+import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
 import { SkeletonBlock } from "../ui/Skeleton";
 import { space, radius, type, shadow, MIN_TOUCH } from "../../theme";
 import { exportChildRecordsPdf, pdfExportAvailable } from "../../utils/exportPdf";
@@ -17,6 +17,7 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
     const toast = useToast();
 
     const [user, setUser] = useState(null);
@@ -107,7 +108,7 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
     return (
         <ScrollView
             style={styles.container}
-            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+            contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
             keyboardShouldPersistTaps="handled"
         >
             {loading ? (
@@ -261,7 +262,9 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background },
+        // transparent, not colors.background: App.js paints the page gradient.
+
+        container: { flex: 1, backgroundColor: "transparent" },
         // Padding on the content so the bottom clearance scrolls with it.
         content: { padding: space.lg },
         consentBanner: {

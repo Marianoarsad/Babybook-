@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-nati
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
 import { space, radius, shadow, type, MIN_TOUCH } from "../theme";
-import { useScreenPadBottom } from "../utils/responsive";
+import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
 import { api } from "../utils/api";
 import { EmptyStateCard } from "./common/Cards";
 import { AppointmentsSkeleton } from "./ui/Skeleton";
@@ -21,6 +21,7 @@ export default function AllActivity({ profile, onClose }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
     const [activity, setActivity] = useState([]);
     const [loading, setLoading] = useState(true);
     const [visibleCount, setVisibleCount] = useState(10);
@@ -120,7 +121,7 @@ export default function AllActivity({ profile, onClose }) {
                 <View style={styles.headerBtn} />
             </View>
             <ScrollView
-                contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+                contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
                 refreshControl={refreshControl}
                 keyboardShouldPersistTaps="handled"
             >
@@ -169,7 +170,9 @@ export default function AllActivity({ profile, onClose }) {
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        root: { flex: 1, backgroundColor: colors.background },
+        // transparent, not colors.background: App.js paints the page gradient.
+
+        root: { flex: 1, backgroundColor: "transparent" },
         header: {
             flexDirection: "row",
             alignItems: "center",

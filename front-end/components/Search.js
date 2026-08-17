@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
 import { space, radius, shadow, type, MIN_TOUCH } from "../theme";
-import { useScreenPadBottom } from "../utils/responsive";
+import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
 import { api } from "../utils/api";
 import {
     vaccinationToApp,
@@ -34,6 +34,7 @@ export default function Search({ profile, onClose, onNavigate }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [query, setQuery] = useState("");
@@ -227,7 +228,7 @@ export default function Search({ profile, onClose, onNavigate }) {
             </View>
 
             <ScrollView
-                contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+                contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
                 refreshControl={refreshControl}
                 keyboardShouldPersistTaps="handled"
             >
@@ -274,7 +275,9 @@ export default function Search({ profile, onClose, onNavigate }) {
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        root: { flex: 1, backgroundColor: colors.background },
+        // transparent, not colors.background: App.js paints the page gradient.
+
+        root: { flex: 1, backgroundColor: "transparent" },
         header: {
             flexDirection: "row",
             alignItems: "center",

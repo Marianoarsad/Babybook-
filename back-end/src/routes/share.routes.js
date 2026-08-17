@@ -6,16 +6,30 @@ const { ApiError, asyncHandler } = require("../middleware/error");
 const { handleValidation } = require("../middleware/validate");
 const { requireAuth, requireChildOwnership } = require("../middleware/auth");
 const { generateCode, qrPayloadForCode } = require("../utils/shareCode");
-const { RECORD_LABELS, buildSnapshot } = require("../utils/snapshot");
+const { RECORD_LABELS, buildSnapshot, sealPayload, PURGED_PAYLOAD_SQL } = require("../utils/snapshot");
 
 const router = express.Router();
 
-// Mark this child's overdue active shares as expired.
+// Every column of a share EXCEPT `payload`.
+//
+// The parent's own app never needs the snapshot — it lists codes, their status
+// and what was shared — so there is no reason to ship a copy of the child's
+// medical records to the client on every history refresh. That was true when
+// the payload was plaintext and it is still true now it is sealed: sending
+// ciphertext the client cannot read is pure waste, and `SELECT *` would start
+// leaking any sensitive column added here in future.
+const SHARE_COLUMNS =
+    "id, child_id, code, qr_payload, shared_record_keys, generate_date, expiration_date, status, created_at";
+
+// Mark this child's overdue active shares as expired, AND drop the snapshot
+// they were holding. One statement, so a share can never be left dead but still
+// carrying a readable copy of the child's records. The row itself survives —
+// the parent's share history and access log are built from it.
 async function sweepChild(childId) {
     await query(
-        `UPDATE shared_records SET status = 'expired'
+        `UPDATE shared_records SET status = 'expired', payload = $2
          WHERE child_id = $1 AND status = 'active' AND expiration_date <= now()`,
-        [childId]
+        [childId, PURGED_PAYLOAD_SQL]
     );
 }
 
@@ -35,7 +49,9 @@ router.post(
         if (keys.length === 0) throw new ApiError(400, "No valid record types selected");
 
         const ttl = parseInt(req.body.ttlMinutes || "60", 10);
-        const payload = await buildSnapshot(req.child, keys);
+        // Optional. Travels inside the snapshot, not as a column — see the note
+        // on buildSnapshot for why.
+        const payload = await buildSnapshot(req.child, keys, req.body.visitReason);
 
         // Ensure a unique code (retry a few times on the rare collision).
         let share;
@@ -46,8 +62,12 @@ router.post(
                     `INSERT INTO shared_records
                         (child_id, code, qr_payload, shared_record_keys, payload, expiration_date)
                      VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' minutes')::interval)
-                     RETURNING *`,
-                    [req.child.id, code, qrPayloadForCode(code), JSON.stringify(keys), JSON.stringify(payload), String(ttl)]
+                     RETURNING ${SHARE_COLUMNS}`,
+                    // sealPayload, not JSON.stringify: the snapshot holds
+                    // DECRYPTED medical data, and storing it in the clear would
+                    // undo the field-level encryption every other table relies
+                    // on. See the note in utils/snapshot.js.
+                    [req.child.id, code, qrPayloadForCode(code), JSON.stringify(keys), sealPayload(payload), String(ttl)]
                 );
                 share = rows[0];
             } catch (e) {
@@ -67,7 +87,7 @@ router.get(
     asyncHandler(async (req, res) => {
         await sweepChild(req.child.id);
         const { rows } = await query(
-            "SELECT * FROM shared_records WHERE child_id = $1 ORDER BY generate_date DESC",
+            `SELECT ${SHARE_COLUMNS} FROM shared_records WHERE child_id = $1 ORDER BY generate_date DESC`,
             [req.child.id]
         );
         res.json(rows);
@@ -81,9 +101,12 @@ router.post(
     requireChildOwnership,
     asyncHandler(async (req, res) => {
         const { rows } = await query(
-            `UPDATE shared_records SET status = 'revoked'
-             WHERE id = $1 AND child_id = $2 AND status = 'active' RETURNING *`,
-            [req.params.id, req.child.id]
+            // Revoking drops the snapshot too. A parent who revokes a code is
+            // withdrawing access, and leaving the readable copy behind would
+            // honour the letter of that and not the intent.
+            `UPDATE shared_records SET status = 'revoked', payload = $3
+             WHERE id = $1 AND child_id = $2 AND status = 'active' RETURNING ${SHARE_COLUMNS}`,
+            [req.params.id, req.child.id, PURGED_PAYLOAD_SQL]
         );
         if (!rows[0]) throw new ApiError(404, "Active share not found");
         res.json(rows[0]);

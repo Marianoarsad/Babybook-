@@ -12,7 +12,7 @@ import { useLanguage } from "../context/LanguageContext";
 import { useToast } from "./ui/Toast";
 import { useTheme } from "../context/ThemeContext";
 import { space, type, radius, MIN_TOUCH } from "../theme";
-import { useScreenPadBottom } from "../utils/responsive";
+import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
 import { SectionContainerCard, ListEntryCard } from "./common/Cards";
 import { Ionicons } from "@expo/vector-icons";
 import { initialUpdates, initialClinics } from "../mockData";
@@ -21,6 +21,7 @@ export default function Services() {
     const { language, t } = useLanguage();
     const toast = useToast();
     const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const [selectedCity, setSelectedCity] = useState("QUEZON CITY");
@@ -34,7 +35,7 @@ export default function Services() {
     return (
         <ScrollView
             style={styles.container}
-            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+            contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
         >
             {/* Services Title Header */}
             <View style={styles.header}>
@@ -168,7 +169,7 @@ export default function Services() {
 const makeStyles = (colors) => StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: colors.background,
+        backgroundColor: "transparent", // lets App.js's page gradient show through
     },
     // Padding on the content, not the ScrollView box — see Health.js.
     content: { padding: space.lg },

@@ -10,16 +10,17 @@ import {
     Animated,
     Easing,
     Platform,
+    TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import QrCodeView from "./QrCodeView";
 import { ageText } from "./Dashboard";
-import { RECORD_LABELS, qrPayloadForCode } from "../utils/shareStore";
+import { RECORD_LABELS, qrPayloadForCode, VISIT_REASON_MAX } from "../utils/shareStore";
 import { api } from "../utils/api";
 import { useToast } from "./ui/Toast";
 import { useTheme } from "../context/ThemeContext";
 import { motion, shadow, space, type, MIN_TOUCH } from "../theme";
-import { useScreenPadBottom } from "../utils/responsive";
+import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
 import { EmptyStateCard } from "./common/Cards";
 import { useRefreshControl } from "./ui/useRefreshControl";
 import ShowMore from "./ui/ShowMore";
@@ -54,9 +55,11 @@ export default function ShareRecords({ profile }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
     const allKeys = Object.keys(RECORD_LABELS);
     const [selected, setSelected] = useState(() => new Set(allKeys));
     const [ttl, setTtl] = useState(60);
+    const [visitReason, setVisitReason] = useState("");
     const [generating, setGenerating] = useState(false);
     const [activeShare, setActiveShare] = useState(null);
     const [history, setHistory] = useState([]);
@@ -126,6 +129,7 @@ export default function ShareRecords({ profile }) {
             const share = await api.createShare(profile.id, {
                 recordKeys: keys,
                 ttlMinutes: ttl,
+                visitReason: visitReason.trim(),
             });
             setActiveShare(share);
             toast.success("Ready to show the doctor");
@@ -160,7 +164,7 @@ export default function ShareRecords({ profile }) {
         const keys = activeShare.shared_record_keys || [];
         return (
             <ScrollView
-                contentContainerStyle={[styles.scroll, { paddingBottom: padBottom }]}
+                contentContainerStyle={[styles.scroll, { paddingTop: padTop, paddingBottom: padBottom }]}
                 refreshControl={refreshControl}
                 keyboardShouldPersistTaps="handled"
             >
@@ -224,7 +228,7 @@ export default function ShareRecords({ profile }) {
     // ---- builder view ----
     return (
         <ScrollView
-                contentContainerStyle={[styles.scroll, { paddingBottom: padBottom }]}
+                contentContainerStyle={[styles.scroll, { paddingTop: padTop, paddingBottom: padBottom }]}
                 refreshControl={refreshControl}
                 keyboardShouldPersistTaps="handled"
             >
@@ -256,8 +260,34 @@ export default function ShareRecords({ profile }) {
                 })}
             </View>
 
+            {/* The one thing on the professional's screen that no record can
+                supply: why you are there today. Optional, and deliberately
+                asks for the concern in the parent's own words — the app must
+                never nudge a parent toward naming a diagnosis. */}
             <View style={styles.card}>
-                <Text style={styles.cardTitle}>2 · Access expires after</Text>
+                <Text style={styles.cardTitle}>2 · What is this visit about?</Text>
+                <Text style={styles.reasonHint}>
+                    Optional. Whatever you write here is shown first to the healthcare
+                    professional, in your own words.
+                </Text>
+                <TextInput
+                    style={styles.reasonInput}
+                    value={visitReason}
+                    onChangeText={setVisitReason}
+                    placeholder="e.g. Coughing for 4 days, worse at night, not eating well"
+                    placeholderTextColor={colors.placeholder}
+                    multiline
+                    maxLength={VISIT_REASON_MAX}
+                    textAlignVertical="top"
+                    accessibilityLabel="What this visit is about"
+                />
+                <Text style={styles.reasonCount}>
+                    {visitReason.length}/{VISIT_REASON_MAX}
+                </Text>
+            </View>
+
+            <View style={styles.card}>
+                <Text style={styles.cardTitle}>3 · Access expires after</Text>
                 <View style={styles.ttlRow}>
                     {TTL_OPTIONS.map((o) => (
                         <TouchableOpacity
@@ -385,6 +415,20 @@ const makeStyles = (colors) => StyleSheet.create({
     recLabel: { flex: 1, minWidth: 0, ...type.body, color: colors.text, fontWeight: "500" },
     ttlRow: { flexDirection: "row", backgroundColor: colors.surfaceAlt, borderRadius: 12, padding: 4 },
     ttlHint: { ...type.caption, color: colors.textMuted, marginTop: 8, lineHeight: 18 },
+    reasonHint: { ...type.caption, color: colors.textMuted, marginBottom: space.sm, lineHeight: 18 },
+    reasonInput: {
+        ...type.body,
+        color: colors.text,
+        backgroundColor: colors.surfaceAlt,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: 12,
+        borderCurve: "continuous",
+        paddingHorizontal: space.md,
+        paddingVertical: space.sm,
+        minHeight: 88,
+    },
+    reasonCount: { ...type.caption, color: colors.textMuted, textAlign: "right", marginTop: space.xs },
     ttlBtn: { flex: 1, minWidth: 0, minHeight: MIN_TOUCH, justifyContent: "center", paddingVertical: 9, borderRadius: 9, alignItems: "center" },
     ttlBtnOn: { backgroundColor: colors.surface, shadowColor: colors.text, shadowOpacity: 0.06, shadowRadius: 4, elevation: 1 },
     ttlText: { ...type.caption, fontWeight: "600", color: colors.textMuted },

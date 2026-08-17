@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal } from "react-native";
+import { Animated, View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { radius, space, shadow, type, MIN_TOUCH } from "../theme";
-import { useScreenPadBottom } from "../utils/responsive";
+import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
+import { useScroll } from "../context/ScrollContext";
 import { useTheme } from "../context/ThemeContext";
 import { api } from "../utils/api";
 import { nutritionToApp, nutritionFormToRecord, feedVolumeMl } from "../utils/adapters";
@@ -99,6 +100,8 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
+    const { scrollProps } = useScroll();
     const [entries, setEntries] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
@@ -397,10 +400,11 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
     ].filter(Boolean);
 
     return (
-        <ScrollView
+        <Animated.ScrollView
             style={styles.container}
-            contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+            contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
             refreshControl={refreshControl}
+            {...scrollProps}
             keyboardShouldPersistTaps="handled"
         >
             {/* Today — the glance layer. Everything here is derived from the
@@ -1015,13 +1019,15 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                     </View>
                 </KeyboardAvoider>
             </Modal>
-        </ScrollView>
+        </Animated.ScrollView>
     );
 }
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background },
+        // transparent, not colors.background: App.js paints the page gradient.
+
+        container: { flex: 1, backgroundColor: "transparent" },
         // Padding on the content, not the ScrollView box — see Health.js.
         content: { padding: space.lg },
 

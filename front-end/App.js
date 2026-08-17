@@ -4,6 +4,7 @@ import {
     Text,
     StyleSheet,
     TouchableOpacity,
+    Pressable,
     StatusBar,
     Modal,
     TextInput,
@@ -31,8 +32,22 @@ import {
     PublicSans_600SemiBold,
     PublicSans_700Bold,
 } from "@expo-google-fonts/public-sans";
-import { radius, space, shadow, type, MIN_TOUCH, TEXT_COL_MIN, motion } from "./theme";
+import {
+    radius,
+    space,
+    shadow,
+    type,
+    MIN_TOUCH,
+    TEXT_COL_MIN,
+    motion,
+    HEADER_TITLE_MAX,
+    HEADER_TITLE_MIN,
+    HEADER_COLLAPSE,
+} from "./theme";
 import ActionSheet from "./components/ui/ActionSheet";
+import AnchoredMenu, { AnchoredMenuItem, AnchoredMenuFooter } from "./components/ui/AnchoredMenu";
+import Gradient from "./components/ui/Gradient";
+import { ScrollContext, useScrollController } from "./context/ScrollContext";
 
 // Guarded expo-haptics, same pattern as ui/Toast.js — a no-op if the module
 // isn't available rather than a crash.
@@ -114,6 +129,7 @@ import PrivacySettings from "./components/settings/PrivacySettings";
 import { api, getToken, setToken, clearToken } from "./utils/api";
 import { scheduleReminder, morningOf, cancelRemindersOfKind } from "./utils/notifications";
 import { childToProfile, profileFormToChild } from "./utils/adapters";
+import { todayLocal } from "./utils/dates";
 import { pickImage, pickerAvailable } from "./utils/imagePicker";
 
 // Header title shown ("← <title>") whenever currentView is a side-menu
@@ -121,6 +137,20 @@ import { pickImage, pickerAvailable } from "./utils/imagePicker";
 // drift apart. Screens absent here (the 5 bottom tabs, allActivity — which
 // draws its own back header) keep showing the baby's name instead.
 const SCREEN_TITLES = { ...MENU_TITLES, share: "Share Records", offlineSummary: "Offline Summary" };
+
+// The short form of a child's name, for the header title only.
+//
+// A large title only works with a short string. "Maria Auxiliadora
+// Bituin-Villanueva" at 30px leaves room for about eight characters once the
+// chevron, the alert dot and three 44pt buttons have taken their share — so the
+// LARGE state would truncate harder than the small one, which reads as a bug.
+// The switcher menu still lists full names, so nothing is lost.
+//
+// Same nickname-or-first-name rule the old Dashboard switcher pills used.
+export function headerName(profile) {
+    if (!profile) return "";
+    return profile.nickname || String(profile.name || "").split(" ")[0] || profile.name || "";
+}
 
 function MainAppShell({
     onThemeGenderChange,
@@ -138,6 +168,11 @@ function MainAppShell({
     // the floating button's old hardcoded `bottom: 92` was only ever correct
     // on one device at one font size.
     const [tabBarHeight, setTabBarHeight] = useState(0);
+    // The header floats OVER the page now, so it reserves no layout space and
+    // every scrolling screen has to pad for it. Measured, never hardcoded: it
+    // moves with the safe-area inset and grows with the OS font scale.
+    const [headerHeight, setHeaderHeight] = useState(0);
+    const scroll = useScrollController(headerHeight);
 
     // Room inside the child-profile sheet, so its paired fields (birth weight /
     // birth height) can drop to one per line rather than squeezing to ~130pt
@@ -261,6 +296,11 @@ function MainAppShell({
         // Log Milk on their tabs.
         setNavTab(tab);
         setNavKey((k) => k + 1);
+        // The incoming screen mounts at offset 0. Without this the shared value
+        // still holds the OUTGOING screen's offset and the header opens stuck
+        // collapsed and white — the same stale-across-unmount trap as navTab
+        // above, one layer up.
+        scroll.resetScroll();
     };
     const goBack = () => {
         const prev = historyRef.current[historyRef.current.length - 1];
@@ -270,6 +310,9 @@ function MainAppShell({
         // target itself or it leaks the same stale alias.
         setNavTab(null);
         setNavKey((k) => k + 1);
+        // goBack bypasses changeView, so it clears the scroll offset itself for
+        // the same reason it clears navTab itself.
+        scroll.resetScroll();
     };
 
     // Floating "log something" button (bottom-right, above the tab bar) and
@@ -306,6 +349,30 @@ function MainAppShell({
     const [showEditProfileModal, setShowEditProfileModal] = useState(false);
     // Slide-in side menu (opened from the header avatar).
     const [menuOpen, setMenuOpen] = useState(false);
+    // Baby switcher, opened from the child's name in the header. It used to be
+    // a row of pills pinned to the top of the Dashboard, which meant it cost a
+    // row of vertical space on the busiest screen AND existed on only that one
+    // screen — a parent on Health or Calendar had to go home to switch child.
+    //
+    // The menu hangs off the name rather than sliding up from the bottom, so it
+    // needs the name's position in window coordinates. Measured at press time
+    // rather than on layout: the name moves as the header collapses, and a
+    // stale measurement would drop the menu in the wrong place.
+    const [switcherOpen, setSwitcherOpen] = useState(false);
+    const [switcherAnchor, setSwitcherAnchor] = useState(null);
+    const nameRef = useRef(null);
+
+    const openSwitcher = () => {
+        if (nameRef.current && nameRef.current.measureInWindow) {
+            nameRef.current.measureInWindow((x, y, width, height) => {
+                setSwitcherAnchor({ x, y, width, height });
+                setSwitcherOpen(true);
+            });
+            return;
+        }
+        setSwitcherAnchor(null);
+        setSwitcherOpen(true);
+    };
     // Annual data-retention re-consent (Data Privacy Act of 2012).
     const [consentDue, setConsentDue] = useState(false);
     const [withdrawConfirm, setWithdrawConfirm] = useState(false);
@@ -330,6 +397,85 @@ function MainAppShell({
 
     const activeProfile =
         profiles.find((p) => p.id === selectedProfileId) || profiles[0];
+
+    // Alert dots for the baby switcher. Without this a parent with two children
+    // has to switch back and forth to find out whether the other one has
+    // anything overdue, since Needs Attention is per-child.
+    //
+    // Lifted here from Dashboard.js when the switcher moved into the header:
+    // the header is on all five tab screens, so the verdict has to be available
+    // whether or not the Dashboard ever mounted. It therefore fetches for EVERY
+    // child including the selected one, where the Dashboard's version could
+    // lean on its own record bundle for that one.
+    //
+    // Kept as cheap as the signal allows: nothing at all on a single-child
+    // account (there is no switcher to dot), only the two record types that can
+    // raise a dot, one fetch per child per session, and a silent failure — a
+    // dot that can't load simply doesn't appear rather than showing an error
+    // for a child you aren't even looking at. This is a real cost on a slow
+    // connection (PRODUCT.md Principle 3), so it stays strictly additive and
+    // never blocks the header.
+    // ponytail: 2 requests per child. If a parent ever has enough children for
+    // that to bite, replace with one /children/alerts endpoint.
+    //
+    // requestedAlertsRef, not childAlerts, is what gates a fetch. Keying off
+    // the map alone re-ran the effect while a child's request was still in
+    // flight and fetched that child a second time.
+    const [childAlerts, setChildAlerts] = useState({});
+    // Avatars whose URL 404s. Uploads are ephemeral on the free Render tier, so
+    // a stored URL can outlive its file; without this the switcher rows render
+    // an empty grey square instead of the person glyph. Same fallback the
+    // Dashboard uses, for the same reason.
+    const [brokenAvatars, setBrokenAvatars] = useState(new Set());
+    const requestedAlertsRef = useRef(new Set());
+    const profileIdKey = profiles.map((p) => p.id).join(",");
+    useEffect(() => {
+        if (profiles.length < 2) return;
+        const unknown = profiles.filter((p) => !requestedAlertsRef.current.has(p.id));
+        if (!unknown.length) return;
+        for (const p of unknown) requestedAlertsRef.current.add(p.id);
+        let active = true;
+        const todayStr = todayLocal();
+        Promise.all(
+            unknown.map(async (p) => {
+                try {
+                    const [vax, med] = await Promise.all([
+                        api.listRecords(p.id, "vaccinations"),
+                        api.listRecords(p.id, "medical-history"),
+                    ]);
+                    const overdue = (vax || []).some(
+                        (v) => v.status !== "completed" && v.due_date && v.due_date < todayStr,
+                    );
+                    const ongoing = (med || []).some(
+                        (m) =>
+                            (m.category === "Illness" || m.category === "Hospitalization") &&
+                            !m.resolved,
+                    );
+                    return [p.id, overdue || ongoing];
+                } catch {
+                    return null;
+                }
+            }),
+        ).then((results) => {
+            if (!active) return;
+            const next = {};
+            for (const r of results) if (r) next[r[0]] = r[1];
+            // Only set when something actually resolved, or this re-runs
+            // forever on a child whose fetch keeps failing.
+            if (Object.keys(next).length) setChildAlerts((prev) => ({ ...prev, ...next }));
+        });
+        return () => {
+            active = false;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [profileIdKey]);
+
+    // True when some child OTHER than the one on screen needs attention — the
+    // whole point of the dot on the header. The active child's own problems are
+    // already stated, loudly, by the Needs Attention card.
+    const otherChildNeedsAttention = profiles.some(
+        (p) => p.id !== (activeProfile && activeProfile.id) && childAlerts[p.id],
+    );
 
     // Unseen QR-access-log notifications: poll while the app is open (no
     // server push exists yet — see CLAUDE.md 4.5, deferred). Toast + badge
@@ -749,19 +895,62 @@ function MainAppShell({
     }
 
     return (
-        <View
+        // The page background is a gradient, not a flat fill, and its stops
+        // come from the active palette — so it switches with the child the same
+        // way every accent already does. The final stop IS colors.background,
+        // because every status and record-type colour in theme.js was
+        // contrast-verified against that flat value. See theme.js pageGradient.
+        //
+        // The middle stop is at 0.5, not 0.3. This app puts a card about 14%
+        // down every screen, so a fade that finished at 30% was almost entirely
+        // hidden behind it — the only tinted area left was two 16px strips
+        // beside the header, which is why the gradient read as "barely there".
+        // Carrying colour to mid-page keeps it in the side margins and the gaps
+        // between cards, which is where a page background is actually seen.
+        <ScrollContext.Provider value={scroll}>
+        <Gradient
+            colors={colors.pageGradient}
+            locations={[0, 0.5, 1]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
             style={[
                 styles.container,
-                // Top inset only — the bottom one belongs to the tab bar, which
-                // must paint its own background all the way down behind the
-                // home indicator rather than leaving a bare strip.
-                { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right },
+                // NO paddingTop here any more: the header is absolutely
+                // positioned over the page, so it carries the top inset itself.
+                // The bottom inset belongs to the tab bar, which must paint its
+                // own background all the way down behind the home indicator
+                // rather than leaving a bare strip.
+                { paddingLeft: insets.left, paddingRight: insets.right },
             ]}
         >
-            <StatusBar barStyle={scheme === "dark" ? "light-content" : "dark-content"} backgroundColor={colors.background} />
+            <StatusBar barStyle={scheme === "dark" ? "light-content" : "dark-content"} backgroundColor={colors.pageGradient[0]} />
 
-            {/* Dynamic Header */}
-            <View style={styles.header}>
+            {/* Dynamic Header — rendered AFTER the content below so it paints
+                on top of it. It floats over the page rather than sitting above
+                it, which is what lets content scroll beneath the bar and makes
+                its white background mean something. */}
+            <Animated.View
+                style={[styles.header, { paddingTop: insets.top }]}
+                onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
+            >
+                {/* The white ground, as an OVERLAY with animated opacity rather
+                    than an animated backgroundColor — colour is not
+                    native-driver-safe, opacity is, and it composites over the
+                    gradient correctly. The hairline fades in with it. */}
+                <Animated.View
+                    pointerEvents="none"
+                    style={[
+                        styles.headerBg,
+                        {
+                            opacity: scroll.scrollY.interpolate({
+                                inputRange: [0, HEADER_COLLAPSE],
+                                outputRange: [0, 1],
+                                extrapolate: "clamp",
+                            }),
+                        },
+                    ]}
+                />
+                <View style={styles.headerRow}>
                 <View style={styles.headerLeft}>
                     {SCREEN_TITLES[currentView] ? (
                         <>
@@ -778,13 +967,82 @@ function MainAppShell({
                             </Text>
                         </>
                     ) : (
-                        // numberOfLines is load-bearing: headerLeft and
-                        // headerRight were both unbounded in a space-between
-                        // row, so a long child name grew the left side until
-                        // it pushed the search / QR / menu buttons off-screen.
-                        <Text style={styles.babyName} numberOfLines={1} ellipsizeMode="tail">
-                            {activeProfile.name}
-                        </Text>
+                        // The child's name IS the switcher. The chevron shows
+                        // even with a single child, because the sheet also
+                        // holds "Add another child" — the affordance that used
+                        // to sit under the Dashboard's switcher row.
+                        <Pressable
+                            ref={nameRef}
+                            onPress={openSwitcher}
+                            style={({ pressed, hovered }) => [
+                                styles.babyNameBtn,
+                                { opacity: hovered ? 0.8 : pressed ? 0.7 : 1 },
+                            ]}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${activeProfile.name}${
+                                otherChildNeedsAttention
+                                    ? ". Another child needs attention"
+                                    : ""
+                            }`}
+                            accessibilityHint="Switches between your children"
+                        >
+                            {/* The name, alert dot and chevron scale as ONE
+                                group, so the chevron shrinks with the title
+                                instead of stranding a gap beside it.
+
+                                The Pressable stays OUTSIDE this view, so the
+                                touch target keeps its full 44pt at every scroll
+                                position — scaling the tappable area down to
+                                0.667 would leave a ~29pt target when collapsed.
+
+                                Scale, not fontSize: animating fontSize re-lays
+                                out the text every scroll frame and forces the
+                                whole animation off the native driver.
+                                transformOrigin keeps it pinned left (RN 0.74+;
+                                this project is on 0.85). */}
+                            <Animated.View
+                                style={[
+                                    styles.babyNameScale,
+                                    {
+                                        transform: [
+                                            {
+                                                scale: scroll.scrollY.interpolate({
+                                                    inputRange: [0, HEADER_COLLAPSE],
+                                                    outputRange: [1, HEADER_TITLE_MIN / HEADER_TITLE_MAX],
+                                                    extrapolate: "clamp",
+                                                }),
+                                            },
+                                        ],
+                                    },
+                                ]}
+                            >
+                                {/* numberOfLines is load-bearing: headerLeft
+                                    and headerRight were both unbounded in a
+                                    space-between row, so a long child name grew
+                                    the left side until it pushed the search /
+                                    QR / menu buttons off-screen. More so at
+                                    30px. The name shown here is the SHORT form
+                                    — see headerName() — because a full Filipino
+                                    name at this size truncates to about eight
+                                    characters, and the large state would then
+                                    truncate harder than the small one. */}
+                                <Text style={styles.babyName} numberOfLines={1} ellipsizeMode="tail">
+                                    {headerName(activeProfile)}
+                                </Text>
+                                {/* Coral dot = some OTHER child needs attention.
+                                    The active child's own problems are already
+                                    stated by the Needs Attention card. */}
+                                {otherChildNeedsAttention ? (
+                                    <View style={styles.babyNameDot} />
+                                ) : null}
+                                <Ionicons
+                                    name={switcherOpen ? "chevron-up" : "chevron-down"}
+                                    size={20}
+                                    color={colors.textMuted}
+                                    style={styles.babyNameChevron}
+                                />
+                            </Animated.View>
+                        </Pressable>
                     )}
                 </View>
                 <View style={styles.headerRight}>
@@ -821,7 +1079,8 @@ function MainAppShell({
                         <Ionicons name="menu-outline" size={22} color={colors.primary} />
                     </TouchableOpacity>
                 </View>
-            </View>
+                </View>
+            </Animated.View>
 
             {/* Main Container View content */}
             <Animated.View
@@ -833,10 +1092,7 @@ function MainAppShell({
                 {currentView === "dashboard" && (
                     <Dashboard
                         profile={activeProfile}
-                        profiles={profiles}
                         parentName={parentName}
-                        onSelectProfile={setSelectedProfileId}
-                        onOpenAddModal={openAddModal}
                         onOpenEditModal={openEditModal}
                         onUpdateProfile={(updated) =>
                             setProfiles((prev) =>
@@ -1446,7 +1702,57 @@ function MainAppShell({
                     handleLogOut();
                 }}
             />
-        </View>
+
+            {/* Baby switcher. An anchored menu, not a bottom sheet: it belongs
+                to the name that opened it and reads as an extension of it.
+                Rows show the FULL name even though the header shows only the
+                short form — this is the screen where a parent tells two
+                siblings apart, so it is the one place the whole name belongs. */}
+            <AnchoredMenu
+                visible={switcherOpen}
+                anchor={switcherAnchor}
+                onClose={() => setSwitcherOpen(false)}
+            >
+                {profiles.map((p) => (
+                    <AnchoredMenuItem
+                        key={p.id}
+                        label={p.name}
+                        note={childAlerts[p.id] ? "Needs attention" : undefined}
+                        selected={p.id === activeProfile.id}
+                        onPress={() => {
+                            setSelectedProfileId(p.id);
+                            setSwitcherOpen(false);
+                        }}
+                        leading={
+                            p.avatarUrl && !brokenAvatars.has(p.id) ? (
+                                <Image
+                                    source={{ uri: p.avatarUrl }}
+                                    style={styles.switcherAvatar}
+                                    onError={() =>
+                                        setBrokenAvatars((prev) => new Set(prev).add(p.id))
+                                    }
+                                />
+                            ) : (
+                                <View style={[styles.switcherAvatar, styles.switcherAvatarFallback]}>
+                                    <Ionicons name="person" size={16} color={colors.primary} />
+                                </View>
+                            )
+                        }
+                    />
+                ))}
+                {/* Not decoration: the Add affordance used to live in the
+                    Dashboard switcher's single-child branch, so without it a
+                    one-child account has no way to add a second. */}
+                <AnchoredMenuFooter
+                    label="Add another child"
+                    onPress={() => {
+                        setSwitcherOpen(false);
+                        openAddModal();
+                    }}
+                />
+            </AnchoredMenu>
+        </Gradient>
+        </ScrollContext.Provider>
     );
 }
 
@@ -1511,17 +1817,38 @@ export default function App() {
 }
 
 const makeStyles = (colors) => StyleSheet.create({
+    // No backgroundColor on either of these: the root is a Gradient and the
+    // header sits ON it, so the tint runs unbroken from under the status bar
+    // down through the header into the page.
     container: {
         flex: 1,
-        backgroundColor: colors.background,
     },
+    // Absolute, so the page scrolls UNDERNEATH it. That is the whole reason the
+    // white background exists — with the header in flow there would be nothing
+    // for it to cover. zIndex rather than moving 200 lines of JSX below the
+    // content: an absolutely-positioned sibling with a zIndex paints above
+    // in-flow siblings on both native and web.
     header: {
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 10,
+    },
+    headerRow: {
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
         paddingHorizontal: space.lg,
         paddingVertical: space.md,
-        backgroundColor: colors.background,
+    },
+    // The white ground that fades in on scroll. Absolute-fill inside the header
+    // so it also covers the status-bar inset, which is part of the bar.
+    headerBg: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: colors.surface,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.hairline,
     },
     // The left side takes the slack and shrinks; the right side (three fixed
     // 42pt buttons) never does. Previously both were unbounded, so whichever
@@ -1563,12 +1890,62 @@ const makeStyles = (colors) => StyleSheet.create({
         borderColor: colors.surface,
     },
     headerBadgeText: { color: "#FFFFFF", fontSize: 11, fontWeight: "800" },
-    babyName: {
-        ...type.bodyStrong,
-        fontWeight: "800",
-        color: colors.primary,
-        letterSpacing: -0.2,
+    babyNameBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        minHeight: MIN_TOUCH,
         flexShrink: 1,
+        minWidth: 0,
+        // Pulls the text back to the screen's left margin — the row's own
+        // padding already provides it, and the touch target extends past it.
+        marginLeft: -space.xs,
+        paddingLeft: space.xs,
+    },
+    // The group that scales with scroll. transformOrigin pins it to the left so
+    // the title shrinks toward the margin instead of toward its own centre,
+    // which is what would happen with RN's default centre origin.
+    babyNameScale: {
+        flexDirection: "row",
+        alignItems: "center",
+        flexShrink: 1,
+        minWidth: 0,
+        transformOrigin: "left center",
+    },
+    // Ink, not brand colour. The page gradient behind this now carries the
+    // girl/boy read; a coloured name would state the same thing twice.
+    //
+    // Laid out at HEADER_TITLE_MAX and scaled DOWN from there — never scaled
+    // up, which would soften the glyphs.
+    babyName: {
+        ...type.title,
+        fontSize: HEADER_TITLE_MAX,
+        lineHeight: Math.round(HEADER_TITLE_MAX * 1.2),
+        color: colors.text,
+        flexShrink: 1,
+        minWidth: 0,
+    },
+    // Coral = overdue, the same tone the Needs Attention card uses.
+    babyNameDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        borderCurve: "continuous",
+        backgroundColor: colors.danger,
+        marginLeft: space.xs,
+        flexShrink: 0,
+    },
+    babyNameChevron: { marginLeft: space.xs, flexShrink: 0 },
+    switcherAvatar: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        borderCurve: "continuous",
+        flexShrink: 0,
+    },
+    switcherAvatarFallback: {
+        backgroundColor: colors.primarySoft,
+        alignItems: "center",
+        justifyContent: "center",
     },
     backBtn: {
         width: MIN_TOUCH,
