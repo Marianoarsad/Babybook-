@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, ScrollView, TouchableOpacity } from "react-native";
+import { View, Text, ScrollView, TouchableOpacity, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLanguage } from "../context/LanguageContext";
 import { api } from "../utils/api";
@@ -145,20 +145,21 @@ export default function Auth({ onLoginSuccess, onProfessional, onBack, initialSc
 
                 {/* Brand header */}
                 <View style={{ alignItems: "center", marginBottom: space.xl }}>
-                    <View
-                        style={{
-                            width: 56,
-                            height: 56,
-                            borderRadius: radius.lg,
-                            borderCurve: "continuous",
-                            backgroundColor: colors.softGreen,
-                            alignItems: "center",
-                            justifyContent: "center",
-                            marginBottom: space.md,
-                        }}
-                    >
-                        <Ionicons name="book-outline" size={28} color={colors.primary} />
-                    </View>
+                    {/* The real brand mark (assets/splash-icon.png), the same
+                        one the splash and the launcher icon use. This was a
+                        generic Ionicons "book-outline" in a tinted box, so the
+                        app showed one logo on launch and a different one at
+                        sign-in. No tinted container: the artwork already carries
+                        its own padding, and the splash presents it on a plain
+                        ground. */}
+                    <Image
+                        source={require("../assets/splash-icon.png")}
+                        style={{ width: 64, height: 64, marginBottom: space.sm }}
+                        resizeMode="contain"
+                        accessible
+                        accessibilityRole="image"
+                        accessibilityLabel="BabyBook+"
+                    />
                     <Text style={{ fontSize: 22, fontWeight: "800", color: colors.primary }}>BabyBook+</Text>
                     <Text style={{ fontSize: 13, color: colors.textMuted, marginTop: space.xs }}>
                         Your child's health, all in one place

@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { View, Text, StyleSheet, Animated } from "react-native";
+import { View, Text, StyleSheet, Animated, Image } from "react-native";
 import { SectionContainerCard } from "../common/Cards";
 import { useTheme } from "../../context/ThemeContext";
 import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
@@ -26,6 +26,14 @@ export default function AboutApp() {
             {/* Version-plate hero — anchors the app identity + clinical
                 credibility claim before the reference sections below. */}
             <View style={styles.brandBox}>
+                <Image
+                    source={require("../../assets/splash-icon.png")}
+                    style={styles.brandLogo}
+                    resizeMode="contain"
+                    accessible
+                    accessibilityRole="image"
+                    accessibilityLabel="BabyBook+"
+                />
                 <Text style={styles.brandTitle}>BabyBook+</Text>
                 <Text style={styles.brandVersion}>Version {APP_VERSION}</Text>
                 <View style={styles.epiBadge}>
@@ -61,6 +69,7 @@ const makeStyles = (colors) =>
         // Padding on the content so the bottom clearance scrolls with it.
         content: { padding: space.lg },
         brandBox: { alignItems: "center", marginVertical: space.lg },
+        brandLogo: { width: 72, height: 72, marginBottom: space.xs },
         brandTitle: { ...type.display, color: colors.primary },
         brandVersion: { ...type.caption, color: colors.textMuted, marginTop: 4 },
         epiBadge: {
