@@ -635,15 +635,26 @@ function MainAppShell({
         })();
     }, []);
 
+    // ORDER MATTERS. loadChildren() runs BEFORE setIsAuthenticated(true).
+    //
+    // Flipping isAuthenticated first triggers a render while profiles is still
+    // [], and the render path below falls straight through to the
+    // "profiles.length === 0" branch — which is EmptyChild, a full add-a-child
+    // form. So every successful login flashed a blank "add your first child"
+    // form for the length of one network request before the Dashboard appeared.
+    //
+    // The launch path (the restored-session effect above) never had this bug
+    // because it holds `bootstrapping` true until after loadChildren, and the
+    // splash gate covers that window. This path had no such guard.
     const handleLoginSuccess = async (user, token) => {
         try {
             await setToken(token);
         } catch (e) {
             console.log(e);
         }
-        setIsAuthenticated(true);
         applyUser(user);
         await loadChildren();
+        setIsAuthenticated(true);
     };
 
     const handleLogOut = async () => {

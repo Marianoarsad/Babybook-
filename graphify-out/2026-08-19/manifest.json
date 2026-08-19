@@ -140,13 +140,13 @@
     "semantic_hash": ""
   },
   "front-end/app.json": {
-    "mtime": 1787139124.879565,
-    "ast_hash": "9fb049b4c5f81358b64459be4c03606e",
+    "mtime": 1786724056.1206255,
+    "ast_hash": "78cdc6cb331703eb483257a282314188",
     "semantic_hash": ""
   },
   "front-end/components/Auth.js": {
-    "mtime": 1787139098.6336617,
-    "ast_hash": "aeec7bc3f9ebee2ef4ab269984e19219",
+    "mtime": 1786901693.5117505,
+    "ast_hash": "e5e6ecbcb86a2d52af564c43c9bc96fc",
     "semantic_hash": ""
   },
   "front-end/components/Dashboard.js": {
@@ -410,8 +410,8 @@
     "semantic_hash": ""
   },
   "front-end/components/settings/AboutApp.js": {
-    "mtime": 1787139098.6376936,
-    "ast_hash": "81f55e765eadb27e411b72ff835956b3",
+    "mtime": 1787051757.3669333,
+    "ast_hash": "fc80b47b7864335a2e4b73594179a7eb",
     "semantic_hash": ""
   },
   "front-end/components/settings/ChangePassword.js": {
@@ -835,13 +835,8 @@
     "semantic_hash": ""
   },
   "front-end/components/Splash.js": {
-    "mtime": 1787139009.9604769,
-    "ast_hash": "343a21d73093c11ea4f922509e39f583",
-    "semantic_hash": ""
-  },
-  "front-end/.expo/web/cache/production/images/favicon/favicon-7cc1d6687dacf8381aee51a3becf7d69e99bb14b944cc9c971b508d0cac023a1-contain-transparent/favicon-48.png": {
-    "mtime": 1787139150.1803184,
-    "ast_hash": "01b6a4edfae26b28e89129631e5b6d17",
+    "mtime": 1787129994.421661,
+    "ast_hash": "45c0b1ce8b2000c29584b6b61dacd917",
     "semantic_hash": ""
   }
 }

@@ -44,7 +44,10 @@ export default function Auth({ onLoginSuccess, onProfessional, onBack, initialSc
         setLoading(true);
         try {
             const { user, token } = await api.login({ email: email.trim(), password });
-            onLoginSuccess(user, token);
+            // Awaited: onLoginSuccess now fetches the children before it hands
+            // over, and without the await this button would stop spinning while
+            // the sign-in screen sat there apparently doing nothing.
+            await onLoginSuccess(user, token);
         } catch (err) {
             toast.error(err.message || "Login failed");
         } finally {
@@ -73,7 +76,7 @@ export default function Auth({ onLoginSuccess, onProfessional, onBack, initialSc
                 gender: regGender,
                 consentAccepted: true,
             });
-            onLoginSuccess(user, token);
+            await onLoginSuccess(user, token);
         } catch (err) {
             toast.error(err.message || "Registration failed");
         } finally {
