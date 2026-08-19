@@ -1547,7 +1547,8 @@ const makeStyles = (colors) => StyleSheet.create({
     dataLabel: { ...type.caption, color: colors.textMuted, flex: 1, minWidth: 0 },
     dataValue: { ...type.caption, color: colors.text, fontWeight: "700", flex: 1, minWidth: 0, textAlign: "right" },
     dataRowStacked: { flexDirection: "column", gap: 2 },
-    dataValueStacked: { textAlign: "left", flex: 0 },
+    // Longhand, not `flex: 0` — see the note on Dashboard's statCellStacked.
+    dataValueStacked: { textAlign: "left", flexGrow: 0, flexShrink: 0, flexBasis: "auto" },
     listItem: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 8 },
     itemTitle: { ...type.label, fontWeight: "700", color: colors.text },
     itemSub: { ...type.caption, color: colors.textMuted, marginTop: 1 },

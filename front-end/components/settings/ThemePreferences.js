@@ -1,9 +1,10 @@
 import React, { useMemo } from "react";
-import { View, StyleSheet, ScrollView } from "react-native";
+import { View, StyleSheet, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SectionContainerCard, RadioRow } from "../common/Cards";
 import { useTheme } from "../../context/ThemeContext";
 import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
+import { useScroll } from "../../context/ScrollContext";
 import { space, PALETTES, paletteFor } from "../../theme";
 
 const OPTIONS = [
@@ -45,11 +46,14 @@ export default function ThemePreferences({
     const padBottom = useScreenPadBottom();
     const padTop = useScreenPadTop();
 
+    const { scrollProps } = useScroll();
+
     return (
-        <ScrollView
+        <Animated.ScrollView
             style={styles.container}
             contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
             keyboardShouldPersistTaps="handled"
+            {...scrollProps}
         >
             <SectionContainerCard title="App Appearance" subtitle="How the app's colors are themed">
                 {OPTIONS.map((opt) => {
@@ -89,7 +93,7 @@ export default function ThemePreferences({
                     );
                 })}
             </SectionContainerCard>
-        </ScrollView>
+        </Animated.ScrollView>
     );
 }
 

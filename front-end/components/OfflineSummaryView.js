@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
 import { radius, space, shadow, type } from "../theme";
+import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
+import { useScroll } from "../context/ScrollContext";
 import { getSummary } from "../utils/offlineSummary";
 import { ageText } from "./Dashboard";
 
@@ -17,6 +19,10 @@ import { ageText } from "./Dashboard";
 export default function OfflineSummaryView({ profile }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
+
+    const { scrollProps } = useScroll();
     const [summary, setSummary] = useState(undefined); // undefined = loading, null = none cached
 
     useEffect(() => {
@@ -32,7 +38,10 @@ export default function OfflineSummaryView({ profile }) {
     if (summary === undefined) return null;
 
     return (
-        <ScrollView contentContainerStyle={styles.scroll}>
+        <Animated.ScrollView
+            contentContainerStyle={[styles.scroll, { paddingTop: padTop, paddingBottom: padBottom }]}
+            {...scrollProps}
+        >
             {!summary ? (
                 <View style={styles.emptyCard}>
                     <Ionicons name="cloud-offline-outline" size={32} color={colors.textMuted} />
@@ -127,7 +136,7 @@ export default function OfflineSummaryView({ profile }) {
                     </View>
                 </>
             )}
-        </ScrollView>
+        </Animated.ScrollView>
     );
 }
 
@@ -169,7 +178,9 @@ function Section({ icon, title, colors, styles, children }) {
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        scroll: { padding: 16, paddingBottom: 40 },
+        // paddingTop/paddingBottom come from the screen-padding hooks inline —
+        // this screen had neither, so its first card sat under the floating header.
+        scroll: { padding: 16 },
         emptyCard: {
             alignItems: "center",
             backgroundColor: colors.surface,

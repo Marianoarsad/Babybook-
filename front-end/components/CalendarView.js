@@ -351,44 +351,48 @@ export default function CalendarView({ profile }) {
 
     return (
         <View style={styles.container}>
-            <View style={styles.switcherRow}>
-                {["month", "week", "day"].map((mode) => (
-                    <TouchableOpacity
-                        key={mode}
-                        onPress={() => setViewMode(mode)}
-                        style={[styles.switcherBtn, viewMode === mode && styles.switcherBtnActive]}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${mode} view`}
-                    >
-                        <Text
-                            numberOfLines={1}
-                            style={[styles.switcherText, viewMode === mode && styles.switcherTextActive]}
-                        >
-                            {mode === "month" ? "Monthly" : mode === "week" ? "Weekly" : "Daily"}
-                        </Text>
-                    </TouchableOpacity>
-                ))}
-                <TouchableOpacity onPress={jumpToToday} style={styles.todayBtn} accessibilityRole="button" accessibilityLabel="Jump to today">
-                    <Text style={styles.todayBtnText} numberOfLines={1}>
-                        Today
-                    </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    onPress={openCreateModal}
-                    style={styles.addEventBtn}
-                    accessibilityRole="button"
-                    accessibilityLabel="Add custom event"
-                >
-                    <Ionicons name="add" size={20} color={colors.onAccent} />
-                </TouchableOpacity>
-            </View>
-
             <Animated.ScrollView
                 contentContainerStyle={[styles.scrollContent, { paddingTop: padTop, paddingBottom: padBottom }]}
                 refreshControl={refreshControl}
                 {...scrollProps}
                 keyboardShouldPersistTaps="handled"
             >
+                {/* Inside the scroll view, not above it — same as Health's and
+                    Growth's tab switchers. As a sibling it got no padTop (that
+                    reaches contentContainerStyle only), so it rendered underneath
+                    the floating app header, which covered "Monthly" entirely. */}
+                <View style={styles.switcherRow}>
+                    {["month", "week", "day"].map((mode) => (
+                        <TouchableOpacity
+                            key={mode}
+                            onPress={() => setViewMode(mode)}
+                            style={[styles.switcherBtn, viewMode === mode && styles.switcherBtnActive]}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${mode} view`}
+                        >
+                            <Text
+                                numberOfLines={1}
+                                style={[styles.switcherText, viewMode === mode && styles.switcherTextActive]}
+                            >
+                                {mode === "month" ? "Monthly" : mode === "week" ? "Weekly" : "Daily"}
+                            </Text>
+                        </TouchableOpacity>
+                    ))}
+                    <TouchableOpacity onPress={jumpToToday} style={styles.todayBtn} accessibilityRole="button" accessibilityLabel="Jump to today">
+                        <Text style={styles.todayBtnText} numberOfLines={1}>
+                            Today
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        onPress={openCreateModal}
+                        style={styles.addEventBtn}
+                        accessibilityRole="button"
+                        accessibilityLabel="Add custom event"
+                    >
+                        <Ionicons name="add" size={20} color={colors.onAccent} />
+                    </TouchableOpacity>
+                </View>
+
                 <TipStrip tipKey="tip_calendar">
                     Appointments and vaccine due dates appear here automatically. Tap any date to add your own
                     event.
@@ -582,12 +586,13 @@ const makeStyles = (colors) =>
         // the 328pt available at 360pt with no wrap and no scroll, so a 320pt
         // screen — or a raised font scale on any screen — pushed the add button
         // clean off the edge with no way to reach it.
+        // No padding of its own any more: it lives inside the scroll view now,
+        // and scrollContent already applies space.lg on every side.
         switcherRow: {
             flexDirection: "row",
             alignItems: "center",
             flexWrap: "wrap",
-            paddingHorizontal: space.lg,
-            paddingTop: space.md,
+            marginBottom: space.sm,
             gap: space.xs,
         },
         switcherBtn: {

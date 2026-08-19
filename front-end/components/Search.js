@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
-import { space, radius, shadow, type, MIN_TOUCH } from "../theme";
+import { space, radius, shadow, type } from "../theme";
 import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
+import { useScroll } from "../context/ScrollContext";
 import { api } from "../utils/api";
 import {
     vaccinationToApp,
@@ -35,6 +36,7 @@ export default function Search({ profile, onClose, onNavigate }) {
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
     const padTop = useScreenPadTop();
+    const { scrollProps } = useScroll();
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [query, setQuery] = useState("");
@@ -192,20 +194,14 @@ export default function Search({ profile, onClose, onNavigate }) {
 
     return (
         <View style={styles.root}>
-            <View style={styles.header}>
-                <TouchableOpacity
-                    onPress={onClose}
-                    style={styles.headerBtn}
-                    accessibilityRole="button"
-                    accessibilityLabel="Back"
-                >
-                    <Ionicons name="arrow-back" size={22} color={colors.text} />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Search</Text>
-                <View style={styles.headerBtn} />
-            </View>
+            {/* No header here on purpose: App.js draws "← Search" from
+                SCREEN_TITLES. A second bar would render underneath the floating
+                app header and the two titles would overlap.
 
-            <View style={styles.searchBarWrap}>
+                The input stays OUTSIDE the ScrollView so it holds still while
+                results scroll, which means it has to clear the header itself —
+                padTop reaches contentContainerStyle, not siblings of it. */}
+            <View style={[styles.searchBarWrap, { marginTop: padTop }]}>
                 <Ionicons name="search-outline" size={18} color={colors.textMuted} />
                 <TextInput
                     style={styles.searchInput}
@@ -227,9 +223,10 @@ export default function Search({ profile, onClose, onNavigate }) {
                 )}
             </View>
 
-            <ScrollView
-                contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
+            <Animated.ScrollView
+                contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
                 refreshControl={refreshControl}
+                {...scrollProps}
                 keyboardShouldPersistTaps="handled"
             >
                 {loading && items.length === 0 ? (
@@ -268,7 +265,7 @@ export default function Search({ profile, onClose, onNavigate }) {
                         ))}
                     </View>
                 )}
-            </ScrollView>
+            </Animated.ScrollView>
         </View>
     );
 }
@@ -278,24 +275,11 @@ const makeStyles = (colors) =>
         // transparent, not colors.background: App.js paints the page gradient.
 
         root: { flex: 1, backgroundColor: "transparent" },
-        header: {
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            paddingHorizontal: space.md,
-            paddingVertical: space.sm,
-            backgroundColor: colors.surface,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.hairline,
-        },
-        headerBtn: { width: MIN_TOUCH, height: MIN_TOUCH, alignItems: "center", justifyContent: "center" },
-        headerTitle: { ...type.heading, fontWeight: "800", color: colors.primary, flex: 1, minWidth: 0 },
         searchBarWrap: {
             flexDirection: "row",
             alignItems: "center",
             gap: space.sm,
             marginHorizontal: space.lg,
-            marginTop: space.md,
             backgroundColor: colors.surfaceAlt,
             borderWidth: 1,
             borderColor: colors.border,

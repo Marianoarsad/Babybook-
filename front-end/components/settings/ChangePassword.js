@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator, Animated } from "react-native";
 import { SectionContainerCard } from "../common/Cards";
 import { api } from "../../utils/api";
 import { useToast } from "../ui/Toast";
 import { useTheme } from "../../context/ThemeContext";
 import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
+import { useScroll } from "../../context/ScrollContext";
 import { space, radius, type } from "../../theme";
 import KeyboardAvoider from "../ui/KeyboardAvoider";
 
@@ -26,6 +27,8 @@ export default function ChangePassword() {
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
     const padTop = useScreenPadTop();
+
+    const { scrollProps } = useScroll();
     const toast = useToast();
 
     const [currentPassword, setCurrentPassword] = useState("");
@@ -69,10 +72,11 @@ export default function ChangePassword() {
 
     return (
         <KeyboardAvoider>
-        <ScrollView
+        <Animated.ScrollView
             style={styles.container}
             contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
             keyboardShouldPersistTaps="handled"
+            {...scrollProps}
         >
             <SectionContainerCard title="Change Password" subtitle="Use your current password to set a new one">
                 <View style={styles.formGroup}>
@@ -129,7 +133,7 @@ export default function ChangePassword() {
                     )}
                 </TouchableOpacity>
             </SectionContainerCard>
-        </ScrollView>
+        </Animated.ScrollView>
         </KeyboardAvoider>
     );
 }

@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, Image, TouchableOpacity, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../context/ThemeContext";
 import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
+import { useScroll } from "../../context/ScrollContext";
 import { space, radius, type, shadow } from "../../theme";
 import { api } from "../../utils/api";
 import { SkeletonBlock } from "../ui/Skeleton";
@@ -20,6 +21,8 @@ export default function ViewProfile({ parentName, parentAvatar, parentGender, on
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
     const padTop = useScreenPadTop();
+
+    const { scrollProps } = useScroll();
     const [email, setEmail] = useState("");
     const [phone, setPhone] = useState("");
     const [loading, setLoading] = useState(true);
@@ -48,10 +51,11 @@ export default function ViewProfile({ parentName, parentAvatar, parentGender, on
     ];
 
     return (
-        <ScrollView
+        <Animated.ScrollView
             style={styles.container}
             contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
             keyboardShouldPersistTaps="handled"
+            {...scrollProps}
         >
             <View style={styles.profileCard}>
                 <View style={styles.headerRow}>
@@ -85,7 +89,7 @@ export default function ViewProfile({ parentName, parentAvatar, parentGender, on
                 <Ionicons name="create-outline" size={17} color={colors.onAccent} style={{ marginRight: 8 }} />
                 <Text style={styles.editBtnText}>Edit Profile</Text>
             </TouchableOpacity>
-        </ScrollView>
+        </Animated.ScrollView>
     );
 }
 

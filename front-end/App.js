@@ -69,7 +69,9 @@ try {
 }
 // Guarded expo-splash-screen — keeps the native splash (app.json) on screen
 // until fonts are loaded and the saved session is restored, so nothing ever
-// flashes blank/white before AppLoadingScreen can paint.
+// flashes blank/white before components/Splash.js can paint. That screen
+// deliberately matches this one's background and logo size, so the handoff
+// between them is invisible — see the note at the top of Splash.js.
 let SplashScreen = null;
 try {
     // eslint-disable-next-line global-require
@@ -98,7 +100,6 @@ if (Platform.OS === "web" && typeof document !== "undefined") {
 
 // Import Screen Components
 import Auth from "./components/Auth";
-import Landing from "./components/Landing";
 import Dashboard from "./components/Dashboard";
 import Health from "./components/Health";
 import Growth from "./components/Growth";
@@ -114,7 +115,7 @@ import CalendarView from "./components/CalendarView";
 import AllActivity from "./components/AllActivity";
 import Search from "./components/Search";
 import OfflineSummaryView from "./components/OfflineSummaryView";
-import AppLoadingScreen from "./components/AppLoadingScreen";
+import Splash from "./components/Splash";
 import { DateField, TimeField } from "./components/ui/DateField";
 import KeyboardAvoider from "./components/ui/KeyboardAvoider";
 import ViewProfile from "./components/settings/ViewProfile";
@@ -133,10 +134,22 @@ import { todayLocal } from "./utils/dates";
 import { pickImage, pickerAvailable } from "./utils/imagePicker";
 
 // Header title shown ("← <title>") whenever currentView is a side-menu
-// destination or Share Records — reuses SideMenu's own labels so they can't
-// drift apart. Screens absent here (the 5 bottom tabs, allActivity — which
-// draws its own back header) keep showing the baby's name instead.
-const SCREEN_TITLES = { ...MENU_TITLES, share: "Share Records", offlineSummary: "Offline Summary" };
+// destination or one of the sub-screens below — reuses SideMenu's own labels so
+// they can't drift apart. Only the 5 bottom tabs are absent here; those keep
+// showing the baby's name, which is also the child switcher.
+//
+// EVERY sub-screen belongs in this map. Search and Recent Activity used to draw
+// their own back headers instead, which worked while the app header sat above
+// the page — but the header is position:absolute now (see styles.header), so a
+// screen's own bar renders at y=0 UNDERNEATH it and the two titles overlap.
+// A new sub-screen gets an entry here; it does not get its own header.
+const SCREEN_TITLES = {
+    ...MENU_TITLES,
+    share: "Share Records",
+    offlineSummary: "Offline Summary",
+    search: "Search",
+    allActivity: "Recent Activity",
+};
 
 // The short form of a child's name, for the header title only.
 //
@@ -186,7 +199,7 @@ function MainAppShell({
     );
 
     // Preload the icon fonts (@expo/vector-icons) so buttons/icons never render
-    // blank. The app shows AppLoadingScreen until these are ready.
+    // blank. The app shows components/Splash.js until these are ready.
     const [fontsReady, setFontsReady] = useState(false);
     useEffect(() => {
         let active = true;
@@ -208,7 +221,7 @@ function MainAppShell({
                 console.log("font preload:", e.message);
             } finally {
                 if (active) setFontsReady(true);
-                // Hand off from the native splash to AppLoadingScreen only once
+                // Hand off from the native splash to Splash.js only once
                 // fonts are ready, so there's no blank/white frame between them.
                 if (SplashScreen) SplashScreen.hideAsync().catch(() => {});
             }
@@ -219,8 +232,8 @@ function MainAppShell({
     }, []);
 
     // Welcome carousel — shown once, on the very first launch ever, ahead of
-    // Landing.js. null = still checking storage (folds into the AppLoadingScreen
-    // gate below so nothing flashes before the check resolves).
+    // null = still checking storage (folds into the splash gate below, so
+    // nothing flashes before the check resolves).
     const [onboarded, setOnboarded] = useState(null);
     useEffect(() => {
         seen("onboarding").then(setOnboarded);
@@ -228,8 +241,9 @@ function MainAppShell({
 
     // Authentication State
     const [isAuthenticated, setIsAuthenticated] = useState(false);
-    // Pre-login landing page; its CTAs pick which Auth scene opens.
-    const [showLanding, setShowLanding] = useState(true);
+    // The splash owns its own timing (minimum visible duration + fade); this
+    // only records that it has finished, so it never returns mid-session.
+    const [splashDone, setSplashDone] = useState(false);
     const [authScene, setAuthScene] = useState("login");
     // Healthcare Professional mode (separate actor, no parent account)
     const [professionalMode, setProfessionalMode] = useState(false);
@@ -634,7 +648,7 @@ function MainAppShell({
 
     const handleLogOut = async () => {
         setIsAuthenticated(false);
-        setShowLanding(true); // back to the landing page, not straight to login
+        setAuthScene("login");
         setProfiles([]);
         setSelectedProfileId(null);
         setCurrentView("dashboard");
@@ -827,8 +841,12 @@ function MainAppShell({
     // Show the branded loading screen until icon fonts are ready, the saved
     // session has been restored, and the one-time onboarding check resolves —
     // so no screen ever renders with blank icons or a flash of the carousel.
-    if (!fontsReady || bootstrapping || onboarded === null) {
-        return <AppLoadingScreen />;
+    // The splash stays up until fonts, the restored session and the first-run
+    // check have all resolved — and for its own minimum duration on top of
+    // that, so a warm start shows a moment of brand instead of a flicker.
+    const ready = fontsReady && !bootstrapping && onboarded !== null;
+    if (!splashDone) {
+        return <Splash appReady={ready} onFinished={() => setSplashDone(true)} />;
     }
 
     if (professionalMode) {
@@ -836,9 +854,9 @@ function MainAppShell({
     }
 
     if (!isAuthenticated) {
-        // Welcome carousel — first launch ever, ahead of Landing.js. Both its
-        // CTAs mark the flag so it never reappears, whichever one is used;
-        // logging out later does NOT reset this (see handleLogOut).
+        // Welcome carousel — first launch ever. Both its CTAs mark the flag so
+        // it never reappears, whichever one is used; logging out later does NOT
+        // reset this (see handleLogOut).
         if (!onboarded) {
             return (
                 <Onboarding
@@ -846,38 +864,22 @@ function MainAppShell({
                         markSeen("onboarding");
                         setOnboarded(true);
                         setAuthScene("register");
-                        setShowLanding(false);
                     }}
                     onLogin={() => {
                         markSeen("onboarding");
                         setOnboarded(true);
                         setAuthScene("login");
-                        setShowLanding(false);
                     }}
                 />
             );
         }
-        // Landing page first; its CTAs decide which Auth scene opens.
-        if (showLanding) {
-            return (
-                <Landing
-                    onGetStarted={() => {
-                        setAuthScene("register");
-                        setShowLanding(false);
-                    }}
-                    onLogin={() => {
-                        setAuthScene("login");
-                        setShowLanding(false);
-                    }}
-                    onProfessional={() => setProfessionalMode(true)}
-                />
-            );
-        }
+        // No onBack: it used to return to the landing page, which no longer
+        // exists. Auth.js renders its back control only when the prop is
+        // passed, so it correctly disappears.
         return (
             <Auth
                 onLoginSuccess={handleLoginSuccess}
                 onProfessional={() => setProfessionalMode(true)}
-                onBack={() => setShowLanding(true)}
                 initialScene={authScene}
             />
         );
@@ -1060,6 +1062,8 @@ function MainAppShell({
                             changeView("share");
                         }}
                         style={styles.headerQrBtn}
+                        accessibilityRole="button"
+                        accessibilityLabel="Share records by QR code"
                     >
                         <Ionicons name="qr-code" size={20} color={colors.primary} />
                         {unseenCount > 0 && (
@@ -1145,9 +1149,7 @@ function MainAppShell({
                 )}
                 {currentView === "services" && <Services />}
                 {currentView === "calendar" && <CalendarView profile={activeProfile} />}
-                {currentView === "allActivity" && (
-                    <AllActivity profile={activeProfile} onClose={goBack} />
-                )}
+                {currentView === "allActivity" && <AllActivity profile={activeProfile} />}
                 {currentView === "search" && (
                     <Search profile={activeProfile} onClose={goBack} onNavigate={changeView} />
                 )}

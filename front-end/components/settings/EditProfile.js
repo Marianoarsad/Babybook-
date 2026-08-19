@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Image } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Image, Animated } from "react-native";
 import { SectionContainerCard } from "../common/Cards";
 import { storage } from "../../utils/storageAdapter";
 import { api } from "../../utils/api";
@@ -8,6 +8,7 @@ import { SkeletonBlock } from "../ui/Skeleton";
 import KeyboardAvoider from "../ui/KeyboardAvoider";
 import { useTheme } from "../../context/ThemeContext";
 import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
+import { useScroll } from "../../context/ScrollContext";
 import { space, radius, type } from "../../theme";
 
 const PREDEFINED_AVATARS = [
@@ -30,6 +31,8 @@ export default function EditProfile({
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
     const padTop = useScreenPadTop();
+
+    const { scrollProps } = useScroll();
     const toast = useToast();
 
     const [email, setEmail] = useState("");
@@ -77,10 +80,11 @@ export default function EditProfile({
 
     return (
         <KeyboardAvoider>
-        <ScrollView
+        <Animated.ScrollView
             style={styles.container}
             contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
             keyboardShouldPersistTaps="handled"
+            {...scrollProps}
         >
             {/* Prominent ringed avatar hero — the photo picker moved up here
                 (out of its old "Select Guardian Avatar" card slot) so the
@@ -148,7 +152,7 @@ export default function EditProfile({
                     </>
                 )}
             </SectionContainerCard>
-        </ScrollView>
+        </Animated.ScrollView>
         </KeyboardAvoider>
     );
 }

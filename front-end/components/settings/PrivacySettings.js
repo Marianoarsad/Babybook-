@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SectionContainerCard } from "../common/Cards";
 import { api } from "../../utils/api";
 import { useToast } from "../ui/Toast";
 import { useTheme } from "../../context/ThemeContext";
 import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
+import { useScroll } from "../../context/ScrollContext";
 import { SkeletonBlock } from "../ui/Skeleton";
 import { space, radius, type, shadow, MIN_TOUCH } from "../../theme";
 import { exportChildRecordsPdf, pdfExportAvailable } from "../../utils/exportPdf";
@@ -18,6 +19,8 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
     const padTop = useScreenPadTop();
+
+    const { scrollProps } = useScroll();
     const toast = useToast();
 
     const [user, setUser] = useState(null);
@@ -106,10 +109,11 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
     const bannerBg = reviewDue ? colors.overdueBg : colors.completedBg;
 
     return (
-        <ScrollView
+        <Animated.ScrollView
             style={styles.container}
             contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
             keyboardShouldPersistTaps="handled"
+            {...scrollProps}
         >
             {loading ? (
                 <SkeletonBlock width="100%" height={52} radius={radius.lg} style={{ marginBottom: space.lg }} />
@@ -256,7 +260,7 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
                     </>
                 )}
             </SectionContainerCard>
-        </ScrollView>
+        </Animated.ScrollView>
     );
 }
 

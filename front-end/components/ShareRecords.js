@@ -4,9 +4,7 @@ import {
     Text,
     Image,
     StyleSheet,
-    TouchableOpacity,
-    ScrollView,
-    ActivityIndicator,
+    TouchableOpacity,    ActivityIndicator,
     Animated,
     Easing,
     Platform,
@@ -21,6 +19,7 @@ import { useToast } from "./ui/Toast";
 import { useTheme } from "../context/ThemeContext";
 import { motion, shadow, space, type, MIN_TOUCH } from "../theme";
 import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
+import { useScroll } from "../context/ScrollContext";
 import { EmptyStateCard } from "./common/Cards";
 import { useRefreshControl } from "./ui/useRefreshControl";
 import ShowMore from "./ui/ShowMore";
@@ -56,6 +55,8 @@ export default function ShareRecords({ profile }) {
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
     const padTop = useScreenPadTop();
+
+    const { scrollProps } = useScroll();
     const allKeys = Object.keys(RECORD_LABELS);
     const [selected, setSelected] = useState(() => new Set(allKeys));
     const [ttl, setTtl] = useState(60);
@@ -163,10 +164,11 @@ export default function ShareRecords({ profile }) {
     if (activeShare) {
         const keys = activeShare.shared_record_keys || [];
         return (
-            <ScrollView
+            <Animated.ScrollView
                 contentContainerStyle={[styles.scroll, { paddingTop: padTop, paddingBottom: padBottom }]}
                 refreshControl={refreshControl}
                 keyboardShouldPersistTaps="handled"
+                {...scrollProps}
             >
                 <View style={styles.resultCard}>
                     <View style={styles.identityRow}>
@@ -221,16 +223,17 @@ export default function ShareRecords({ profile }) {
                         </TouchableOpacity>
                     </View>
                 </View>
-            </ScrollView>
+            </Animated.ScrollView>
         );
     }
 
     // ---- builder view ----
     return (
-        <ScrollView
+        <Animated.ScrollView
                 contentContainerStyle={[styles.scroll, { paddingTop: padTop, paddingBottom: padBottom }]}
                 refreshControl={refreshControl}
                 keyboardShouldPersistTaps="handled"
+                {...scrollProps}
             >
             <TipStrip tipKey="tip_share">
                 Pick what a doctor may see, then show them the code. Access is read-only and expires on its own.
@@ -391,7 +394,7 @@ export default function ShareRecords({ profile }) {
                     You control exactly what is shared. The professional can view — never edit, add, or delete. Every view is recorded in your access log.
                 </Text>
             </View>
-        </ScrollView>
+        </Animated.ScrollView>
     );
 }
 
@@ -477,11 +480,14 @@ const makeStyles = (colors) => StyleSheet.create({
     codeLabel: { ...type.caption, fontSize: 11, fontWeight: "800", color: colors.textMuted, letterSpacing: 2 },
     codeText: { fontSize: 28, fontWeight: "900", color: colors.text, letterSpacing: 3, marginTop: 2, marginBottom: 14 },
     sharedChips: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6, marginBottom: 18 },
+    // maxWidth plus a shrinkable label. "Medical History (Illnesses,
+    // Medications, Hospitalizations)" is wider than the card, and a chip that
+    // can neither wrap nor shrink overflowed both of its edges.
     chip: {
         flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: colors.softGreen,
-        paddingHorizontal: 9, paddingVertical: 4, borderRadius: 10,
+        paddingHorizontal: 9, paddingVertical: 4, borderRadius: 10, maxWidth: "100%",
     },
-    chipText: { ...type.caption, color: colors.primaryDark, fontWeight: "700" },
+    chipText: { ...type.caption, color: colors.primaryDark, fontWeight: "700", flexShrink: 1 },
     resultBtns: { flexDirection: "row", gap: 10, width: "100%" },
     revokeBtn: {
         flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,

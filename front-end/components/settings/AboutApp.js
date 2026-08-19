@@ -1,8 +1,9 @@
 import React, { useMemo } from "react";
-import { View, Text, StyleSheet, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Animated } from "react-native";
 import { SectionContainerCard } from "../common/Cards";
 import { useTheme } from "../../context/ThemeContext";
 import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
+import { useScroll } from "../../context/ScrollContext";
 import { space, radius, type } from "../../theme";
 
 const APP_VERSION = "1.0.0";
@@ -13,11 +14,14 @@ export default function AboutApp() {
     const padBottom = useScreenPadBottom();
     const padTop = useScreenPadTop();
 
+    const { scrollProps } = useScroll();
+
     return (
-        <ScrollView
+        <Animated.ScrollView
             style={styles.container}
             contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
             keyboardShouldPersistTaps="handled"
+            {...scrollProps}
         >
             {/* Version-plate hero — anchors the app identity + clinical
                 credibility claim before the reference sections below. */}
@@ -45,7 +49,7 @@ export default function AboutApp() {
                     See Privacy Settings for your consent status and data-retention details.
                 </Text>
             </SectionContainerCard>
-        </ScrollView>
+        </Animated.ScrollView>
     );
 }
 

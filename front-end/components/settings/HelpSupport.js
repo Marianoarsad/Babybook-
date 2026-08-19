@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Linking, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, Linking, TouchableOpacity, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SectionContainerCard } from "../common/Cards";
 import { useTheme } from "../../context/ThemeContext";
 import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
+import { useScroll } from "../../context/ScrollContext";
 import { space, radius, type, MIN_TOUCH } from "../../theme";
 
 // Each FAQ gets its own icon + rec* tint, so the tint doubles as a topic
@@ -41,13 +42,16 @@ export default function HelpSupport() {
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
     const padTop = useScreenPadTop();
+
+    const { scrollProps } = useScroll();
     const [openIdx, setOpenIdx] = useState(null);
 
     return (
-        <ScrollView
+        <Animated.ScrollView
             style={styles.container}
             contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
             keyboardShouldPersistTaps="handled"
+            {...scrollProps}
         >
             <SectionContainerCard title="Frequently Asked Questions">
                 {FAQS.map((item, idx) => {
@@ -87,7 +91,7 @@ export default function HelpSupport() {
                     <Text style={styles.contactText}>support@babybookplus.app</Text>
                 </TouchableOpacity>
             </SectionContainerCard>
-        </ScrollView>
+        </Animated.ScrollView>
     );
 }
 

@@ -542,7 +542,7 @@ const makeStyles = (colors) =>
             backgroundColor: colors.surface,
         },
         // Stacked rows read left-aligned; the two-up row stays centred.
-        optionWide: { flex: 0, justifyContent: "flex-start", paddingHorizontal: space.lg },
+        optionWide: { flexGrow: 0, flexShrink: 0, flexBasis: "auto", justifyContent: "flex-start", paddingHorizontal: space.lg },
         optionBtnOn: { backgroundColor: colors.primary, borderColor: colors.primary },
         optionText: { ...type.label, color: colors.textSecondary, flexShrink: 1 },
         optionTextOn: { color: colors.onPrimary },

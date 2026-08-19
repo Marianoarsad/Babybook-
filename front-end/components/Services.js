@@ -2,17 +2,17 @@ import React, { useState, useMemo } from "react";
 import {
     View,
     Text,
-    StyleSheet,
-    ScrollView,
-    TouchableOpacity,
+    StyleSheet,    TouchableOpacity,
     Linking,
     Image,
+    Animated,
 } from "react-native";
 import { useLanguage } from "../context/LanguageContext";
 import { useToast } from "./ui/Toast";
 import { useTheme } from "../context/ThemeContext";
 import { space, type, radius, MIN_TOUCH } from "../theme";
 import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
+import { useScroll } from "../context/ScrollContext";
 import { SectionContainerCard, ListEntryCard } from "./common/Cards";
 import { Ionicons } from "@expo/vector-icons";
 import { initialUpdates, initialClinics } from "../mockData";
@@ -22,6 +22,8 @@ export default function Services() {
     const toast = useToast();
     const padBottom = useScreenPadBottom();
     const padTop = useScreenPadTop();
+
+    const { scrollProps } = useScroll();
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const [selectedCity, setSelectedCity] = useState("QUEZON CITY");
@@ -33,9 +35,10 @@ export default function Services() {
     };
 
     return (
-        <ScrollView
+        <Animated.ScrollView
             style={styles.container}
             contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
+            {...scrollProps}
         >
             {/* Services Title Header */}
             <View style={styles.header}>
@@ -162,7 +165,7 @@ export default function Services() {
                     </View>
                 ))}
             </SectionContainerCard>
-        </ScrollView>
+        </Animated.ScrollView>
     );
 }
 

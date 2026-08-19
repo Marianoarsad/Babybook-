@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { StyleSheet, ScrollView } from "react-native";
+import { StyleSheet, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SectionContainerCard, RadioRow } from "../common/Cards";
 import { storage } from "../../utils/storageAdapter";
 import { notificationsAvailable } from "../../utils/notifications";
 import { useTheme } from "../../context/ThemeContext";
 import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
+import { useScroll } from "../../context/ScrollContext";
 import { space } from "../../theme";
 
 export const LEAD_TIME_KEY = "bb_default_reminder_lead";
@@ -24,6 +25,8 @@ export default function GeneralSettings() {
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
     const padTop = useScreenPadTop();
+
+    const { scrollProps } = useScroll();
     const [leadDays, setLeadDays] = useState("1");
 
     useEffect(() => {
@@ -39,10 +42,11 @@ export default function GeneralSettings() {
     };
 
     return (
-        <ScrollView
+        <Animated.ScrollView
             style={styles.container}
             contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
             keyboardShouldPersistTaps="handled"
+            {...scrollProps}
         >
             <SectionContainerCard
                 title="Reminder Notifications"
@@ -63,7 +67,7 @@ export default function GeneralSettings() {
                     />
                 ))}
             </SectionContainerCard>
-        </ScrollView>
+        </Animated.ScrollView>
     );
 }
 

@@ -1348,7 +1348,12 @@ const makeStyles = (colors) => StyleSheet.create({
     statRow: { flexDirection: "row" },
     statRowStacked: { flexDirection: "row", flexWrap: "wrap", rowGap: space.md },
     statCell: { flex: 1, minWidth: 0, alignItems: "flex-start" },
-    statCellStacked: { flex: 0, width: "50%" },
+    // flexBasis, NOT `flex: 0`. react-native-web passes `flex: 0` straight
+    // through to CSS, where it means `0 1 0%` — and a 0% basis beats `width`,
+    // so these cells computed to zero width and the measurements vanished on
+    // every phone-width screen. Yoga reads `flex: 0` as basis:auto, so it only
+    // broke on web. Never write `flex: 0` in this codebase.
+    statCellStacked: { flexGrow: 0, flexShrink: 0, flexBasis: "50%" },
     statValue: { ...type.bodyStrong, color: colors.text },
     statLabel: { ...type.caption, color: colors.textMuted, marginTop: 1 },
     statCaption: { ...type.caption, color: colors.textMuted, marginTop: space.sm },

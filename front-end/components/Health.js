@@ -2452,7 +2452,8 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     courseFootStacked: { flexDirection: "column", alignItems: "flex-start" },
     courseNext: { ...type.caption, color: colors.textMuted, flex: 1, minWidth: 0, textAlign: "right" },
-    courseNextStacked: { flex: 0, textAlign: "left", marginTop: space.sm },
+    // Longhand, not `flex: 0` — see the note on Dashboard's statCellStacked.
+    courseNextStacked: { flexGrow: 0, flexShrink: 0, flexBasis: "auto", textAlign: "left", marginTop: space.sm },
     giveBtn: {
         flexDirection: "row",
         alignItems: "center",
