@@ -114,6 +114,27 @@ export function ageAtDate(dob, date) {
     return mo ? `${yrs} yr ${mo} mo` : `${yrs} yr`;
 }
 
+// How old a child was, from a count of days. "11 months old".
+//
+// Lifted out of Growth.js, which held the only copy, because the Dashboard's
+// Growth Chart now has to say the same thing. Date formatting belongs here for
+// the reason recorded at the top of this file: near-identical formatters
+// copied into four components is exactly how toISOString().slice(0, 10)
+// reached twelve call sites before anyone noticed it was returning yesterday.
+//
+// Distinct from ageText(dob) in Dashboard.js, which takes a birth date and
+// renders "2 years 3 months". This one takes days and ends in "old", because
+// it is used mid-sentence beside a measurement.
+export function ageLabel(days) {
+    if (days == null) return "";
+    if (days < 31) return `${days} day${days === 1 ? "" : "s"} old`;
+    const months = Math.floor(days / 30.4375);
+    if (months < 24) return `${months} month${months === 1 ? "" : "s"} old`;
+    const years = Math.floor(months / 12);
+    const rem = months % 12;
+    return rem ? `${years}y ${rem}m old` : `${years} year${years === 1 ? "" : "s"} old`;
+}
+
 // Whole months between two "YYYY-MM-DD" dates, or null when either is missing,
 // unparseable, or the second falls before the first.
 //

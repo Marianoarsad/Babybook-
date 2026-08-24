@@ -1,16 +1,16 @@
 # Graph Report - BabyBook+  (2026-08-19)
 
 ## Corpus Check
-- 157 files · ~214,856 words
+- 157 files · ~215,268 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1314 nodes · 1684 edges · 137 communities (97 shown, 40 thin omitted)
+- 1313 nodes · 1679 edges · 137 communities (97 shown, 40 thin omitted)
 - Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 47 edges (avg confidence: 0.54)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `ef7eb84e`
+- Built from commit: `b9f6eb41`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -47,7 +47,6 @@
 - [[_COMMUNITY_Graphify Update & Cluster-Only Docs|Graphify Update & Cluster-Only Docs]]
 - [[_COMMUNITY_Deployment Hosting Options|Deployment Hosting Options]]
 - [[_COMMUNITY_Data Retention vs Excess Trackers|Data Retention vs Excess Trackers]]
-- [[_COMMUNITY_Landing.js|Landing.js]]
 - [[_COMMUNITY_Evaluation Overall Scores|Evaluation Overall Scores]]
 - [[_COMMUNITY_NutritionTracker.js|NutritionTracker.js]]
 - [[_COMMUNITY_Mock-to-Real Backend Connection|Mock-to-Real Backend Connection]]
@@ -149,13 +148,13 @@
 - [[_COMMUNITY_Features|Features]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `space` - 24 edges
-2. `radius` - 23 edges
+1. `space` - 23 edges
+2. `radius` - 22 edges
 3. `BabyBook+` - 22 edges
-4. `type` - 20 edges
+4. `type` - 19 edges
 5. `useTheme()` - 19 edges
 6. `makeStyles()` - 16 edges
-7. `shadow` - 16 edges
+7. `shadow` - 15 edges
 8. `expo` - 14 edges
 9. `BabyBook+ — Project Guide for Claude Code` - 12 edges
 10. `3. Detailed Breakdown by Phase` - 12 edges
@@ -169,8 +168,8 @@
   front-end/components/MemoryDetail.js → front-end/components/Dashboard.js
 - `NutritionTracker()` --calls--> `shortDate()`  [INFERRED]
   front-end/components/NutritionTracker.js → front-end/components/Dashboard.js
-- `QrCodeView()` --calls--> `useTheme()`  [EXTRACTED]
-  front-end/components/QrCodeView.js → front-end/context/ThemeContext.js
+- `EmptyChild()` --calls--> `useTheme()`  [EXTRACTED]
+  front-end/components/EmptyChild.js → front-end/context/ThemeContext.js
 
 ## Import Cycles
 - None detected.
@@ -218,8 +217,8 @@ Cohesion: 0.18
 Nodes (9): DOSES, fs, M, NOW, OPEN, path, slots, src (+1 more)
 
 ### Community 10 - "Nutrition Tracker Feature"
-Cohesion: 0.07
-Nodes (26): backgroundColor, _foregroundImage_todo, adaptiveIcon, package, permissions, projectId, expo, android (+18 more)
+Cohesion: 0.08
+Nodes (26): backgroundColor, foregroundImage, adaptiveIcon, package, permissions, projectId, expo, android (+18 more)
 
 ### Community 11 - "Database Bootstrap & Server Startup"
 Cohesion: 0.18
@@ -271,7 +270,7 @@ Nodes (36): 4.2 — Auto-Generate the DOH EPI Immunization Schedule, 4.3 — Acc
 
 ### Community 24 - "2. Current-state audit"
 Cohesion: 0.14
-Nodes (20): QrCodeView(), styles, AddMemoryModal(), makeStyles(), Field(), makeStyles(), MedicineModal(), makeStyles() (+12 more)
+Nodes (17): makeStyles(), MemoryDetail(), AddMemoryModal(), makeStyles(), Field(), makeStyles(), MedicineModal(), makeStyles() (+9 more)
 
 ### Community 25 - "Reminders & Premium Feature Gaps"
 Cohesion: 0.09
@@ -304,10 +303,6 @@ Nodes (6): BabyBook+ Explained: What It Does and What Problem It Solves, How It 
 ### Community 32 - "Data Retention vs Excess Trackers"
 Cohesion: 0.83
 Nodes (3): cacheSummary(), getSummary(), keyFor()
-
-### Community 33 - "Landing.js"
-Cohesion: 0.33
-Nodes (3): makeStyles(), MemoryDetail(), shadow
 
 ### Community 34 - "Evaluation Overall Scores"
 Cohesion: 0.22
@@ -358,8 +353,8 @@ Cohesion: 0.52
 Nodes (6): EmptyStateCard(), ListEntryCard(), makeStyles(), MemoryVisualCard(), RadioRow(), SectionContainerCard()
 
 ### Community 52 - "Cards.js"
-Cohesion: 0.16
-Nodes (19): EmptyChild(), makeStyles(), QrScanner(), Button(), makeVariants(), AppointmentsSkeleton(), DashboardSkeleton(), ImmunizationsSkeleton() (+11 more)
+Cohesion: 0.24
+Nodes (13): QrCodeView(), styles, makeStyles(), QrScanner(), AppointmentsSkeleton(), DashboardSkeleton(), ImmunizationsSkeleton(), makeStyles() (+5 more)
 
 ### Community 53 - "Product"
 Cohesion: 0.12
@@ -510,8 +505,8 @@ Cohesion: 0.39
 Nodes (6): inputBox(), pad(), parseValue(), PickerField(), toHM(), toISODate()
 
 ### Community 123 - "AnchoredMenu.js"
-Cohesion: 0.53
-Nodes (5): AnchoredMenu(), AnchoredMenuFooter(), AnchoredMenuItem(), makeStyles(), motion
+Cohesion: 0.16
+Nodes (17): EmptyChild(), AnchoredMenu(), AnchoredMenuFooter(), AnchoredMenuItem(), makeStyles(), Button(), makeVariants(), defaultValue (+9 more)
 
 ### Community 124 - "LanguagePreferences.js"
 Cohesion: 0.67
@@ -546,20 +541,18 @@ Cohesion: 0.67
 Nodes (3): Features, For Healthcare Professionals, For Parents
 
 ## Knowledge Gaps
-- **676 isolated node(s):** `SCREEN_TITLES`, `CATEGORY_META`, `CARE_LABELS`, `CARDS`, `CARE_LABELS` (+671 more)
+- **676 isolated node(s):** `name`, `slug`, `version`, `orientation`, `userInterfaceStyle` (+671 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **40 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `shortDate()` connect `Graphify Skill Command Rules` to `Health.js`, `NutritionTracker.js`, `Landing.js`?**
-  _High betweenness centrality (0.019) - this node is a cross-community bridge._
-- **Why does `MemoryDetail()` connect `Landing.js` to `NutritionTracker.js`, `Graphify Skill Command Rules`?**
-  _High betweenness centrality (0.007) - this node is a cross-community bridge._
-- **Why does `BabyBook+` connect `Database Bootstrap & Server Startup` to `Architecture & Conventions`, `License & Credits`, `Deployment`, `Tech Stack`, `Roadmap & Known Limitations`, `Environment Variables`, `BabyBook+ — Feature Gap Analysis for a 2026 Market Launch`, `Features`, `Responsive Breakpoints`, `Premium Feature Deemed Unnecessary`, `graphify reference: transcribe video and audio`, `Graphify Update & Cluster-Only Docs`?**
-  _High betweenness centrality (0.006) - this node is a cross-community bridge._
-- **What connects `SCREEN_TITLES`, `CATEGORY_META`, `CARE_LABELS` to the rest of the system?**
+- **Why does `shortDate()` connect `Graphify Skill Command Rules` to `2. Current-state audit`, `Health.js`, `NutritionTracker.js`?**
+  _High betweenness centrality (0.021) - this node is a cross-community bridge._
+- **Why does `dependencies` connect `Provider Sharing & QR Scanning` to `Cards.js`?**
+  _High betweenness centrality (0.009) - this node is a cross-community bridge._
+- **What connects `name`, `slug`, `version` to the rest of the system?**
   _701 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `UI Component Library & Theming` be split into smaller, more focused modules?**
   _Cohesion score 0.05442176870748299 - nodes in this community are weakly interconnected._
@@ -567,3 +560,5 @@ _Questions this graph is uniquely positioned to answer:_
   _Cohesion score 0.058823529411764705 - nodes in this community are weakly interconnected._
 - **Should `Front-End Package Manifest` be split into smaller, more focused modules?**
   _Cohesion score 0.0625 - nodes in this community are weakly interconnected._
+- **Should `Expo App Configuration` be split into smaller, more focused modules?**
+  _Cohesion score 0.07407407407407407 - nodes in this community are weakly interconnected._

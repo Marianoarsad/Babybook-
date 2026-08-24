@@ -85,11 +85,22 @@ async function seed() {
             // ---------------- USER (parent) ----------------
             const hash = await bcrypt.hash(DEMO_PASSWORD, 10);
             const u = await c.query(
+                // The phone was "+1 555-0148" -- a US number on the demo
+                // account of an app built for Philippine families. Now a PH
+                // mobile in the format a parent would actually type.
                 `INSERT INTO users
-                    (full_name, email, password_hash, phone_number, gender, created_at,
+                    (full_name, email, password_hash, phone_number, relationship, city, created_at,
                      consent_accepted, consent_date, consent_reviewed_at, retention_until)
-                 VALUES ($1,$2,$3,$4,$5,$6, TRUE, now(), now(), (CURRENT_DATE + INTERVAL '6 years')) RETURNING id`,
-                ["Jasmine Rivera", DEMO_EMAIL, hash, "+1 555-0148", "Female", addDays(DOB, -7)]
+                 VALUES ($1,$2,$3,$4,$5,$6,$7, TRUE, now(), now(), (CURRENT_DATE + INTERVAL '6 years')) RETURNING id`,
+                [
+                    "Jasmine Rivera",
+                    DEMO_EMAIL,
+                    hash,
+                    "0917 555 0148",
+                    "mother",
+                    "Quezon City",
+                    addDays(DOB, -7),
+                ]
             );
             const userId = u.rows[0].id;
 

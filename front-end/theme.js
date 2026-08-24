@@ -89,6 +89,34 @@ const SHARED = {
     recMemory: { on: "#963A66", bg: "#F4E2EA" },
     recHospitalization: { on: "#94293A", bg: "#F4E0E3" },
 
+    // Calendar event categories — the colour of a dot on a day cell.
+    //
+    // SEPARATE FROM rec* ABOVE, and not a duplicate of it. A rec* tint sits
+    // behind an icon with its label right beside it, so those colours never
+    // had to be told apart from one another. A calendar dot is 6px of pure
+    // colour with no label at all, which is a much harder ask — measured,
+    // rec* fails it (illness vs hospitalization come out at dE 21, well under
+    // the dE 30 needed to read as different at a glance).
+    //
+    // These six are chosen against three constraints and verified numerically,
+    // not by eye: >=4.5:1 against surface, >=dE 30 (CIE76) between every pair,
+    // and FIXED per category. They must never be taken from the girl/boy
+    // palette — checkup used to be colors.primary and custom colors.accent,
+    // which made the two nearly identical to each other AND changed the
+    // legend's meaning with the child's gender. A legend has to be stable.
+    //
+    // Illness stays amber and hospitalization stays red: DESIGN.md fixes those
+    // meanings and the Dashboard's Needs Attention card already uses them.
+    // Custom events are slate on purpose — parent-created, not clinical.
+    eventCategory: {
+        vaccination: "#1D4ED8",
+        checkup: "#A21CAF",
+        illness: "#8C5A08",
+        medication: "#15803D",
+        hospitalization: "#C22B3C",
+        custom: "#475569",
+    },
+
     // ponytail: deprecated aliases for the old 8-tint module system (4 of
     // its names — tintCoral/tintViolet/tintPink/tintIndigo — had zero
     // consumers and were deleted outright; these 4 still had real call
@@ -226,6 +254,17 @@ const SHARED_DARK = {
     recNutrition: { on: "#9BD98A", bg: "#1E3016" },
     recMemory: { on: "#E895C0", bg: "#3A1F2C" },
     recHospitalization: { on: "#F0839A", bg: "#3A1620" },
+
+    // Dark-mode variants of the calendar category colours. Same constraints,
+    // measured against the dark surface (#1A1E24).
+    eventCategory: {
+        vaccination: "#7CA5FF",
+        checkup: "#E879F9",
+        illness: "#E8B34D",
+        medication: "#4ADE80",
+        hospitalization: "#F2677B",
+        custom: "#A3B2C4",
+    },
 
     tintGreen: "#123328",
     tintBlue: "#0F2E33",

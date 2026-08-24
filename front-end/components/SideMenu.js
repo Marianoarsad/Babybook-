@@ -3,7 +3,6 @@ import {
     Modal,
     View,
     Text,
-    Image,
     TouchableOpacity,
     StyleSheet,
     Animated,
@@ -13,6 +12,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
+import Avatar from "./ui/Avatar";
 import { space, radius, shadow, type, MIN_TOUCH } from "../theme";
 
 const DRAWER_WIDTH = Math.min(300, Dimensions.get("window").width * 0.82);
@@ -100,7 +100,16 @@ export default function SideMenu({ visible, onClose, parentName, parentAvatar, o
                 <Animated.View style={[styles.drawer, { transform: [{ translateX }] }]}>
                     <ScrollView showsVerticalScrollIndicator={false}>
                         <View style={styles.header}>
-                            <Image source={{ uri: parentAvatar }} style={styles.avatar} />
+                            {/* Same component the profile screens use, so a
+                                parent with no photo is their own initials here
+                                too rather than a broken 46px hole. */}
+                            <Avatar
+                                uri={parentAvatar}
+                                name={parentName}
+                                size={46}
+                                borderWidth={2}
+                                style={styles.avatar}
+                            />
                             <Text style={styles.parentName} numberOfLines={1}>
                                 {parentName}
                             </Text>
@@ -175,14 +184,9 @@ const makeStyles = (colors) =>
             alignItems: "center",
             marginBottom: space.xl,
         },
-        avatar: {
-            width: 46,
-            height: 46,
-            borderRadius: 23,
-            borderWidth: 2,
-            borderColor: colors.primary,
-            marginRight: space.md,
-        },
+        // Size, radius and border now come from <Avatar>; only the spacing
+        // to the name is this screen's business.
+        avatar: { marginRight: space.md },
         parentName: {
             flex: 1,
             fontSize: 16,

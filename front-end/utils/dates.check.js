@@ -6,7 +6,7 @@ const src = fs.readFileSync(path.join(__dirname, "dates.js"), "utf8").replace(/e
 const M = new Function(
     `${src}\nreturn { todayLocal, toLocalISO, shortDate, monthLabel, shortTime, overdueBy,
                       nowLocalTime, durationText, minutesBetween, ageAtDate, monthsBetween,
-                      spanText };`,
+                      spanText, ageLabel };`,
 )();
 
 let fail = 0;
@@ -121,6 +121,22 @@ eq("spanText reversed falls back to the end date", M.spanText("2026-08-13", "202
 eq("spanText no start", M.spanText("", "2026-08-13"), "");
 eq("spanText junk start", M.spanText("not-a-date", "2026-08-13"), "");
 eq("spanText junk end falls back", M.spanText("2026-08-10", "not-a-date"), "");
+
+// ---- ageLabel: a child's age from a day count ----
+eq("ageLabel null", M.ageLabel(null), "");
+eq("ageLabel day zero", M.ageLabel(0), "0 days old");
+eq("ageLabel one day is singular", M.ageLabel(1), "1 day old");
+eq("ageLabel stays in days below 31", M.ageLabel(30), "30 days old");
+// 31 days is the switch, and 31 / 30.4375 floors to 1.
+eq("ageLabel switches to months at 31", M.ageLabel(31), "1 month old");
+eq("ageLabel months are singular at one", M.ageLabel(40), "1 month old");
+eq("ageLabel months", M.ageLabel(340), "11 months old");
+// Under two years stays in months -- 23 months reads better than "1y 11m".
+// 701, not 700: 700 / 30.4375 is 22.999, which floors to 22.
+eq("ageLabel 23 months stays months", M.ageLabel(701), "23 months old");
+eq("ageLabel switches to years at 24 months", M.ageLabel(731), "2 years old");
+eq("ageLabel years plus months", M.ageLabel(1000), "2y 8m old");
+eq("ageLabel whole years have no month part", M.ageLabel(1096), "3 years old");
 
 console.log(fail ? `\n${fail} of ${ran} failed` : `\nall ${ran} passed`);
 process.exit(fail ? 1 : 0);

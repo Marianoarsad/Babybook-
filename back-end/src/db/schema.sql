@@ -40,7 +40,12 @@ CREATE TABLE users (
     email               VARCHAR(100) NOT NULL UNIQUE,
     password_hash       VARCHAR(255) NOT NULL,
     phone_number        TEXT,                   -- encrypted at rest
-    gender              VARCHAR(10),
+    -- Who the account holder is to the child. Plaintext so the CHECK is
+    -- enforceable; see migrations/008_user_profile.sql. A family role, never a
+    -- legal or custodial status -- every value here is the account holder.
+    relationship        VARCHAR(20)
+        CHECK (relationship IN ('mother', 'father', 'grandparent', 'guardian', 'other')),
+    city                TEXT,                   -- encrypted at rest
     avatar_url          TEXT,
     -- Data-retention consent (Data Privacy Act of 2012, RA 10173).
     consent_accepted    BOOLEAN NOT NULL DEFAULT FALSE,
@@ -217,6 +222,11 @@ CREATE TABLE growth_records (
     weight             DECIMAL(5,2),
     head_circumference DECIMAL(5,2),
     date_recorded      DATE NOT NULL,
+    -- Where the measurement was taken. A record of where the family went, never
+    -- an accuracy or confidence grade; see migrations/007_growth_detail.sql.
+    measured_at        VARCHAR(20)
+        CHECK (measured_at IN ('home', 'health_center', 'clinic', 'hospital')),
+    notes              TEXT,   -- encrypted at rest; not sent in the QR snapshot
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_growth_child ON growth_records(child_id);

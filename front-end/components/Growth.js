@@ -5,8 +5,6 @@ import {
     StyleSheet,
     ScrollView,
     TouchableOpacity,
-    TextInput,
-    Modal,
     Image,
 } from "react-native";
 import { api } from "../utils/api";
@@ -40,9 +38,9 @@ import {
 } from "../utils/whoGrowth";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import TipStrip from "./ui/TipStrip";
-import KeyboardAvoider from "./ui/KeyboardAvoider";
-import { todayLocal, shortDate, monthLabel, monthsBetween } from "../utils/dates";
+import { todayLocal, shortDate, monthLabel, monthsBetween, spanText, ageLabel } from "../utils/dates";
 import AddMemoryModal from "./ui/AddMemoryModal";
+import GrowthModal from "./ui/GrowthModal";
 import OptionSheet from "./ui/OptionSheet";
 import {
     CHECKPOINTS,
@@ -53,21 +51,23 @@ import {
     itemsForCheckpoint,
 } from "../utils/milestoneChecklist";
 
+// Display names for growth_records.measured_at (migration 007). Reading only:
+// the app never treats one place as more or less trustworthy than another.
+const PLACE_LABELS = {
+    home: "At home",
+    health_center: "Health centre",
+    clinic: "Clinic",
+    hospital: "Hospital",
+};
+
 const METRIC_TABS = [
     { key: "weight", label: "Weight", field: "weight" },
     { key: "height", label: "Height", field: "height" },
     { key: "head", label: "Head", field: "head_circumference" },
 ];
 
-function ageLabel(days) {
-    if (days == null) return "";
-    if (days < 31) return `${days} day${days === 1 ? "" : "s"} old`;
-    const months = Math.floor(days / 30.4375);
-    if (months < 24) return `${months} month${months === 1 ? "" : "s"} old`;
-    const years = Math.floor(months / 12);
-    const rem = months % 12;
-    return rem ? `${years}y ${rem}m old` : `${years} year${years === 1 ? "" : "s"} old`;
-}
+// ageLabel now lives in utils/dates.js -- the Dashboard's Growth Chart needs
+// the same string, and a second copy is how formatters drift apart.
 
 
 
@@ -86,7 +86,10 @@ export default function Growth({
     const padBottom = useScreenPadBottom();
     const padTop = useScreenPadTop();
     const { scrollProps } = useScroll();
-    const [growthTab, setGrowthTab] = useState("milestones");
+    // Leftmost tab, same rule as Health.js. Note this does NOT open the Log
+    // Growth form: that is fired by the deep-link effect below only when
+    // initialTab === "metrics" arrives from the FAB, never from the default.
+    const [growthTab, setGrowthTab] = useState("metrics");
 
     // The checklist band this child's own age falls in. Everything about the
     // Milestones tab keys off this: the tab used to open on the youngest band
@@ -221,6 +224,9 @@ export default function Growth({
                         r.head_circumference != null && r.head_circumference !== ""
                             ? Number(r.head_circumference)
                             : null,
+                    measured_at: r.measured_at || null,
+                    notes: r.notes || null,
+                    raw: r,
                 };
             })
             .filter(Boolean)
@@ -231,14 +237,46 @@ export default function Growth({
     // someone saves through this screen's form, so for a seeded or imported
     // child they fall back to birth values — which read as a contradiction next
     // to a chart plotting the real latest measurement. Prefer the record.
+    // Head joins Height and Weight: the form collects it, the chart has a tab
+    // for it, and it was the one measurement you could not see without
+    // switching charts.
+    //
+    // Birth weight and birth length are deliberately NOT a fallback here. They
+    // answer a different question from "how big is the baby now", and showing
+    // one under a "latest measurement" heading misreports it — the same call
+    // already recorded for the Dashboard's Health ID card. With nothing
+    // recorded the strip shows a dash and the prompt below it says so.
     const latestVitals = useMemo(() => {
-        const h = measurements.find((m) => m.height != null);
-        const w = measurements.find((m) => m.weight != null);
-        return {
-            height: h ? h.height : profile.currentHeight || profile.birthHeight,
-            weight: w ? w.weight : profile.currentWeight || profile.birthWeight,
+        const pick = (field) => {
+            const row = measurements.find((m) => m[field] != null);
+            return row ? { value: row[field], date: row.date } : null;
         };
-    }, [measurements, profile.currentHeight, profile.birthHeight, profile.currentWeight, profile.birthWeight]);
+        return {
+            height: pick("height"),
+            weight: pick("weight"),
+            head: pick("head_circumference"),
+        };
+    }, [measurements]);
+
+    // "Last measured 4 months ago" — a plain statement of the gap. It does not
+    // say how often a child should be measured; the app has no standing to.
+    const lastMeasured = useMemo(() => {
+        const newest = measurements[0];
+        if (!newest) return null;
+        const span = spanText(newest.date, todayLocal());
+        return {
+            date: newest.date,
+            text: span === "Same day" ? "Last measured today" : `Last measured ${span} ago`,
+            // A visit that recorded one value but not the other leaves a hole
+            // in the other chart. Worth naming, once, without nagging.
+            missing:
+                newest.weight == null && newest.height != null
+                    ? "weight"
+                    : newest.height == null && newest.weight != null
+                      ? "height"
+                      : null,
+        };
+    }, [measurements]);
 
     // Where the most recent measurement of the selected metric falls.
     const reading = useMemo(() => {
@@ -251,8 +289,38 @@ export default function Growth({
         const value = latest[activeMetric.field];
         const z = zScore(metricKey, sexKey, latest.day, value);
         if (z == null) return null;
-        return { latest, value, z, percentile: percentileFromZ(z), ...describeZ(z) };
+
+        // The position at the previous measurement, so the two can be read
+        // together.
+        //
+        // REGISTER, deliberately: this states both published reference
+        // positions and their dates and stops. No arrow, no delta, no
+        // "up"/"down"/"rising"/"dropping", no colour, no icon, no alert.
+        // Movement between centiles is a clinical signal and reading it is the
+        // health worker's job, not this app's — PRODUCT.md Principle 5, the
+        // same reason the Dashboard's growth-pace verdict was deleted. Do not
+        // "improve" this into a trend indicator.
+        const prevRow = usable[usable.length - 2] || null;
+        let previous = null;
+        if (prevRow) {
+            const pz = zScore(metricKey, sexKey, prevRow.day, prevRow[activeMetric.field]);
+            if (pz != null) {
+                previous = { percentile: percentileFromZ(pz), date: prevRow.date };
+            }
+        }
+        return { latest, value, z, percentile: percentileFromZ(z), previous, ...describeZ(z) };
     }, [measurements, activeMetric.field, metricKey, sexKey, profile.dateOfBirth]);
+
+    // Where each past measurement sat, at the age it was taken. Restates a
+    // published reference position per row — the same thing the chart draws,
+    // in words, for the rows the chart cannot label.
+    const percentileFor = (m, field, indicator) => {
+        if (!sexKey || m.day == null || m.day > WHO_MAX_DAY) return null;
+        const v = m[field];
+        if (v == null || !(v > 0)) return null;
+        const z = zScore(indicator, sexKey, m.day, v);
+        return z == null ? null : formatPercentile(percentileFromZ(z));
+    };
 
     // Achieved milestones the parent actually authored — one carrying a photo
     // or a note. A bare checklist tick is a record, not a keepsake: the
@@ -345,43 +413,40 @@ export default function Growth({
 
     // Metric adding state
     const [showMetricsModal, setShowMetricsModal] = useState(false);
-    // Empty, not pre-filled. These used to default to "68.2" and "7.4" —
-    // prototype placeholders that a parent tapping Log Growth → Save without
-    // editing would have written to the record as their child's real
-    // measurements. handleSaveMetrics already rejects a blank value with
-    // "Please enter valid parameters", which is the correct behaviour.
-    const [metricHeight, setMetricHeight] = useState("");
-    const [metricWeight, setMetricWeight] = useState("");
-    const [metricHead, setMetricHead] = useState("");
+    // Which row the form is editing (null = adding a new one), and which row
+    // has armed its delete confirm. Delete is two-step in place rather than a
+    // native alert: CLAUDE.md records that RN `Alert` is unreliable on the web
+    // build, and settings/PrivacySettings.js is the pattern that works there.
+    const [editingGrowth, setEditingGrowth] = useState(null);
+    const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
-    const handleSaveMetrics = async () => {
-        const h = parseFloat(metricHeight);
-        const w = parseFloat(metricWeight);
-        if (isNaN(h) || isNaN(w) || h <= 0 || w <= 0) {
-            toast.error("Please enter valid parameters");
-            return;
-        }
-        onUpdateProfile({
-            ...profile,
-            currentHeight: h,
-            currentWeight: w,
-        });
-        setShowMetricsModal(false);
-        // Persist as a growth record (feeds the QR consultation snapshot).
-        try {
-            await api.createRecord(profile.id, "growth", {
-                height: h,
-                weight: w,
-                head_circumference: parseFloat(metricHead) || null,
-                date_recorded: todayLocal(),
+    // The form owns validation, the save, and the toast now — see
+    // ui/GrowthModal.js. All this has to do is refresh the list so the chart,
+    // the percentile read-out and the history include what just changed.
+    const handleGrowthSaved = (saved) => {
+        setReloadTick((n) => n + 1);
+        // Keeps the profile's cached "current" values in step with the newest
+        // measurement, as the old inline handler did. These duplicate the
+        // latest growth row onto the child record and other screens read them;
+        // untangling that is its own piece of work.
+        if (!editingGrowth && (saved?.height != null || saved?.weight != null)) {
+            onUpdateProfile({
+                ...profile,
+                currentHeight: saved.height != null ? Number(saved.height) : profile.currentHeight,
+                currentWeight: saved.weight != null ? Number(saved.weight) : profile.currentWeight,
             });
-            // Pull the list again so the chart and history include what was
-            // just saved instead of going stale until the screen remounts.
-            setReloadTick((n) => n + 1);
-        } catch (e) {
-            console.log("save growth:", e.message);
         }
-        toast.success(`Height: ${h}cm, Weight: ${w}kg saved.`);
+    };
+
+    const handleDeleteGrowth = async (id) => {
+        try {
+            await api.deleteRecord(profile.id, "growth", id);
+            setConfirmDeleteId(null);
+            setReloadTick((n) => n + 1);
+            toast.success("Measurement removed");
+        } catch (e) {
+            toast.error(e.message || "Could not remove the measurement");
+        }
     };
 
     return (
@@ -402,25 +467,6 @@ export default function Growth({
                 <TouchableOpacity
                     style={[
                         styles.tabButton,
-                        growthTab === "milestones" && styles.tabButtonActive,
-                    ]}
-                    onPress={() => setGrowthTab("milestones")}
-                >
-                    <Text
-                        numberOfLines={1}
-                        style={[
-                            styles.tabButtonText,
-                            { textAlign: "center" },
-                            growthTab === "milestones" &&
-                                styles.tabButtonTextActive,
-                        ]}
-                    >
-                        Milestones
-                    </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={[
-                        styles.tabButton,
                         growthTab === "metrics" && styles.tabButtonActive,
                     ]}
                     onPress={() => setGrowthTab("metrics")}
@@ -435,6 +481,25 @@ export default function Growth({
                         ]}
                     >
                         Growth
+                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[
+                        styles.tabButton,
+                        growthTab === "milestones" && styles.tabButtonActive,
+                    ]}
+                    onPress={() => setGrowthTab("milestones")}
+                >
+                    <Text
+                        numberOfLines={1}
+                        style={[
+                            styles.tabButtonText,
+                            { textAlign: "center" },
+                            growthTab === "milestones" &&
+                                styles.tabButtonTextActive,
+                        ]}
+                    >
+                        Milestones
                     </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -724,7 +789,10 @@ export default function Growth({
                         subtitle="Record parameters to track baby's physical development indices"
                         action={
                             <TouchableOpacity
-                                onPress={() => setShowMetricsModal(true)}
+                                onPress={() => {
+                                    setEditingGrowth(null);
+                                    setShowMetricsModal(true);
+                                }}
                                 style={styles.addApptBtn}
                             >
                                 <Ionicons
@@ -746,25 +814,42 @@ export default function Growth({
                             </>
                         ) : (
                             <>
+                        {/* Three across, always. The columns use flexShrink /
+                            minWidth longhand rather than any `flex` shorthand:
+                            `flex: 0` collapses a box on react-native-web
+                            (Dashboard.js) and `min-width: auto` stops one
+                            shrinking (NutritionTracker.js). Both traps live in
+                            exactly this shape. */}
                         <View style={styles.metricsHeaderBox}>
-                            <View style={styles.metricsHeaderCol}>
-                                <Text style={styles.metricsHeaderLabel}>
-                                    Height
-                                </Text>
-                                <Text style={styles.metricsHeaderValue}>
-                                    {latestVitals.height} cm
-                                </Text>
-                            </View>
-                            <View style={styles.metricsHeaderDivider} />
-                            <View style={styles.metricsHeaderCol}>
-                                <Text style={styles.metricsHeaderLabel}>
-                                    Weight
-                                </Text>
-                                <Text style={styles.metricsHeaderValue}>
-                                    {latestVitals.weight} kg
-                                </Text>
-                            </View>
+                            {[
+                                { key: "weight", label: "Weight", unit: "kg" },
+                                { key: "height", label: "Height", unit: "cm" },
+                                { key: "head", label: "Head", unit: "cm" },
+                            ].map((col, i) => (
+                                <React.Fragment key={col.key}>
+                                    {i > 0 ? <View style={styles.metricsHeaderDivider} /> : null}
+                                    <View style={styles.metricsHeaderCol}>
+                                        <Text style={styles.metricsHeaderLabel} numberOfLines={1}>
+                                            {col.label}
+                                        </Text>
+                                        <Text style={styles.metricsHeaderValue} numberOfLines={1}>
+                                            {latestVitals[col.key]
+                                                ? `${latestVitals[col.key].value} ${col.unit}`
+                                                : "—"}
+                                        </Text>
+                                    </View>
+                                </React.Fragment>
+                            ))}
                         </View>
+
+                        {lastMeasured ? (
+                            <Text style={styles.lastMeasured}>
+                                {lastMeasured.text} · {shortDate(lastMeasured.date)}
+                                {lastMeasured.missing
+                                    ? ` · no ${lastMeasured.missing} recorded that day`
+                                    : ""}
+                            </Text>
+                        ) : null}
 
                         <View style={styles.metricSwitch}>
                             {METRIC_TABS.map((m) => {
@@ -806,6 +891,15 @@ export default function Growth({
                                 <Text style={styles.readingText}>
                                     {reading.text} — measured at {ageLabel(reading.latest.day)}.
                                 </Text>
+                                {/* Both positions, both dates, nothing else.
+                                    See the note on `previous` above before
+                                    adding an arrow or a difference here. */}
+                                {reading.previous ? (
+                                    <Text style={styles.readingPrev}>
+                                        Previously {formatPercentile(reading.previous.percentile)} on{" "}
+                                        {shortDate(reading.previous.date)}.
+                                    </Text>
+                                ) : null}
                             </View>
                         ) : null}
 
@@ -857,15 +951,24 @@ export default function Growth({
                                     if (m.height != null) parts.push(`${m.height} cm`);
                                     if (m.head_circumference != null)
                                         parts.push(`head ${m.head_circumference} cm`);
+                                    // Where this row sat against WHO at the age it was
+                                    // taken, for the metric currently on screen.
+                                    const pct = percentileFor(m, activeMetric.field, metricKey);
+                                    const place = PLACE_LABELS[m.measured_at] || null;
+                                    const armed = confirmDeleteId === m.id;
                                     return (
                                         <ListEntryCard
                                             key={m.id ?? m.date}
                                             title={parts.join("  ·  ") || "No values recorded"}
-                                            subtitle={
-                                                m.day != null
-                                                    ? `${m.date} · ${ageLabel(m.day)}`
-                                                    : m.date
-                                            }
+                                            subtitle={[
+                                                shortDate(m.date),
+                                                m.day != null ? ageLabel(m.day) : null,
+                                                place,
+                                            ]
+                                                .filter(Boolean)
+                                                .join(" · ")}
+                                            label={pct ? `${pct} ${activeMetric.label.toLowerCase()}` : null}
+                                            notes={m.notes || null}
                                             icon={
                                                 <MaterialCommunityIcons
                                                     name="scale"
@@ -874,6 +977,72 @@ export default function Growth({
                                                 />
                                             }
                                             iconBg={colors.recGrowth.bg}
+                                            actions={
+                                                <View style={styles.rowActions}>
+                                                    {armed ? (
+                                                        <>
+                                                            {/* Two-step, in place. A growth row
+                                                                feeds the chart and the
+                                                                healthcare professional's
+                                                                percentile, so it must not
+                                                                vanish on a single tap. */}
+                                                            <TouchableOpacity
+                                                                onPress={() => handleDeleteGrowth(m.id)}
+                                                                style={styles.confirmDeleteBtn}
+                                                                accessibilityRole="button"
+                                                                accessibilityLabel="Confirm delete measurement"
+                                                            >
+                                                                <Text style={styles.confirmDeleteText}>
+                                                                    Delete?
+                                                                </Text>
+                                                            </TouchableOpacity>
+                                                            <TouchableOpacity
+                                                                onPress={() => setConfirmDeleteId(null)}
+                                                                style={styles.rowIconBtn}
+                                                                accessibilityRole="button"
+                                                                accessibilityLabel="Keep measurement"
+                                                            >
+                                                                <Ionicons
+                                                                    name="close"
+                                                                    size={18}
+                                                                    color={colors.textMuted}
+                                                                />
+                                                            </TouchableOpacity>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <TouchableOpacity
+                                                                onPress={() => {
+                                                                    setConfirmDeleteId(null);
+                                                                    setEditingGrowth(m.raw);
+                                                                    setShowMetricsModal(true);
+                                                                }}
+                                                                style={styles.rowIconBtn}
+                                                                accessibilityRole="button"
+                                                                accessibilityLabel="Edit measurement"
+                                                            >
+                                                                <Ionicons
+                                                                    name="create-outline"
+                                                                    size={18}
+                                                                    color={colors.primary}
+                                                                />
+                                                            </TouchableOpacity>
+                                                            <TouchableOpacity
+                                                                onPress={() => setConfirmDeleteId(m.id)}
+                                                                style={styles.rowIconBtn}
+                                                                accessibilityRole="button"
+                                                                accessibilityLabel="Delete measurement"
+                                                            >
+                                                                <Ionicons
+                                                                    name="trash-outline"
+                                                                    size={18}
+                                                                    color={colors.danger}
+                                                                />
+                                                            </TouchableOpacity>
+                                                        </>
+                                                    )}
+                                                </View>
+                                            }
                                         />
                                     );
                                 })}
@@ -889,65 +1058,20 @@ export default function Growth({
                 </View>
             )}
 
-            {/* Metrics Modal */}
-            <Modal visible={showMetricsModal} transparent animationType="slide">
-                <KeyboardAvoider>
-                <View style={styles.modalBg}>
-                    <View style={styles.modalCard}>
-                        <Text style={styles.modalTitle}>
-                            {t("growthAddMetrics")}
-                        </Text>
-
-                        <Text style={styles.modalLabel}>Height (cm)</Text>
-                        <TextInput
-                            keyboardType="numeric"
-                            style={styles.modalInput}
-                            value={metricHeight}
-                            onChangeText={setMetricHeight}
-                        />
-
-                        <Text style={styles.modalLabel}>Weight (kg)</Text>
-                        <TextInput
-                            keyboardType="numeric"
-                            style={styles.modalInput}
-                            value={metricWeight}
-                            onChangeText={setMetricWeight}
-                        />
-
-                        <Text style={styles.modalLabel}>
-                            Head Circumference (cm) — optional
-                        </Text>
-                        <TextInput
-                            keyboardType="numeric"
-                            style={styles.modalInput}
-                            placeholder="e.g. 43.5"
-                            placeholderTextColor={colors.placeholder}
-                            value={metricHead}
-                            onChangeText={setMetricHead}
-                        />
-
-                        <View style={styles.modalButtons}>
-                            <TouchableOpacity
-                                onPress={() => setShowMetricsModal(false)}
-                                style={styles.modalCancelBtn}
-                            >
-                                <Text style={styles.modalCancelText}>
-                                    {t("cancel")}
-                                </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                onPress={handleSaveMetrics}
-                                style={styles.modalSaveBtn}
-                            >
-                                <Text style={styles.modalSaveText}>
-                                    {t("save")}
-                                </Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
-                </KeyboardAvoider>
-            </Modal>
+            {/* One form for adding a measurement and for correcting one.
+                It owns its own validation, save and toast now: the old
+                inline version announced success from outside its try/catch
+                and lost the measurement on a failed request. */}
+            <GrowthModal
+                visible={showMetricsModal}
+                profile={profile}
+                record={editingGrowth}
+                onClose={() => {
+                    setShowMetricsModal(false);
+                    setEditingGrowth(null);
+                }}
+                onSaved={handleGrowthSaved}
+            />
 
             <MemoryDetail
                 visible={!!detailMemory}
@@ -1140,6 +1264,31 @@ const makeStyles = (colors) => StyleSheet.create({
         ...type.label,
         color: "#FFFFFF",
     },
+    lastMeasured: {
+        ...type.caption,
+        color: colors.textMuted,
+        marginTop: -8,
+        marginBottom: 16,
+    },
+    rowActions: { flexDirection: "row", alignItems: "center", gap: space.xs },
+    rowIconBtn: {
+        width: MIN_TOUCH,
+        height: MIN_TOUCH,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    confirmDeleteBtn: {
+        minHeight: MIN_TOUCH,
+        justifyContent: "center",
+        paddingHorizontal: space.md,
+        borderRadius: radius.pill,
+        borderCurve: "continuous",
+        backgroundColor: colors.dangerBg,
+        borderWidth: 1,
+        borderColor: colors.danger,
+    },
+    confirmDeleteText: { ...type.caption, fontWeight: "800", color: colors.danger },
+    readingPrev: { ...type.caption, color: colors.textMuted, marginTop: space.xs },
     metricsHeaderBox: {
         flexDirection: "row",
         backgroundColor: colors.surfaceAlt,
@@ -1150,7 +1299,14 @@ const makeStyles = (colors) => StyleSheet.create({
         marginBottom: 16,
     },
     metricsHeaderCol: {
-        flex: 1,
+        // Longhand, and minWidth: 0 explicitly. Three columns in a row is
+        // the exact shape both react-native-web flex traps live in --
+        // `flex: 0` collapsing a box (Dashboard.js) and `min-width: auto`
+        // refusing to shrink one (NutritionTracker.js).
+        flexGrow: 1,
+        flexShrink: 1,
+        flexBasis: 0,
+        minWidth: 0,
         alignItems: "center",
     },
     metricsHeaderLabel: {
@@ -1255,73 +1411,5 @@ const makeStyles = (colors) => StyleSheet.create({
         marginTop: 12,
         ...type.caption,
         color: colors.textMuted,
-    },
-    modalBg: {
-        flex: 1,
-        backgroundColor: "rgba(0,0,0,0.5)",
-        justifyContent: "center",
-        alignItems: "center",
-        padding: 20,
-    },
-    modalCard: {
-        backgroundColor: colors.background,
-        borderRadius: radius.xl,
-        borderCurve: "continuous",
-        padding: 20,
-        width: "100%",
-        // 440, not 340 — the sheet was narrower than the phone under it.
-        maxWidth: 440,
-        borderWidth: 1,
-        borderColor: colors.border,
-    },
-    modalTitle: {
-        ...type.heading,
-        color: colors.primary,
-        marginBottom: 16,
-    },
-    modalLabel: {
-        ...type.subheading,
-        color: colors.textMuted,
-        marginBottom: 6,
-    },
-    modalInput: {
-        backgroundColor: colors.surfaceAlt,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: radius.md,
-        borderCurve: "continuous",
-        paddingHorizontal: 12,
-        height: 44,
-        fontSize: type.body.fontSize,
-        fontFamily: type.body.fontFamily,
-        color: colors.text,
-        marginBottom: 16,
-    },
-    modalButtons: {
-        flexDirection: "row",
-        justifyContent: "flex-end",
-        gap: 12,
-    },
-    modalCancelBtn: {
-        paddingVertical: 10,
-        paddingHorizontal: 16,
-        borderRadius: radius.md,
-        borderCurve: "continuous",
-        backgroundColor: colors.surfaceAlt,
-    },
-    modalCancelText: {
-        ...type.caption,
-        color: colors.textMuted,
-    },
-    modalSaveBtn: {
-        paddingVertical: 10,
-        paddingHorizontal: 16,
-        borderRadius: radius.md,
-        borderCurve: "continuous",
-        backgroundColor: colors.accentStrong,
-    },
-    modalSaveText: {
-        ...type.label,
-        color: "#FFFFFF",
     },
 });

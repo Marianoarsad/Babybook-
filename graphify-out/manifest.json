@@ -135,8 +135,8 @@
     "semantic_hash": ""
   },
   "front-end/App.js": {
-    "mtime": 1787129394.458535,
-    "ast_hash": "1a4b09d203431b1a360b3ebdc1aecb16",
+    "mtime": 1787145955.1898358,
+    "ast_hash": "66de0c7ef1964810207e09a6e43e48a7",
     "semantic_hash": ""
   },
   "front-end/app.json": {
@@ -145,8 +145,8 @@
     "semantic_hash": ""
   },
   "front-end/components/Auth.js": {
-    "mtime": 1787139098.6336617,
-    "ast_hash": "aeec7bc3f9ebee2ef4ab269984e19219",
+    "mtime": 1787145589.0718598,
+    "ast_hash": "a3fdf4f6edc91af672e4c7fdef1bf5b8",
     "semantic_hash": ""
   },
   "front-end/components/Dashboard.js": {

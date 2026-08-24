@@ -13,6 +13,11 @@ const { encrypt, decrypt } = require("../utils/crypto");
 
 const router = express.Router();
 
+// The account holder's relationship to the child. Must stay identical to the
+// CHECK constraint in migrations/008_user_profile.sql -- a value that passes
+// here and fails there surfaces as a 500 instead of a field error.
+const RELATIONSHIPS = ["mother", "father", "grandparent", "guardian", "other"];
+
 // Annual re-consent is due if the last review was more than a year ago.
 const consentReviewDue = (u) => {
     if (!u || !u.consent_reviewed_at) return false;
@@ -25,7 +30,8 @@ const publicUser = (u) => ({
     fullName: decrypt(u.full_name),
     email: u.email,
     phoneNumber: decrypt(u.phone_number),
-    gender: u.gender,
+    relationship: u.relationship,
+    city: decrypt(u.city),
     avatarUrl: u.avatar_url,
     consentAccepted: u.consent_accepted,
     consentDate: u.consent_date,
@@ -40,10 +46,16 @@ router.post(
         body("fullName").trim().notEmpty().withMessage("Full name is required"),
         body("email").isEmail().withMessage("Valid email is required").normalizeEmail(),
         body("password").isLength({ min: 8 }).withMessage("Password must be at least 8 characters"),
+        // Optional here, but validated when sent: a value outside the set would
+        // otherwise reach the column's CHECK constraint and surface as a 500.
+        body("relationship")
+            .optional({ values: "falsy" })
+            .isIn(RELATIONSHIPS)
+            .withMessage("Relationship must be one of: " + RELATIONSHIPS.join(", ")),
     ],
     handleValidation,
     asyncHandler(async (req, res) => {
-        const { fullName, email, password, phoneNumber, gender, consentAccepted } = req.body;
+        const { fullName, email, password, phoneNumber, relationship, city, consentAccepted } = req.body;
         // Data-retention & privacy consent is mandatory to register.
         if (consentAccepted !== true && consentAccepted !== "true") {
             throw new ApiError(400, "You must accept the data-retention and privacy agreement to create an account.");
@@ -53,11 +65,21 @@ router.post(
         try {
             ({ rows } = await query(
                 `INSERT INTO users
-                    (full_name, email, password_hash, phone_number, gender,
+                    (full_name, email, password_hash, phone_number, relationship, city,
                      consent_accepted, consent_date, consent_reviewed_at, retention_until)
-                 VALUES ($1, $2, $3, $4, $5, TRUE, now(), now(), (CURRENT_DATE + INTERVAL '6 years'))
+                 VALUES ($1, $2, $3, $4, $5, $6, TRUE, now(), now(), (CURRENT_DATE + INTERVAL '6 years'))
                  RETURNING *`,
-                [encrypt(fullName), email, hash, encrypt(phoneNumber || null), gender || null]
+                // `|| null` on every optional field: a skipped box must store
+                // NULL, which the app renders as "Not recorded", rather than an
+                // empty string that reads as a recorded blank.
+                [
+                    encrypt(fullName),
+                    email,
+                    hash,
+                    encrypt(phoneNumber || null),
+                    relationship || null,
+                    encrypt(city || null),
+                ]
             ));
         } catch (e) {
             if (e.code === "23505") throw new ApiError(409, "An account with that email already exists");
@@ -96,22 +118,38 @@ router.get(
     })
 );
 
-// PUT /api/auth/me — update profile (name, phone, gender, avatar)
+// PUT /api/auth/me — update profile (name, phone, relationship, city, avatar)
+//
+// Email is deliberately NOT updatable here. It is the login identity, so
+// changing it needs the current password — see POST /change-email below.
+const ENCRYPTED_USER_COLS = new Set(["full_name", "phone_number", "city"]);
+
 router.put(
     "/me",
     requireAuth,
+    [
+        body("relationship")
+            .optional({ values: "falsy" })
+            .isIn(RELATIONSHIPS)
+            .withMessage("Relationship must be one of: " + RELATIONSHIPS.join(", ")),
+    ],
+    handleValidation,
     asyncHandler(async (req, res) => {
-        const fields = ["full_name", "phone_number", "gender", "avatar_url"];
-        const map = { fullName: "full_name", phoneNumber: "phone_number", gender: "gender", avatarUrl: "avatar_url" };
+        const map = {
+            fullName: "full_name",
+            phoneNumber: "phone_number",
+            relationship: "relationship",
+            city: "city",
+            avatarUrl: "avatar_url",
+        };
         const set = [];
         const params = [];
         for (const [key, col] of Object.entries(map)) {
             if (req.body[key] !== undefined) {
-                const val =
-                    col === "full_name" || col === "phone_number"
-                        ? encrypt(req.body[key])
-                        : req.body[key];
-                params.push(val);
+                // An emptied box clears the column rather than storing "", so
+                // "cleared" and "never answered" stay the same thing.
+                const raw = req.body[key] === "" ? null : req.body[key];
+                params.push(ENCRYPTED_USER_COLS.has(col) ? encrypt(raw) : raw);
                 set.push(`${col} = $${params.length}`);
             }
         }
@@ -201,6 +239,44 @@ router.post(
         const hash = await bcrypt.hash(newPassword, 10);
         await query("UPDATE users SET password_hash = $1 WHERE id = $2", [hash, req.user.id]);
         res.json({ message: "Password updated" });
+    })
+);
+
+// POST /api/auth/change-email — verify the password, then move the login address.
+//
+// Not part of PUT /me. Email is what this account is identified by, so it must
+// not change on a stray tap in a form whose other fields save silently; the
+// current password is the confirmation. Modelled on change-password above.
+//
+// The caller's existing token keeps working: middleware/auth.js resolves the
+// user from the token's `sub` (the id), so the now-stale `email` claim is never
+// read and nobody is signed out by correcting their own address.
+router.post(
+    "/change-email",
+    requireAuth,
+    [
+        body("newEmail").isEmail().withMessage("Valid email is required").normalizeEmail(),
+        body("currentPassword").notEmpty().withMessage("Current password is required"),
+    ],
+    handleValidation,
+    asyncHandler(async (req, res) => {
+        const { newEmail, currentPassword } = req.body;
+        const { rows } = await query("SELECT * FROM users WHERE id = $1", [req.user.id]);
+        const match = await bcrypt.compare(currentPassword, rows[0].password_hash);
+        if (!match) throw new ApiError(401, "Current password is incorrect");
+        let updated;
+        try {
+            ({ rows: updated } = await query(
+                "UPDATE users SET email = $1 WHERE id = $2 RETURNING *",
+                [newEmail, req.user.id]
+            ));
+        } catch (e) {
+            // Same wording register uses, so one address already in use reads
+            // the same way wherever the parent meets it.
+            if (e.code === "23505") throw new ApiError(409, "An account with that email already exists");
+            throw e;
+        }
+        res.json({ user: publicUser(updated[0]) });
     })
 );
 

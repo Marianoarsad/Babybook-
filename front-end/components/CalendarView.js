@@ -31,21 +31,16 @@ const CATEGORY_META = {
     custom: { label: "Custom Event", icon: "bookmark-outline" },
 };
 
+// One fixed colour per category, from theme.js's eventCategory token.
+//
+// This used to switch on colors.primary (checkup) and colors.accent (custom),
+// both of which come from the GENDER palette — so those two were always the
+// same hue family as each other, and the legend's meaning changed with the
+// child: a checkup dot was pink for a girl and blue for a boy. Measured, the
+// old set had three confusable pairs and "custom" scored 3.1-3.3:1 against
+// white, under the 4.5:1 minimum. See the note on eventCategory in theme.js.
 function categoryColor(colors, category) {
-    switch (category) {
-        case "vaccination":
-            return colors.info;
-        case "checkup":
-            return colors.primary;
-        case "illness":
-            return colors.warning;
-        case "medication":
-            return colors.success;
-        case "hospitalization":
-            return colors.danger;
-        default:
-            return colors.accent;
-    }
+    return (colors.eventCategory && colors.eventCategory[category]) || colors.eventCategory.custom;
 }
 
 function todayISO() {
@@ -66,7 +61,6 @@ export default function CalendarView({ profile }) {
 
     const [viewMode, setViewMode] = useState("month"); // month | week | day
     const [selectedDate, setSelectedDate] = useState(todayISO());
-    const [monthKey, setMonthKey] = useState(0); // bump to force Calendar to re-center on "current"
     const [eventsByDate, setEventsByDate] = useState({});
     const [loading, setLoading] = useState(true);
     const [detailEvent, setDetailEvent] = useState(null);
@@ -191,6 +185,9 @@ export default function CalendarView({ profile }) {
         const marks = {};
         Object.entries(eventsByDate).forEach(([date, events]) => {
             marks[date] = {
+                // A dot is the only mark a day carries, so it has to be
+                // readable at a glance — the library's default is tiny. Size
+                // comes from calendarTheme.dotStyle below.
                 dots: events.slice(0, 4).map((e) => ({ key: e.id, color: categoryColor(colors, e.category) })),
             };
         });
@@ -212,6 +209,21 @@ export default function CalendarView({ profile }) {
             dayTextColor: colors.text,
             textDisabledColor: colors.border,
             dotColor: colors.primary,
+            // The library's default dot is 5x5 with 1pt gaps — six categories
+            // at that size is more than colour alone can carry. 8pt with a
+            // hairline ring in the surface colour: the ring does nothing on a
+            // plain day cell, and on the SELECTED day (filled with
+            // colors.primary) it keeps a dot of a similar hue from dissolving
+            // into the fill.
+            dotStyle: {
+                width: 8,
+                height: 8,
+                borderRadius: 4,
+                marginTop: 2,
+                marginHorizontal: 1.5,
+                borderWidth: 1,
+                borderColor: colors.surface,
+            },
             arrowColor: colors.primary,
             monthTextColor: colors.text,
             textMonthFontWeight: "800",
@@ -233,12 +245,6 @@ export default function CalendarView({ profile }) {
         }),
         [colors],
     );
-
-    const jumpToToday = useCallback(() => {
-        const t = todayISO();
-        setSelectedDate(t);
-        setMonthKey((k) => k + 1);
-    }, []);
 
     const dayEvents = eventsByDate[selectedDate] || [];
 
@@ -378,11 +384,6 @@ export default function CalendarView({ profile }) {
                             </Text>
                         </TouchableOpacity>
                     ))}
-                    <TouchableOpacity onPress={jumpToToday} style={styles.todayBtn} accessibilityRole="button" accessibilityLabel="Jump to today">
-                        <Text style={styles.todayBtnText} numberOfLines={1}>
-                            Today
-                        </Text>
-                    </TouchableOpacity>
                     <TouchableOpacity
                         onPress={openCreateModal}
                         style={styles.addEventBtn}
@@ -398,18 +399,8 @@ export default function CalendarView({ profile }) {
                     event.
                 </TipStrip>
 
-                <View style={styles.legendRow}>
-                    {Object.entries(CATEGORY_META).map(([key, meta]) => (
-                        <View key={key} style={styles.legendItem}>
-                            <View style={[styles.legendDot, { backgroundColor: categoryColor(colors, key) }]} />
-                            <Text style={styles.legendText}>{meta.label}</Text>
-                        </View>
-                    ))}
-                </View>
-
                 {viewMode === "month" && (
                     <Calendar
-                        key={monthKey}
                         current={selectedDate}
                         markingType="multi-dot"
                         markedDates={markedDates}
@@ -420,9 +411,17 @@ export default function CalendarView({ profile }) {
                 )}
 
                 {viewMode === "week" && (
-                    <CalendarProvider date={selectedDate} onDateChanged={setSelectedDate}>
-                        <WeekCalendar firstDay={1} markedDates={markedDates} theme={calendarTheme} style={styles.calendarCard} />
-                    </CalendarProvider>
+                    // The marginBottom in calendarCard never reaches the outer box here:
+                    // WeekCalendar renders inside its own container, so the style lands on
+                    // an inner node and the next block ends up flush against the week
+                    // strip. Harmless while the legend sat above the calendar; visible the
+                    // moment anything sits below it. The spacing goes on a wrapper this
+                    // file owns rather than fighting the library.
+                    <View style={styles.weekWrap}>
+                        <CalendarProvider date={selectedDate} onDateChanged={setSelectedDate}>
+                            <WeekCalendar firstDay={1} markedDates={markedDates} theme={calendarTheme} style={styles.calendarCard} />
+                        </CalendarProvider>
+                    </View>
                 )}
 
                 {viewMode === "day" && (
@@ -442,6 +441,15 @@ export default function CalendarView({ profile }) {
                         </TouchableOpacity>
                     </View>
                 )}
+
+                <View style={styles.legendRow}>
+                    {Object.entries(CATEGORY_META).map(([key, meta]) => (
+                        <View key={key} style={styles.legendItem}>
+                            <View style={[styles.legendDot, { backgroundColor: categoryColor(colors, key) }]} />
+                            <Text style={styles.legendText}>{meta.label}</Text>
+                        </View>
+                    ))}
+                </View>
 
                 <View style={styles.eventsSection}>
                     <Text style={styles.eventsSectionTitle}>
@@ -595,29 +603,39 @@ const makeStyles = (colors) =>
             marginBottom: space.sm,
             gap: space.xs,
         },
+        // Text only. The fill and the pill corner are gone; the selection is
+        // carried by colour plus a rule under the label.
+        //
+        // EVERY button holds the 2px rule, transparent when inactive. Putting
+        // the border only on the active one moves the whole row 2px each time
+        // the selection changes, which reads as the layout twitching.
+        //
+        // The row sits on the page gradient, not on a card. Measured against
+        // the gradient's top stop in all three palettes and both schemes, the
+        // worst case is textMuted at 5.07:1 and primaryDark at 5.14:1 -- both
+        // clear of 4.5:1, so the tokens carry over unchanged. Worth re-checking
+        // before swapping either of them: accentStrong measures 3.77:1 here,
+        // which is why todayBtnText used primaryDark before it was removed.
         switcherBtn: {
             minHeight: MIN_TOUCH,
             justifyContent: "center",
-            paddingVertical: 8,
-            paddingHorizontal: space.md,
-            borderRadius: radius.pill,
-            backgroundColor: colors.surfaceAlt,
+            paddingTop: 8,
+            paddingBottom: 6,
+            paddingHorizontal: space.sm,
+            borderBottomWidth: 2,
+            borderBottomColor: "transparent",
         },
-        switcherBtnActive: { backgroundColor: colors.softGreen },
+        switcherBtnActive: { borderBottomColor: colors.primaryDark },
+        // Both states stay 13px at weight 700 -- DESIGN.md's Weight Ladder
+        // Rule. Health.js records that growing the active label is what
+        // overflowed a tab box; with no box left it would instead shove the
+        // neighbouring labels sideways on every switch.
         switcherText: { ...type.caption, fontWeight: "700", color: colors.textMuted },
         switcherTextActive: { color: colors.primaryDark },
-        todayBtn: {
-            marginLeft: "auto",
-            minHeight: MIN_TOUCH,
-            justifyContent: "center",
-            paddingVertical: 8,
-            paddingHorizontal: space.md,
-        },
-        // This label sits on the bare page, which is now the tinted top of the
-        // gradient rather than flat grey — `accentStrong` (= primary) fell to
-        // 3.77:1 there. primaryDark is the token for text on a pale brand wash.
-        todayBtnText: { ...type.caption, fontWeight: "800", color: colors.primaryDark },
         addEventBtn: {
+            // Was on todayBtn, which used to sit between the filters and this
+            // button and pushed everything after it to the right edge.
+            marginLeft: "auto",
             width: MIN_TOUCH,
             height: MIN_TOUCH,
             borderRadius: radius.pill,
@@ -625,27 +643,53 @@ const makeStyles = (colors) =>
             alignItems: "center",
             justifyContent: "center",
         },
+        // A fixed 3 x 2 grid: six categories, three per row, each taking an
+        // equal third. It used to be a plain wrap with a gap, so rows broke
+        // wherever the labels happened to end — ragged, and it re-flowed as
+        // soon as a label changed length.
+        //
+        // rowGap only; the columns get their spacing from the thirds
+        // themselves, which is what keeps the two rows aligned with each other.
         legendRow: {
             flexDirection: "row",
             flexWrap: "wrap",
-            gap: space.md,
+            rowGap: space.md,
             marginBottom: space.md,
         },
         legendItem: {
+            // Explicit longhand, never `flex: 0` — react-native-web passes
+            // that through to CSS as `0 1 0%`, and a 0% basis overrides any
+            // width, collapsing the item to nothing. Same trap documented in
+            // Dashboard.js.
+            flexGrow: 0,
+            flexShrink: 0,
+            flexBasis: "33.33%",
             flexDirection: "row",
             alignItems: "center",
             gap: 6,
+            paddingRight: space.xs,
         },
+        // Matches the dot size on the day cells, so the legend is a true key
+        // to what the calendar draws rather than a smaller approximation.
         legendDot: {
             width: 8,
             height: 8,
             borderRadius: 4,
+            flexShrink: 0,
         },
-        legendText: {
-            fontSize: type.caption.fontSize,
-            fontWeight: "700",
-            color: colors.textSecondary,
-        },
+        // 12px -- one under the 13px floor theme.js sets ("caption is the 13px
+        // floor -- no text anywhere goes smaller"). A deliberate exception,
+        // chosen with the user: six labels each get a third of the row, and at
+        // 320pt "Hospitalization" measured 92.6px inside a 96px column, so it
+        // ran 10.6px PAST its column into the next one. The same exception the
+        // status pills in ShareRecords.js already take.
+        //
+        // Spreading type.caption also fixes the pairing theme.js warns about:
+        // the old style asked for weight 700 with no fontFamily, so the
+        // platform synthesised a bold that was both heavier and wider than the
+        // real 500 face. A key does not need to shout anyway.
+        legendText: { ...type.caption, fontSize: 12, color: colors.textSecondary },
+        weekWrap: { marginBottom: space.lg },
         calendarCard: {
             borderRadius: radius.lg,
             borderCurve: "continuous",

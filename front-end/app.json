@@ -45,11 +45,7 @@
                 {
                     "backgroundColor": "#F2F5F7",
                     "imageWidth": 200,
-                    "image": "./assets/splash-icon.png",
-                    "dark": {
-                        "backgroundColor": "#12151A",
-                        "image": "./assets/splash-icon.png"
-                    }
+                    "image": "./assets/splash-icon.png"
                 }
             ]
         ],

@@ -140,8 +140,12 @@ const RESOURCES = [
     {
         path: "growth",
         table: "growth_records",
-        columns: ["height", "weight", "head_circumference", "date_recorded"],
+        // measured_at is plaintext on purpose (007): its CHECK constraint is
+        // only enforceable on a value Postgres can read. notes is encrypted
+        // for the same reason medical_history.notes is.
+        columns: ["height", "weight", "head_circumference", "date_recorded", "measured_at", "notes"],
         orderBy: "date_recorded DESC, id DESC",
+        encrypted: ["notes"],
     },
     {
         path: "milestones",

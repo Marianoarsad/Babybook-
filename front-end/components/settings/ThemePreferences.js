@@ -14,8 +14,18 @@ const OPTIONS = [
 ];
 
 const SCHEME_OPTIONS = [
-    { key: "system", label: "System", sub: "Follows your phone's setting", icon: "phone-portrait-outline" },
-    { key: "light", label: "Light", sub: "Always light", icon: "sunny-outline" },
+    {
+        key: "system",
+        label: "System",
+        sub: "Follows your phone's setting",
+        icon: "phone-portrait-outline",
+    },
+    {
+        key: "light",
+        label: "Light",
+        sub: "Always light",
+        icon: "sunny-outline",
+    },
     { key: "dark", label: "Dark", sub: "Always dark", icon: "moon-outline" },
 ];
 
@@ -24,12 +34,21 @@ const SCHEME_OPTIONS = [
 function PaletteDots({ palette }) {
     return (
         <View style={{ flexDirection: "row", gap: 4 }}>
-            {[palette.primary, palette.accent, palette.primarySoft].map((c, i) => (
-                <View
-                    key={i}
-                    style={{ width: 12, height: 12, borderRadius: 6, borderWidth: 1, borderColor: palette.hairline, backgroundColor: c }}
-                />
-            ))}
+            {[palette.primary, palette.accent, palette.primarySoft].map(
+                (c, i) => (
+                    <View
+                        key={i}
+                        style={{
+                            width: 12,
+                            height: 12,
+                            borderRadius: 6,
+                            borderWidth: 1,
+                            borderColor: palette.hairline,
+                            backgroundColor: c,
+                        }}
+                    />
+                ),
+            )}
         </View>
     );
 }
@@ -38,7 +57,7 @@ export default function ThemePreferences({
     themeOverride = "auto",
     onThemeOverrideChange,
     childGender,
-    schemeOverride = "system",
+    schemeOverride = "light",
     onSchemeOverrideChange,
 }) {
     const { colors } = useTheme();
@@ -51,44 +70,71 @@ export default function ThemePreferences({
     return (
         <Animated.ScrollView
             style={styles.container}
-            contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
+            contentContainerStyle={[
+                styles.content,
+                { paddingTop: padTop, paddingBottom: padBottom },
+            ]}
             keyboardShouldPersistTaps="handled"
             {...scrollProps}
         >
-            <SectionContainerCard title="App Appearance" subtitle="How the app's colors are themed">
+            <SectionContainerCard
+                title="Visual Themes"
+                subtitle="How the app's colors are themed"
+            >
                 {OPTIONS.map((opt) => {
                     const on = (themeOverride || "auto") === opt.key;
                     const sub =
                         opt.key === "auto"
                             ? "Follows the selected baby's gender" +
-                              (childGender ? ` (currently ${childGender === "boy" ? "Boy · Blue" : "Girl · Pink"})` : "")
+                              (childGender
+                                  ? ` (currently ${childGender === "boy" ? "Boy · Blue" : "Girl · Pink"})`
+                                  : "")
                             : opt.sub;
                     const palette =
-                        opt.key === "girl" ? PALETTES.girl : opt.key === "boy" ? PALETTES.boy : paletteFor(childGender);
+                        opt.key === "girl"
+                            ? PALETTES.girl
+                            : opt.key === "boy"
+                              ? PALETTES.boy
+                              : paletteFor(childGender);
                     return (
                         <RadioRow
                             key={opt.key}
                             label={opt.label}
                             sublabel={sub}
                             selected={on}
-                            onPress={() => onThemeOverrideChange && onThemeOverrideChange(opt.key)}
+                            onPress={() =>
+                                onThemeOverrideChange &&
+                                onThemeOverrideChange(opt.key)
+                            }
                             trailing={<PaletteDots palette={palette} />}
                         />
                     );
                 })}
             </SectionContainerCard>
 
-            <SectionContainerCard title="Dark Mode" subtitle="Easier on the eyes for night feeds">
+            <SectionContainerCard
+                title="Appearance Settings"
+                subtitle="Easier on the eyes for night feeds"
+            >
                 {SCHEME_OPTIONS.map((opt) => {
-                    const on = (schemeOverride || "system") === opt.key;
+                    const on = (schemeOverride || "light") === opt.key;
                     return (
                         <RadioRow
                             key={opt.key}
                             label={opt.label}
                             sublabel={opt.sub}
                             selected={on}
-                            onPress={() => onSchemeOverrideChange && onSchemeOverrideChange(opt.key)}
-                            trailing={<Ionicons name={opt.icon} size={18} color={colors.textMuted} />}
+                            onPress={() =>
+                                onSchemeOverrideChange &&
+                                onSchemeOverrideChange(opt.key)
+                            }
+                            trailing={
+                                <Ionicons
+                                    name={opt.icon}
+                                    size={18}
+                                    color={colors.textMuted}
+                                />
+                            }
                         />
                     );
                 })}

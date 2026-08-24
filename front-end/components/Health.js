@@ -32,7 +32,6 @@ import {
     nextDoseTime,
     upcomingDoseSlots,
 } from "../utils/medication";
-import { exportChildRecordsPdf, pdfExportAvailable } from "../utils/exportPdf";
 import { pickImage, pickerAvailable } from "../utils/imagePicker";
 import { useToast } from "./ui/Toast";
 import { useLanguage } from "../context/LanguageContext";
@@ -214,7 +213,10 @@ export default function Health({
     // Time) drop to one per line when that can't give each a readable column.
     const { width: windowWidth, height: windowHeight } = useWindowDimensions();
     const modalTwoCol = fitsColumns(Math.min(windowWidth - 40, 440) - 40, 2, space.sm);
-    const [activeTab, setActiveTab] = useState("immunizations");
+    // Defaults to the LEFTMOST tab. Landing on a tab that is not the first one
+    // reads as a bug — people assume the highlight is wrong — so this has to be
+    // kept in step with the tab bar's order below if that order ever changes.
+    const [activeTab, setActiveTab] = useState("medications");
     // Apply a deep-link tab request from the floating log button, and — for
     // Deep links into this screen. THE RULE, and it is absolute:
     //
@@ -996,20 +998,11 @@ export default function Health({
         }
     };
 
-    // Secondary export entry point — most parents look for this on the
-    // Health screen, not under Privacy Settings. Exports every category.
-    const [exportingAll, setExportingAll] = useState(false);
-    const handleExportAllRecords = async () => {
-        setExportingAll(true);
-        try {
-            await exportChildRecordsPdf(profile);
-        } catch (e) {
-            toast.error(e.message || "Could not export records");
-        } finally {
-            setExportingAll(false);
-        }
-    };
-
+    // The PDF export used to live here. It moved to Share Records, where the
+    // printout is generated from the SAME record selection as the QR code —
+    // paper and screen now say the same thing. This screen is for browsing a
+    // child's records; an export button above its tab bar belonged to neither
+    // the tabs below it nor the care-team card above it.
     return (
         <Animated.ScrollView
             style={styles.container}
@@ -1048,39 +1041,8 @@ export default function Health({
                 ) : null}
             </View>
 
-            {pdfExportAvailable() && (
-                <TouchableOpacity
-                    style={styles.exportPdfBtn}
-                    onPress={handleExportAllRecords}
-                    disabled={exportingAll}
-                >
-                    <Ionicons name="download-outline" size={15} color={colors.primary} />
-                    <Text style={styles.exportPdfBtnText}>
-                        {exportingAll ? "Exporting…" : "Export records as PDF"}
-                    </Text>
-                </TouchableOpacity>
-            )}
-
             {/* Tabs */}
             <View style={styles.tabContainer}>
-                <TouchableOpacity
-                    style={[
-                        styles.tabButton,
-                        activeTab === "immunizations" && styles.tabButtonActive,
-                    ]}
-                    onPress={() => setActiveTab("immunizations")}
-                >
-                    <Text
-                        numberOfLines={1}
-                        style={[
-                            styles.tabButtonText,
-                            activeTab === "immunizations" &&
-                                styles.tabButtonTextActive,
-                        ]}
-                    >
-                        Vaccines
-                    </Text>
-                </TouchableOpacity>
                 <TouchableOpacity
                     style={[
                         styles.tabButton,
@@ -1102,19 +1064,19 @@ export default function Health({
                 <TouchableOpacity
                     style={[
                         styles.tabButton,
-                        activeTab === "illnesses" && styles.tabButtonActive,
+                        activeTab === "immunizations" && styles.tabButtonActive,
                     ]}
-                    onPress={() => setActiveTab("illnesses")}
+                    onPress={() => setActiveTab("immunizations")}
                 >
                     <Text
                         numberOfLines={1}
                         style={[
                             styles.tabButtonText,
-                            activeTab === "illnesses" &&
+                            activeTab === "immunizations" &&
                                 styles.tabButtonTextActive,
                         ]}
                     >
-                        Conditions
+                        Vaccines
                     </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -1133,6 +1095,24 @@ export default function Health({
                         ]}
                     >
                         Checkups
+                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[
+                        styles.tabButton,
+                        activeTab === "illnesses" && styles.tabButtonActive,
+                    ]}
+                    onPress={() => setActiveTab("illnesses")}
+                >
+                    <Text
+                        numberOfLines={1}
+                        style={[
+                            styles.tabButtonText,
+                            activeTab === "illnesses" &&
+                                styles.tabButtonTextActive,
+                        ]}
+                    >
+                        Conditions
                     </Text>
                 </TouchableOpacity>
             </View>
@@ -2465,28 +2445,6 @@ const makeStyles = (colors) => StyleSheet.create({
         backgroundColor: colors.accentStrong,
     },
     giveBtnText: { ...type.label, color: colors.onPrimary },
-    exportPdfBtn: {
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 6,
-        alignSelf: "flex-start",
-        backgroundColor: colors.surfaceAlt,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: radius.md,
-        borderCurve: "continuous",
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        marginBottom: 16,
-    },
-    exportPdfBtnText: {
-        // primaryDark: this sits on `surfaceAlt`, where `primary` measured
-        // 4.20:1 — under AA, and unrelated to the page gradient. Surfaced by
-        // the contrast sweep that came with it.
-        ...type.label,
-        color: colors.primaryDark,
-    },
     actionBtnAlt: {
         backgroundColor: colors.softGreen,
         borderWidth: 1,

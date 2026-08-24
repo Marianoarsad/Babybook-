@@ -131,6 +131,9 @@ export const api = {
     updateMe: (b) => request("PUT", "/api/auth/me", b),
     renewConsent: () => request("POST", "/api/auth/consent/renew"),
     changePassword: (b) => request("POST", "/api/auth/change-password", b),
+    // Separate from updateMe: email is the login identity, so the server
+    // requires the current password. See auth.routes.js POST /change-email.
+    changeEmail: (b) => request("POST", "/api/auth/change-email", b),
     deleteAccount: () => request("DELETE", "/api/auth/me"),
     forgotPassword: (b) => request("POST", "/api/auth/forgot-password", b, { auth: false }),
     resetPassword: (b) => request("POST", "/api/auth/reset-password", b, { auth: false }),

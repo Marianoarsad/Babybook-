@@ -1,16 +1,16 @@
 # Graph Report - BabyBook+  (2026-08-19)
 
 ## Corpus Check
-- 157 files · ~215,268 words
+- 157 files · ~215,406 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1313 nodes · 1679 edges · 137 communities (97 shown, 40 thin omitted)
+- 1313 nodes · 1641 edges · 137 communities (95 shown, 42 thin omitted)
 - Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 47 edges (avg confidence: 0.54)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `b9f6eb41`
+- Built from commit: `7e44f4e4`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -47,6 +47,7 @@
 - [[_COMMUNITY_Graphify Update & Cluster-Only Docs|Graphify Update & Cluster-Only Docs]]
 - [[_COMMUNITY_Deployment Hosting Options|Deployment Hosting Options]]
 - [[_COMMUNITY_Data Retention vs Excess Trackers|Data Retention vs Excess Trackers]]
+- [[_COMMUNITY_Landing.js|Landing.js]]
 - [[_COMMUNITY_Evaluation Overall Scores|Evaluation Overall Scores]]
 - [[_COMMUNITY_NutritionTracker.js|NutritionTracker.js]]
 - [[_COMMUNITY_Mock-to-Real Backend Connection|Mock-to-Real Backend Connection]]
@@ -174,7 +175,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (137 total, 40 thin omitted)
+## Communities (137 total, 42 thin omitted)
 
 ### Community 0 - "Front-End Screens & Shared Utils"
 Cohesion: 0.20
@@ -217,8 +218,8 @@ Cohesion: 0.18
 Nodes (9): DOSES, fs, M, NOW, OPEN, path, slots, src (+1 more)
 
 ### Community 10 - "Nutrition Tracker Feature"
-Cohesion: 0.08
-Nodes (26): backgroundColor, foregroundImage, adaptiveIcon, package, permissions, projectId, expo, android (+18 more)
+Cohesion: 0.06
+Nodes (31): backgroundColor, foregroundImage, adaptiveIcon, package, permissions, projectId, expo, android (+23 more)
 
 ### Community 11 - "Database Bootstrap & Server Startup"
 Cohesion: 0.18
@@ -275,10 +276,6 @@ Nodes (17): makeStyles(), MemoryDetail(), AddMemoryModal(), makeStyles(), Field(
 ### Community 25 - "Reminders & Premium Feature Gaps"
 Cohesion: 0.09
 Nodes (22): 1. Current architecture (what has to move), 2. Backend hosting comparison, 3. Frontend hosting comparison (static Expo web export), 4. Recommendation, 5. Migration steps (Railway → Render), 6. Demo-day risk notes, 7. Pre-defense checklist, BabyBook+ — Web Demo Hosting Migration Plan (+14 more)
-
-### Community 26 - "Responsive UI Redesign Plan"
-Cohesion: 0.26
-Nodes (8): headerName(), MainAppShell(), makeStyles(), SCREEN_TITLES, AllActivity(), makeStyles(), makeStyles(), PrivacySettings()
 
 ### Community 27 - "Theme & Accessibility Design System"
 Cohesion: 0.10
@@ -541,18 +538,18 @@ Cohesion: 0.67
 Nodes (3): Features, For Healthcare Professionals, For Parents
 
 ## Knowledge Gaps
-- **676 isolated node(s):** `name`, `slug`, `version`, `orientation`, `userInterfaceStyle` (+671 more)
+- **676 isolated node(s):** `SCREEN_TITLES`, `name`, `slug`, `version`, `orientation` (+671 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **40 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **42 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `shortDate()` connect `Graphify Skill Command Rules` to `2. Current-state audit`, `Health.js`, `NutritionTracker.js`?**
-  _High betweenness centrality (0.021) - this node is a cross-community bridge._
+  _High betweenness centrality (0.012) - this node is a cross-community bridge._
 - **Why does `dependencies` connect `Provider Sharing & QR Scanning` to `Cards.js`?**
-  _High betweenness centrality (0.009) - this node is a cross-community bridge._
-- **What connects `name`, `slug`, `version` to the rest of the system?**
+  _High betweenness centrality (0.007) - this node is a cross-community bridge._
+- **What connects `SCREEN_TITLES`, `name`, `slug` to the rest of the system?**
   _701 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `UI Component Library & Theming` be split into smaller, more focused modules?**
   _Cohesion score 0.05442176870748299 - nodes in this community are weakly interconnected._

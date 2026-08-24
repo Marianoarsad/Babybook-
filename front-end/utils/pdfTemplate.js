@@ -26,7 +26,13 @@ const MUTED = "#5B618A";
 const ACCENT = "#B0356B"; // dark enough to read as a solid gray in B&W print
 const BORDER = "#D8D5CE";
 
+// Keys match RECORD_LABELS in utils/shareStore.js exactly, so a QR share's
+// shared_record_keys can be passed in as the scope with no mapping table in
+// between — a mapping table is how the printed copy and the on-screen copy
+// would drift apart.
 const CATEGORY_LABELS = {
+    profile: "Child Profile & Birth Info",
+    allergies: "Allergies & Hereditary Conditions",
     vaccinations: "Vaccinations",
     checkups: "Checkups & Appointments",
     growth: "Growth Measurements",
@@ -166,12 +172,37 @@ export function buildRecordHtml(profile, records = {}, options = {}) {
         sections.push(section(CATEGORY_LABELS.medicalHistory, table(rows)));
     }
 
+    // These used to print no matter what, OUTSIDE the scope checks — so a
+    // parent who unticked "Allergies & Hereditary Conditions" when generating
+    // a consultation code got a QR view that honoured it and a printout that
+    // did not. Scope now governs the whole document, not just the sections.
+    const showProfile = scope.has("profile");
+    const showAllergies = scope.has("allergies");
+
     const allergyLine = (profile.allergies || []).length
         ? esc(profile.allergies.join(", "))
         : "None recorded";
     const hereditaryLine = (profile.hereditaryConditions || []).length
         ? esc(profile.hereditaryConditions.join(", "))
         : "None recorded";
+
+    // The profile grid is built from whichever halves are in scope.
+    const profileCells = [
+        ...(showProfile
+            ? [
+                  `<div><span class="k">Sex:</span> ${esc(profile.sex || "—")}</div>`,
+                  `<div><span class="k">Blood Type:</span> ${esc(profile.bloodType || "—")}</div>`,
+                  `<div><span class="k">Hospital:</span> ${esc(profile.hospital || "—")}</div>`,
+                  `<div><span class="k">Pediatrician:</span> ${esc(profile.pediatricianName || "—")}</div>`,
+              ]
+            : []),
+        ...(showAllergies
+            ? [
+                  `<div><span class="k">Allergies:</span> ${allergyLine}</div>`,
+                  `<div><span class="k">Hereditary Conditions:</span> ${hereditaryLine}</div>`,
+              ]
+            : []),
+    ];
 
     return `<!doctype html>
 <html>
@@ -198,6 +229,12 @@ export function buildRecordHtml(profile, records = {}, options = {}) {
 </style>
 </head>
 <body>
+    <!-- Name and date of birth print on EVERY copy, even when "profile" is
+         out of scope. This is a deliberate exception to the scope rule: a
+         loose sheet of paper with no name on it is a misfiling hazard in a way
+         an on-screen view is not — the screen belongs to one consultation, the
+         paper can end up in the wrong folder. Everything else about the child
+         still obeys the parent's selection. -->
     <div class="header">
         <div class="brand">BabyBook+</div>
         <div class="child-name">${esc(profile.name)}</div>
@@ -207,14 +244,7 @@ export function buildRecordHtml(profile, records = {}, options = {}) {
         </div>
     </div>
 
-    <div class="profile-grid">
-        <div><span class="k">Sex:</span> ${esc(profile.sex || "—")}</div>
-        <div><span class="k">Blood Type:</span> ${esc(profile.bloodType || "—")}</div>
-        <div><span class="k">Hospital:</span> ${esc(profile.hospital || "—")}</div>
-        <div><span class="k">Pediatrician:</span> ${esc(profile.pediatricianName || "—")}</div>
-        <div><span class="k">Allergies:</span> ${allergyLine}</div>
-        <div><span class="k">Hereditary Conditions:</span> ${hereditaryLine}</div>
-    </div>
+    ${profileCells.length ? `<div class="profile-grid">${profileCells.join("")}</div>` : ""}
 
     ${sections.join("")}
 

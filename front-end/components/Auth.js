@@ -7,8 +7,14 @@ import { space, radius, shadow, type, MIN_TOUCH } from "../theme";
 import { useTheme } from "../context/ThemeContext";
 import Field from "./ui/Field";
 import Button from "./ui/Button";
+import { RELATIONSHIPS } from "../utils/relationship";
 import { useToast } from "./ui/Toast";
 import KeyboardAvoider from "./ui/KeyboardAvoider";
+
+// Deliberately permissive: enough to catch "mariaexample.com" and
+// "maria@example" before a round trip, without rejecting a valid address this
+// regex has not heard of. The server's isEmail() is still the authority.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 export default function Auth({ onLoginSuccess, onProfessional, onBack, initialScene = "login" }) {
     const { language } = useLanguage();
@@ -25,7 +31,16 @@ export default function Auth({ onLoginSuccess, onProfessional, onBack, initialSc
     const [regEmail, setRegEmail] = useState("");
     const [regPass, setRegPass] = useState("");
     const [regConfirm, setRegConfirm] = useState("");
-    const [regGender, setRegGender] = useState("Female");
+    // Who the account holder is to the child. This replaced a Female/Male
+    // toggle that wrote users.gender -- see utils/relationship.js for why.
+    // Starts empty on purpose: a pre-selected "Mother" would be recorded as an
+    // answer for every parent who never looked at the row.
+    const [regRelationship, setRegRelationship] = useState("");
+    // Optional. users.phone_number has existed since the first schema and the
+    // register endpoint has always accepted it, but this form never sent one,
+    // so every account the app has ever created reads "No phone on file".
+    const [regPhone, setRegPhone] = useState("");
+    const [regCity, setRegCity] = useState("");
     const [termsAgreed, setTermsAgreed] = useState(false);
     // forgot
     const [forgotEmail, setForgotEmail] = useState("");
@@ -59,21 +74,30 @@ export default function Auth({ onLoginSuccess, onProfessional, onBack, initialSc
         const e = {};
         if (!regName.trim()) e.regName = "Your name is required";
         if (!regEmail.trim()) e.regEmail = "Email is required";
+        // Shape-checked here, not just on the server. This address is the only
+        // route back into the account if the password is forgotten, and a typo
+        // was previously caught only after a round trip, as a red toast with no
+        // field attached to it.
+        else if (!EMAIL_RE.test(regEmail.trim())) e.regEmail = "That doesn't look like an email address";
         if (regPass.length < 8) e.regPass = "At least 8 characters";
         if (regConfirm !== regPass) e.regConfirm = "Passwords don't match";
+        if (!regRelationship) e.regRelationship = "Please choose one";
+        // Inline, like every other field on this form. It used to be a toast,
+        // which appears away from the control it is about and then leaves.
+        if (!termsAgreed) e.terms = "Please accept the agreement to continue";
         setErrors(e);
         if (Object.keys(e).length) return;
-        if (!termsAgreed) {
-            toast.error("Please accept the Terms to continue");
-            return;
-        }
         setLoading(true);
         try {
             const { user, token } = await api.register({
                 fullName: regName.trim(),
                 email: regEmail.trim(),
                 password: regPass,
-                gender: regGender,
+                relationship: regRelationship,
+                // Sent only when filled: a skipped optional box must store NULL
+                // ("Not recorded"), never an empty string that looks answered.
+                phoneNumber: regPhone.trim() || undefined,
+                city: regCity.trim() || undefined,
                 consentAccepted: true,
             });
             await onLoginSuccess(user, token);
@@ -182,6 +206,8 @@ export default function Auth({ onLoginSuccess, onProfessional, onBack, initialSc
                             error={errors.email}
                             keyboardType="email-address"
                             autoCapitalize="none"
+                            autoComplete="email"
+                            textContentType="username"
                         />
                         <Field
                             label="Password"
@@ -193,6 +219,8 @@ export default function Auth({ onLoginSuccess, onProfessional, onBack, initialSc
                             }}
                             error={errors.password}
                             secureTextEntry
+                            autoComplete="current-password"
+                            textContentType="password"
                         />
                         <TouchableOpacity
                             onPress={() => setScene("forgot")}
@@ -233,48 +261,124 @@ export default function Auth({ onLoginSuccess, onProfessional, onBack, initialSc
                         <Text style={{ fontSize: 16, fontWeight: "800", color: colors.text, textAlign: "center", marginBottom: space.sm }}>
                             {language === "en" ? "Create an Account" : "Gumawa ng Account"}
                         </Text>
-                        <Field label="Parent's Full Name" placeholder="Enter full name" value={regName} onChangeText={(t) => { setRegName(t); if (errors.regName) setErr("regName", ""); }} error={errors.regName} />
-                        <Field label="Email Address" placeholder="Enter email" value={regEmail} onChangeText={(t) => { setRegEmail(t); if (errors.regEmail) setErr("regEmail", ""); }} error={errors.regEmail} keyboardType="email-address" autoCapitalize="none" />
-                        <View style={{ flexDirection: "row", gap: space.md }}>
-                            <View style={{ flex: 1 }}>
-                                <Field label="Password" placeholder="••••••••" secureTextEntry value={regPass} onChangeText={(t) => { setRegPass(t); if (errors.regPass) setErr("regPass", ""); }} error={errors.regPass} />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                                <Field label="Confirm" placeholder="••••••••" secureTextEntry value={regConfirm} onChangeText={(t) => { setRegConfirm(t); if (errors.regConfirm) setErr("regConfirm", ""); }} error={errors.regConfirm} />
-                            </View>
-                        </View>
+                        <Field
+                            label="Your Full Name"
+                            placeholder="Enter full name"
+                            value={regName}
+                            onChangeText={(t) => { setRegName(t); if (errors.regName) setErr("regName", ""); }}
+                            error={errors.regName}
+                            autoComplete="name"
+                            textContentType="name"
+                        />
+                        <Field
+                            label="Email Address"
+                            placeholder="Enter email"
+                            value={regEmail}
+                            onChangeText={(t) => { setRegEmail(t); if (errors.regEmail) setErr("regEmail", ""); }}
+                            error={errors.regEmail}
+                            helper="This is how you sign in, and the only way to reset a forgotten password."
+                            keyboardType="email-address"
+                            autoCapitalize="none"
+                            autoComplete="email"
+                            textContentType="username"
+                        />
+                        {/* Stacked, not side by side. Each secure field now
+                            carries a reveal control, and two of them sharing one
+                            row leaves about 90pt of text at phone width. */}
+                        <Field
+                            label="Password"
+                            placeholder="••••••••"
+                            secureTextEntry
+                            value={regPass}
+                            onChangeText={(t) => { setRegPass(t); if (errors.regPass) setErr("regPass", ""); }}
+                            error={errors.regPass}
+                            helper="At least 8 characters."
+                            autoComplete="new-password"
+                            textContentType="newPassword"
+                        />
+                        <Field
+                            label="Confirm Password"
+                            placeholder="••••••••"
+                            secureTextEntry
+                            value={regConfirm}
+                            onChangeText={(t) => { setRegConfirm(t); if (errors.regConfirm) setErr("regConfirm", ""); }}
+                            error={errors.regConfirm}
+                            autoComplete="new-password"
+                            textContentType="newPassword"
+                        />
 
-                        <Text style={{ fontSize: 13, fontWeight: "700", color: colors.textSecondary, marginBottom: space.xs }}>Parent</Text>
-                        <View
-                            style={{
-                                flexDirection: "row",
-                                backgroundColor: colors.surfaceAlt,
-                                borderWidth: 1,
-                                borderColor: colors.border,
-                                borderRadius: radius.md,
-                                borderCurve: "continuous",
-                                padding: space.xs,
-                                marginBottom: space.md,
-                            }}
-                        >
-                            {[
-                                { key: "Female", label: "Female (Mama)" },
-                                { key: "Male", label: "Male (Papa)" },
-                            ].map((opt) => {
-                                const on = regGender === opt.key;
+                        {/* Relationship to the child. This was a two-option
+                            Female/Male toggle writing users.gender, on a form
+                            whose own app calls this person the Primary Guardian
+                            — so a lola or a tita holding the record had to pick
+                            a gender to stand in for a relationship. Five chips
+                            that wrap, rather than a segmented row: "Grandparent"
+                            alone does not fit a fifth of 320pt. */}
+                        <Text style={{ ...type.label, color: colors.textSecondary, marginBottom: space.xs }}>
+                            I am the child's…
+                        </Text>
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginBottom: space.xs }}>
+                            {RELATIONSHIPS.map((opt) => {
+                                const on = regRelationship === opt.key;
                                 return (
                                     <TouchableOpacity
                                         key={opt.key}
-                                        onPress={() => setRegGender(opt.key)}
+                                        onPress={() => {
+                                            setRegRelationship(opt.key);
+                                            if (errors.regRelationship) setErr("regRelationship", "");
+                                        }}
                                         accessibilityRole="button"
                                         accessibilityState={{ selected: on }}
-                                        style={{ flex: 1, minHeight: 40, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, backgroundColor: on ? colors.surface : "transparent" }}
+                                        accessibilityLabel={opt.label}
+                                        style={{
+                                            minHeight: MIN_TOUCH,
+                                            justifyContent: "center",
+                                            paddingHorizontal: space.md,
+                                            borderRadius: radius.pill,
+                                            borderCurve: "continuous",
+                                            borderWidth: 1,
+                                            borderColor: on ? colors.primary : colors.border,
+                                            backgroundColor: on ? colors.primarySoft : colors.surfaceAlt,
+                                        }}
                                     >
-                                        <Text style={{ fontSize: 13, fontWeight: on ? "800" : "600", color: on ? colors.primary : colors.textMuted }}>{opt.label}</Text>
+                                        <Text
+                                            style={{
+                                                ...type.caption,
+                                                fontWeight: on ? "700" : "500",
+                                                color: on ? colors.primary : colors.textSecondary,
+                                            }}
+                                        >
+                                            {opt.label}
+                                        </Text>
                                     </TouchableOpacity>
                                 );
                             })}
                         </View>
+                        {errors.regRelationship ? (
+                            <Text selectable style={{ ...type.caption, color: colors.danger, marginBottom: space.md }}>
+                                {errors.regRelationship}
+                            </Text>
+                        ) : (
+                            <View style={{ marginBottom: space.md }} />
+                        )}
+
+                        <Field
+                            label="Mobile Number (optional)"
+                            placeholder="09XX XXX XXXX"
+                            value={regPhone}
+                            onChangeText={setRegPhone}
+                            keyboardType="phone-pad"
+                            autoComplete="tel"
+                            textContentType="telephoneNumber"
+                        />
+                        <Field
+                            label="City / Municipality (optional)"
+                            placeholder="Where you live"
+                            value={regCity}
+                            onChangeText={setRegCity}
+                            autoComplete="postal-address-locality"
+                            textContentType="addressCity"
+                        />
 
                         {/* Data-retention & privacy agreement (Data Privacy Act of 2012, RA 10173) */}
                         <View
@@ -334,8 +438,17 @@ export default function Auth({ onLoginSuccess, onProfessional, onBack, initialSc
                                 I have read and agree to the Data Retention & Privacy Agreement above.
                             </Text>
                         </TouchableOpacity>
+                        {/* Inline, beside the control it is about. This was a
+                            toast, which appears elsewhere on the screen and then
+                            leaves — on the one field whose whole purpose is an
+                            explicit, recorded act of consent. */}
+                        {errors.terms ? (
+                            <Text selectable style={{ ...type.caption, color: colors.danger, marginBottom: space.sm }}>
+                                {errors.terms}
+                            </Text>
+                        ) : null}
 
-                        <Button title="Register Account" onPress={handleRegister} loading={loading} />
+                        <Button title="Create Account" onPress={handleRegister} loading={loading} />
 
                         <View style={{ flexDirection: "row", justifyContent: "center", marginTop: space.lg }}>
                             <Text style={{ color: colors.textSecondary, fontSize: 13 }}>Already have an account? </Text>

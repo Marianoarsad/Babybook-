@@ -15,14 +15,14 @@ import GrowthChart from "./GrowthChart";
 import { DashboardSkeleton } from "./ui/Skeleton";
 import { Ionicons } from "@expo/vector-icons";
 import { radius, space, shadow, type, MIN_TOUCH } from "../theme";
-import { useScreenPadBottom, useScreenPadTop, fitsColumns } from "../utils/responsive";
+import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
 import { useScroll } from "../context/ScrollContext";
 import { useTheme } from "../context/ThemeContext";
 import { api } from "../utils/api";
 import { memoryToApp, toMilliliters, feedRowSummary } from "../utils/adapters";
 import { useToast } from "./ui/Toast";
 import { useRefreshControl } from "./ui/useRefreshControl";
-import { cacheSummary } from "../utils/offlineSummary";
+import { cacheSummary, getSummary } from "../utils/offlineSummary";
 import { seen, markSeen } from "../utils/firstRun";
 import { todayLocal, durationText } from "../utils/dates";
 
@@ -140,6 +140,11 @@ const withAlpha = (hex, alphaHex) =>
 // out on stale results exactly like a manual `if (!active) return;` guard
 // would — this only centralizes that bookkeeping across Dashboard's three
 // fetches, it doesn't change what each one fetches.
+// How long a cached offline summary counts as current. A judgement call, not
+// a rule from anywhere — it only decides whether the Offline Summary card sits
+// near the top of the Home tab or further down it.
+const OFFLINE_FRESH_MS = 7 * 24 * 60 * 60 * 1000;
+
 function useDashboardFetch(loader, deps) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -178,11 +183,65 @@ export default function Dashboard({
     const padBottom = useScreenPadBottom();
     const padTop = useScreenPadTop();
     const { scrollProps } = useScroll();
-    // The measurement strip is three cells wide. Measured rather than assumed,
-    // because "7.8 kg" plus its label has to fit at whatever font scale the OS
-    // is set to — at three columns a 360pt card gives each only ~97pt.
+    // The measurement strip is ALWAYS three cells across. It never wraps and
+    // never drops to a second line: weight, height and head read as one row of
+    // comparable numbers, and re-flowing them to 2 + 1 makes the odd one out
+    // look like a different kind of fact.
+    //
+    // It used to ask fitsColumns() whether three fitted, and the answer on a
+    // phone was always no — fitsColumns compares against TEXT_COL_MIN (150pt),
+    // which is a minimum for a column of PROSE. Three of those needs 450pt,
+    // and a phone card is about 300pt wide, so the three-across layout was
+    // unreachable on the very devices this app is built for. "9.4 kg" is not a
+    // paragraph; 150pt was the wrong yardstick.
+    //
+    // Instead the row is measured and the VALUE type shrinks to fit, down to
+    // the 13px floor set in theme.js ("no text anywhere goes smaller"). In
+    // practice a 360pt screen gives each cell ~100pt and nothing shrinks at
+    // all; this only engages on a very narrow screen or a raised OS font scale.
+    // Where the Offline Summary card sits.
+    //
+    // The card is a "set this up before you need it" nudge, so it holds a
+    // prominent slot until it has done its job, then drops down the page
+    // rather than occupying prime space forever.
+    //
+    // "Has it done its job?" is HAS THE PARENT OPENED IT, not "is a copy
+    // cached". Caching is automatic — loadActivityBundle writes a fresh copy on
+    // every single Dashboard load — so a cache-age test is true within a second
+    // of launch and would make the prominent slot both useless and flickery
+    // (it would appear, then jump down mid-read). Opening it is the only signal
+    // that means the parent actually knows the feature is there.
+    //
+    // The age check is kept as a second condition for the real case it covers:
+    // a device that has been offline long enough for the saved copy to be out
+    // of date, where re-showing the prompt is genuinely useful.
+    const [offlineSeen, setOfflineSeen] = useState(true); // assume seen until told otherwise: no flash
+    const [offlineStale, setOfflineStale] = useState(false);
+    useEffect(() => {
+        let active = true;
+        seen("offlineSummary").then((v) => active && setOfflineSeen(v));
+        getSummary(profile.id)
+            .then((s) => {
+                if (!active) return;
+                if (!s || !s.cachedAt) return;
+                const age = Date.now() - new Date(s.cachedAt).getTime();
+                setOfflineStale(!(age >= 0 && age < OFFLINE_FRESH_MS));
+            })
+            .catch(() => {});
+        return () => {
+            active = false;
+        };
+    }, [profile.id]);
+    const offlinePrompt = !offlineSeen || offlineStale;
+
     const [statRowWidth, setStatRowWidth] = useState(0);
-    const statThreeCol = fitsColumns(statRowWidth, 3, 0);
+    // Width the widest realistic value ("100.5 cm", 8 characters) needs at the
+    // full 16px. Below this the type scales down proportionally.
+    const STAT_VALUE_FULL_W = 76;
+    const statCellW = statRowWidth ? statRowWidth / 3 : 0;
+    const statValueSize = statCellW
+        ? Math.max(13, Math.min(16, Math.round((16 * statCellW) / STAT_VALUE_FULL_W)))
+        : 16;
     const toast = useToast();
 
     // Recent Activity, the upcoming-appointment box, vaccination progress,
@@ -230,7 +289,12 @@ export default function Dashboard({
         // load already fetched — no extra request. Best-effort: a parent
         // opening the app with a live connection should always leave with a
         // fresh copy on the device, ready for the next time they don't have one.
-        cacheSummary(profile, { vaccinations: vax, checkups, medicalHistory: medHistory }).catch(() => {});
+        // Deliberately does NOT move the card: caching is automatic and says
+        // nothing about whether the parent has seen the feature. It only
+        // clears the "your saved copy is out of date" condition.
+        cacheSummary(profile, { vaccinations: vax, checkups, medicalHistory: medHistory })
+            .then(() => isActive() && setOfflineStale(false))
+            .catch(() => {});
 
         const todayStr = todayLocal();
                 const items = [];
@@ -436,6 +500,39 @@ export default function Dashboard({
 
     const dashboardLoading = activityLoading || growthLoading || memoriesLoading;
     const dashboardError = activityError || growthError || memoriesError;
+    // Rendered in one of two places, never both — see offlineStale above.
+    // Prominent while there is nothing saved (or it has gone stale), because a
+    // parent has to prepare it BEFORE they need it; quiet once it is done.
+    const renderOfflineCard = () => (
+                <Pressable
+                    style={({ pressed, hovered, focused }) => [
+                        styles.offlineCard,
+                        { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
+                        focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.primary, "59")}` } : null,
+                    ]}
+                    onPress={() => {
+                        markSeen("offlineSummary");
+                        setOfflineSeen(true);
+                        nav("offlineSummary");
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="View offline consultation summary"
+                >
+                    <View style={styles.offlineIcon}>
+                        <Ionicons name="cloud-offline-outline" size={18} color={colors.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.offlineLabel}>Offline Summary</Text>
+                        <Text style={styles.offlineSub}>
+                            {offlinePrompt
+                                ? "Works without signal — worth opening once while you have it"
+                                : "Saved on this device — opens without signal"}
+                        </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+                </Pressable>
+    );
+
     const retryAll = () => {
         retryActivity();
         retryGrowth();
@@ -690,29 +787,10 @@ export default function Dashboard({
                 </View>
             ) : null}
 
-            {/* Offline Summary — always visible, not conditional on a failed
-                fetch. A parent needs to prepare this at home while there's
-                still signal, not discover it only after the connection has
-                already failed them at the clinic. */}
-            <Pressable
-                style={({ pressed, hovered, focused }) => [
-                    styles.offlineCard,
-                    { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
-                    focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.primary, "59")}` } : null,
-                ]}
-                onPress={() => nav("offlineSummary")}
-                accessibilityRole="button"
-                accessibilityLabel="View offline consultation summary"
-            >
-                <View style={styles.offlineIcon}>
-                    <Ionicons name="cloud-offline-outline" size={18} color={colors.primary} />
-                </View>
-                <View style={{ flex: 1 }}>
-                    <Text style={styles.offlineLabel}>Offline Summary</Text>
-                    <Text style={styles.offlineSub}>Works without signal — worth opening once while you have it</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={colors.primary} />
-            </Pressable>
+            {/* Offline Summary, prominent slot — only while there is nothing
+                saved yet or the copy has gone stale. Once it is current the
+                card moves down the page, below Feeding. */}
+            {offlinePrompt ? renderOfflineCard() : null}
 
             {/* Needs attention. Shows the three most urgent things rather than
                 one, because a seeded or long-neglected account can hold a
@@ -933,13 +1011,13 @@ export default function Dashboard({
                 {measurements.length ? (
                     <View>
                         <View
-                            style={[styles.statRow, !statThreeCol && styles.statRowStacked]}
+                            style={styles.statRow}
                             onLayout={(e) => setStatRowWidth(e.nativeEvent.layout.width)}
                         >
                             {measurements.map((m) => (
                                 <View
                                     key={m.key}
-                                    style={[styles.statCell, !statThreeCol && styles.statCellStacked]}
+                                    style={styles.statCell}
                                     accessible
                                     accessibilityLabel={
                                         m.value != null
@@ -947,10 +1025,17 @@ export default function Dashboard({
                                             : `${m.label}: not recorded`
                                     }
                                 >
-                                    <Text style={styles.statValue} numberOfLines={1} ellipsizeMode="clip">
+                                    <Text
+                                        style={[styles.statValue, { fontSize: statValueSize }]}
+                                        numberOfLines={1}
+                                        ellipsizeMode="clip"
+                                    >
                                         {m.value != null ? `${m.value} ${m.unit}` : "—"}
                                     </Text>
-                                    <Text style={styles.statLabel} numberOfLines={2}>
+                                    {/* One line. The label was allowed two,
+                                        which pushed "Head" onto a second row
+                                        and misaligned the three cells. */}
+                                    <Text style={styles.statLabel} numberOfLines={1}>
                                         {m.label}
                                     </Text>
                                 </View>
@@ -1053,6 +1138,11 @@ export default function Dashboard({
                 sex={profile?.sex || profile?.gender}
                 dateOfBirth={profile?.dateOfBirth}
                 loading={growthLoading}
+                name={profile?.nickname || profile?.firstName}
+                // The parent's card: plain wording, one reference band. The
+                // professional's copy of this same component deliberately does
+                // not pass this.
+                plain
             />
 
             {/* Upcoming appointment — the only way to Calendar from this screen. */}
@@ -1168,6 +1258,10 @@ export default function Dashboard({
                 )}
                 <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </Pressable>
+
+            {/* Offline Summary, quiet slot — a current copy is already saved,
+                so this is a way back to it rather than a prompt. */}
+            {offlinePrompt ? null : renderOfflineCard()}
 
             {/* Square photo gallery. Adding lives in the floating log button's
                 menu, alongside Log Milk, Log Food, etc., instead of a second
@@ -1345,15 +1439,29 @@ const makeStyles = (colors) => StyleSheet.create({
     // Wraps to two-up rather than squeezing three cells below a readable width;
     // "34.5 cm" with a "Head" label under it needs more than ~97pt once the OS
     // font scale is raised.
-    statRow: { flexDirection: "row" },
-    statRowStacked: { flexDirection: "row", flexWrap: "wrap", rowGap: space.md },
-    statCell: { flex: 1, minWidth: 0, alignItems: "flex-start" },
-    // flexBasis, NOT `flex: 0`. react-native-web passes `flex: 0` straight
-    // through to CSS, where it means `0 1 0%` — and a 0% basis beats `width`,
-    // so these cells computed to zero width and the measurements vanished on
-    // every phone-width screen. Yoga reads `flex: 0` as basis:auto, so it only
-    // broke on web. Never write `flex: 0` in this codebase.
-    statCellStacked: { flexGrow: 0, flexShrink: 0, flexBasis: "50%" },
+    // space-between, so the gaps BETWEEN the three readings are equal and the
+    // outer two sit flush with the card's edges.
+    //
+    // The cells used to be flex: 1 — equal THIRDS, which is not the same thing.
+    // "9.4 kg" is narrower than "76.5 cm", so equal thirds left visibly unequal
+    // gaps between the text (50pt then 35pt at 360pt wide) and a ragged margin
+    // on the right. Sizing each cell to its own content and distributing the
+    // slack fixes both.
+    statRow: { flexDirection: "row", justifyContent: "space-between" },
+    // No wrapping variant, deliberately: weight, height and head are three
+    // comparable numbers and read as one row. Re-flowing them to 2 + 1 makes
+    // the odd one out look like a different kind of fact. If the row is too
+    // narrow the VALUE TYPE shrinks instead (statValueSize, above), down to the
+    // 13px floor theme.js sets. Do not reintroduce a stacked fallback.
+    // No flexGrow: a cell must size to its own content for space-between to
+    // have any slack to distribute. flexShrink stays on so a very narrow row
+    // still degrades gracefully instead of overflowing the card.
+    statCell: { flexShrink: 1, minWidth: 0, alignItems: "flex-start" },
+    // STANDING RULE, kept after the code that prompted it was deleted:
+    // never write `flex: 0` in this codebase. react-native-web passes it
+    // straight through to CSS, where it means `0 1 0%` — and a 0% basis
+    // overrides `width`, so the element computes to zero size and vanishes.
+    // Use explicit flexGrow / flexShrink / flexBasis instead.
     statValue: { ...type.bodyStrong, color: colors.text },
     statLabel: { ...type.caption, color: colors.textMuted, marginTop: 1 },
     statCaption: { ...type.caption, color: colors.textMuted, marginTop: space.sm },

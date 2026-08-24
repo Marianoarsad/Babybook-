@@ -71,7 +71,11 @@ async function buildSnapshot(child, keys, visitReason) {
 
     if (keys.includes("growth")) {
         const { rows } = await query(
-            "SELECT height, weight, head_circumference, date_recorded FROM growth_records WHERE child_id = $1 ORDER BY date_recorded DESC",
+            // measured_at travels: a clinician reading a series needs to know
+            // which values came off a clinic scale. `notes` deliberately does
+            // NOT — the parent's private aside is not part of the clinical
+            // extract, the same boundary drawn for milestone descriptions.
+            "SELECT height, weight, head_circumference, date_recorded, measured_at FROM growth_records WHERE child_id = $1 ORDER BY date_recorded DESC",
             [child.id]
         );
         snap.growth = {

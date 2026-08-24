@@ -15,10 +15,10 @@ async function seed() {
             const hash = await bcrypt.hash(DEMO_PASSWORD, 10);
             const u = await c.query(
                 `INSERT INTO users
-                    (full_name, email, password_hash, gender,
+                    (full_name, email, password_hash, phone_number, relationship, city,
                      consent_accepted, consent_date, consent_reviewed_at, retention_until)
-                 VALUES ($1, $2, $3, $4, TRUE, now(), now(), (CURRENT_DATE + INTERVAL '6 years')) RETURNING id`,
-                ["Sarah Chen", DEMO_EMAIL, hash, "Female"]
+                 VALUES ($1, $2, $3, $4, $5, $6, TRUE, now(), now(), (CURRENT_DATE + INTERVAL '6 years')) RETURNING id`,
+                ["Sarah Chen", DEMO_EMAIL, hash, "0917 555 0148", "mother", "Quezon City"]
             );
             const userId = u.rows[0].id;
 

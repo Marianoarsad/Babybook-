@@ -4,274 +4,64 @@
   "graph": {},
   "nodes": [
     {
-      "label": "app.json",
+      "label": "App.js",
       "file_type": "code",
-      "source_file": "front-end/app.json",
+      "source_file": "front-end/App.js",
       "source_location": "L1",
       "_origin": "ast",
       "id": "front_end_app",
-      "community": 26,
-      "norm_label": "app.json"
+      "community": 10,
+      "norm_label": "app.js"
     },
     {
-      "label": "expo",
+      "label": "SCREEN_TITLES",
       "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L2",
+      "source_file": "front-end/App.js",
+      "source_location": "L146",
       "_origin": "ast",
-      "id": "front_end_app_expo",
+      "id": "front_end_app_screen_titles",
       "community": 10,
-      "norm_label": "expo"
+      "norm_label": "screen_titles"
     },
     {
-      "label": "name",
+      "label": "headerName()",
       "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L3",
+      "source_file": "front-end/App.js",
+      "source_location": "L163",
       "_origin": "ast",
-      "id": "front_end_app_expo_name",
+      "id": "front_end_app_headername",
       "community": 10,
-      "norm_label": "name"
+      "norm_label": "headername()"
     },
     {
-      "label": "slug",
+      "label": "MainAppShell()",
       "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L4",
+      "source_file": "front-end/App.js",
+      "source_location": "L168",
       "_origin": "ast",
-      "id": "front_end_app_expo_slug",
+      "id": "front_end_app_mainappshell",
       "community": 10,
-      "norm_label": "slug"
+      "norm_label": "mainappshell()"
     },
     {
-      "label": "version",
+      "label": "App()",
       "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L5",
+      "source_file": "front-end/App.js",
+      "source_location": "L1772",
       "_origin": "ast",
-      "id": "front_end_app_expo_version",
+      "id": "front_end_app_app",
       "community": 10,
-      "norm_label": "version"
+      "norm_label": "app()"
     },
     {
-      "label": "orientation",
+      "label": "makeStyles()",
       "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L6",
+      "source_file": "front-end/App.js",
+      "source_location": "L1832",
       "_origin": "ast",
-      "id": "front_end_app_expo_orientation",
+      "id": "front_end_app_makestyles",
       "community": 10,
-      "norm_label": "orientation"
-    },
-    {
-      "label": "userInterfaceStyle",
-      "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L7",
-      "_origin": "ast",
-      "id": "front_end_app_expo_userinterfacestyle",
-      "community": 10,
-      "norm_label": "userinterfacestyle"
-    },
-    {
-      "label": "newArchEnabled",
-      "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L8",
-      "_origin": "ast",
-      "id": "front_end_app_expo_newarchenabled",
-      "community": 10,
-      "norm_label": "newarchenabled"
-    },
-    {
-      "label": "scheme",
-      "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L9",
-      "_origin": "ast",
-      "id": "front_end_app_expo_scheme",
-      "community": 10,
-      "norm_label": "scheme"
-    },
-    {
-      "label": "icon",
-      "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L10",
-      "_origin": "ast",
-      "id": "front_end_app_expo_icon",
-      "community": 10,
-      "norm_label": "icon"
-    },
-    {
-      "label": "ios",
-      "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L11",
-      "_origin": "ast",
-      "id": "front_end_app_expo_ios",
-      "community": 10,
-      "norm_label": "ios"
-    },
-    {
-      "label": "supportsTablet",
-      "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L12",
-      "_origin": "ast",
-      "id": "front_end_app_ios_supportstablet",
-      "community": 10,
-      "norm_label": "supportstablet"
-    },
-    {
-      "label": "bundleIdentifier",
-      "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L13",
-      "_origin": "ast",
-      "id": "front_end_app_ios_bundleidentifier",
-      "community": 10,
-      "norm_label": "bundleidentifier"
-    },
-    {
-      "label": "android",
-      "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L15",
-      "_origin": "ast",
-      "id": "front_end_app_expo_android",
-      "community": 10,
-      "norm_label": "android"
-    },
-    {
-      "label": "package",
-      "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L16",
-      "_origin": "ast",
-      "id": "front_end_app_android_package",
-      "community": 10,
-      "norm_label": "package"
-    },
-    {
-      "label": "adaptiveIcon",
-      "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L17",
-      "_origin": "ast",
-      "id": "front_end_app_android_adaptiveicon",
-      "community": 10,
-      "norm_label": "adaptiveicon"
-    },
-    {
-      "label": "backgroundColor",
-      "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L18",
-      "_origin": "ast",
-      "id": "front_end_app_adaptiveicon_backgroundcolor",
-      "community": 10,
-      "norm_label": "backgroundcolor"
-    },
-    {
-      "label": "foregroundImage",
-      "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L19",
-      "_origin": "ast",
-      "id": "front_end_app_adaptiveicon_foregroundimage",
-      "community": 10,
-      "norm_label": "foregroundimage"
-    },
-    {
-      "label": "permissions",
-      "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L21",
-      "_origin": "ast",
-      "id": "front_end_app_android_permissions",
-      "community": 10,
-      "norm_label": "permissions"
-    },
-    {
-      "label": "web",
-      "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L23",
-      "_origin": "ast",
-      "id": "front_end_app_expo_web",
-      "community": 10,
-      "norm_label": "web"
-    },
-    {
-      "label": "bundler",
-      "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L24",
-      "_origin": "ast",
-      "id": "front_end_app_web_bundler",
-      "community": 10,
-      "norm_label": "bundler"
-    },
-    {
-      "label": "output",
-      "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L25",
-      "_origin": "ast",
-      "id": "front_end_app_web_output",
-      "community": 10,
-      "norm_label": "output"
-    },
-    {
-      "label": "favicon",
-      "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L26",
-      "_origin": "ast",
-      "id": "front_end_app_web_favicon",
-      "community": 10,
-      "norm_label": "favicon"
-    },
-    {
-      "label": "plugins",
-      "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L28",
-      "_origin": "ast",
-      "id": "front_end_app_expo_plugins",
-      "community": 10,
-      "norm_label": "plugins"
-    },
-    {
-      "label": "extra",
-      "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L56",
-      "_origin": "ast",
-      "id": "front_end_app_expo_extra",
-      "community": 10,
-      "norm_label": "extra"
-    },
-    {
-      "label": "eas",
-      "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L57",
-      "_origin": "ast",
-      "id": "front_end_app_extra_eas",
-      "community": 10,
-      "norm_label": "eas"
-    },
-    {
-      "label": "projectId",
-      "file_type": "code",
-      "source_file": "front-end/app.json",
-      "source_location": "L58",
-      "_origin": "ast",
-      "id": "front_end_app_eas_projectid",
-      "community": 10,
-      "norm_label": "projectid"
+      "norm_label": "makestyles()"
     },
     {
       "label": "Auth.js",
@@ -280,7 +70,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "front_end_components_auth",
-      "community": 33,
+      "community": 10,
       "norm_label": "auth.js"
     },
     {
@@ -290,8 +80,268 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "front_end_components_auth_auth",
-      "community": 33,
+      "community": 10,
       "norm_label": "auth()"
+    },
+    {
+      "label": "expo",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L2",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "expo",
+      "id": "front_end_app_expo"
+    },
+    {
+      "label": "name",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L3",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "name",
+      "id": "front_end_app_expo_name"
+    },
+    {
+      "label": "slug",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L4",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "slug",
+      "id": "front_end_app_expo_slug"
+    },
+    {
+      "label": "version",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L5",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "version",
+      "id": "front_end_app_expo_version"
+    },
+    {
+      "label": "orientation",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L6",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "orientation",
+      "id": "front_end_app_expo_orientation"
+    },
+    {
+      "label": "userInterfaceStyle",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L7",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "userinterfacestyle",
+      "id": "front_end_app_expo_userinterfacestyle"
+    },
+    {
+      "label": "newArchEnabled",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L8",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "newarchenabled",
+      "id": "front_end_app_expo_newarchenabled"
+    },
+    {
+      "label": "scheme",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L9",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "scheme",
+      "id": "front_end_app_expo_scheme"
+    },
+    {
+      "label": "icon",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L10",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "icon",
+      "id": "front_end_app_expo_icon"
+    },
+    {
+      "label": "ios",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L11",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "ios",
+      "id": "front_end_app_expo_ios"
+    },
+    {
+      "label": "supportsTablet",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L12",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "supportstablet",
+      "id": "front_end_app_ios_supportstablet"
+    },
+    {
+      "label": "bundleIdentifier",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L13",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "bundleidentifier",
+      "id": "front_end_app_ios_bundleidentifier"
+    },
+    {
+      "label": "android",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L15",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "android",
+      "id": "front_end_app_expo_android"
+    },
+    {
+      "label": "package",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L16",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "package",
+      "id": "front_end_app_android_package"
+    },
+    {
+      "label": "adaptiveIcon",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L17",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "adaptiveicon",
+      "id": "front_end_app_android_adaptiveicon"
+    },
+    {
+      "label": "backgroundColor",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L18",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "backgroundcolor",
+      "id": "front_end_app_adaptiveicon_backgroundcolor"
+    },
+    {
+      "label": "foregroundImage",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L19",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "foregroundimage",
+      "id": "front_end_app_adaptiveicon_foregroundimage"
+    },
+    {
+      "label": "permissions",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L21",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "permissions",
+      "id": "front_end_app_android_permissions"
+    },
+    {
+      "label": "web",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L23",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "web",
+      "id": "front_end_app_expo_web"
+    },
+    {
+      "label": "bundler",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L24",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "bundler",
+      "id": "front_end_app_web_bundler"
+    },
+    {
+      "label": "output",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L25",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "output",
+      "id": "front_end_app_web_output"
+    },
+    {
+      "label": "favicon",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L26",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "favicon",
+      "id": "front_end_app_web_favicon"
+    },
+    {
+      "label": "plugins",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L28",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "plugins",
+      "id": "front_end_app_expo_plugins"
+    },
+    {
+      "label": "extra",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L56",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "extra",
+      "id": "front_end_app_expo_extra"
+    },
+    {
+      "label": "eas",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L57",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "eas",
+      "id": "front_end_app_extra_eas"
+    },
+    {
+      "label": "projectId",
+      "file_type": "code",
+      "source_file": "front-end/app.json",
+      "source_location": "L58",
+      "_origin": "ast",
+      "community": 10,
+      "norm_label": "projectid",
+      "id": "front_end_app_eas_projectid"
     },
     {
       "label": "Splash.js",
@@ -299,9 +349,9 @@
       "source_file": "front-end/components/Splash.js",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "front_end_components_splash",
       "community": 128,
-      "norm_label": "splash.js"
+      "norm_label": "splash.js",
+      "id": "front_end_components_splash"
     },
     {
       "label": "Splash()",
@@ -309,9 +359,9 @@
       "source_file": "front-end/components/Splash.js",
       "source_location": "L57",
       "_origin": "ast",
-      "id": "front_end_components_splash_splash",
       "community": 128,
-      "norm_label": "splash()"
+      "norm_label": "splash()",
+      "id": "front_end_components_splash_splash"
     },
     {
       "label": "makeStyles()",
@@ -319,9 +369,9 @@
       "source_file": "front-end/components/Splash.js",
       "source_location": "L182",
       "_origin": "ast",
-      "id": "front_end_components_splash_makestyles",
       "community": 128,
-      "norm_label": "makestyles()"
+      "norm_label": "makestyles()",
+      "id": "front_end_components_splash_makestyles"
     },
     {
       "label": "AboutApp.js",
@@ -329,9 +379,9 @@
       "source_file": "front-end/components/settings/AboutApp.js",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "front_end_components_settings_aboutapp",
       "community": 126,
-      "norm_label": "aboutapp.js"
+      "norm_label": "aboutapp.js",
+      "id": "front_end_components_settings_aboutapp"
     },
     {
       "label": "AboutApp()",
@@ -339,9 +389,9 @@
       "source_file": "front-end/components/settings/AboutApp.js",
       "source_location": "L11",
       "_origin": "ast",
-      "id": "front_end_components_settings_aboutapp_aboutapp",
       "community": 126,
-      "norm_label": "aboutapp()"
+      "norm_label": "aboutapp()",
+      "id": "front_end_components_settings_aboutapp_aboutapp"
     },
     {
       "label": "makeStyles()",
@@ -349,59 +399,9 @@
       "source_file": "front-end/components/settings/AboutApp.js",
       "source_location": "L64",
       "_origin": "ast",
-      "id": "front_end_components_settings_aboutapp_makestyles",
       "community": 126,
-      "norm_label": "makestyles()"
-    },
-    {
-      "label": "SCREEN_TITLES",
-      "file_type": "code",
-      "source_file": "front-end/App.js",
-      "source_location": "L146",
-      "_origin": "ast",
-      "community": 26,
-      "norm_label": "screen_titles",
-      "id": "front_end_app_screen_titles"
-    },
-    {
-      "label": "headerName()",
-      "file_type": "code",
-      "source_file": "front-end/App.js",
-      "source_location": "L163",
-      "_origin": "ast",
-      "community": 26,
-      "norm_label": "headername()",
-      "id": "front_end_app_headername"
-    },
-    {
-      "label": "MainAppShell()",
-      "file_type": "code",
-      "source_file": "front-end/App.js",
-      "source_location": "L168",
-      "_origin": "ast",
-      "community": 26,
-      "norm_label": "mainappshell()",
-      "id": "front_end_app_mainappshell"
-    },
-    {
-      "label": "App()",
-      "file_type": "code",
-      "source_file": "front-end/App.js",
-      "source_location": "L1761",
-      "_origin": "ast",
-      "community": 26,
-      "norm_label": "app()",
-      "id": "front_end_app_app"
-    },
-    {
-      "label": "makeStyles()",
-      "file_type": "code",
-      "source_file": "front-end/App.js",
-      "source_location": "L1821",
-      "_origin": "ast",
-      "community": 26,
       "norm_label": "makestyles()",
-      "id": "front_end_app_makestyles"
+      "id": "front_end_components_settings_aboutapp_makestyles"
     },
     {
       "label": "AllActivity.js",
@@ -1299,7 +1299,7 @@
       "source_file": "front-end/components/settings/PrivacySettings.js",
       "source_location": "L1",
       "_origin": "ast",
-      "community": 26,
+      "community": 33,
       "norm_label": "privacysettings.js",
       "id": "front_end_components_settings_privacysettings"
     },
@@ -1309,7 +1309,7 @@
       "source_file": "front-end/components/settings/PrivacySettings.js",
       "source_location": "L17",
       "_origin": "ast",
-      "community": 26,
+      "community": 33,
       "norm_label": "privacysettings()",
       "id": "front_end_components_settings_privacysettings_privacysettings"
     },
@@ -1319,7 +1319,7 @@
       "source_file": "front-end/components/settings/PrivacySettings.js",
       "source_location": "L267",
       "_origin": "ast",
-      "community": 26,
+      "community": 33,
       "norm_label": "makestyles()",
       "id": "front_end_components_settings_privacysettings_makestyles"
     },
@@ -12864,7 +12864,7 @@
       "contributor": null,
       "community": 81,
       "norm_label": "project /graphify trigger rule (.claude/claude.md)",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_graphify_trigger"
+      "id": "claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_claude_graphify_trigger"
     },
     {
       "label": "/graphify Command (graphify Skill)",
@@ -13223,11 +13223,11 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "front-end/App.js",
-      "source_location": "L1761",
+      "source_location": "L1772",
       "weight": 1.0,
-      "confidence_score": 1.0,
       "source": "front_end_app",
-      "target": "front_end_app_app"
+      "target": "front_end_app_app",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -13235,9 +13235,9 @@
       "source_file": "front-end/app.json",
       "source_location": "L2",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "front_end_app",
-      "target": "front_end_app_expo",
-      "confidence_score": 1.0
+      "target": "front_end_app_expo"
     },
     {
       "relation": "contains",
@@ -13245,9 +13245,9 @@
       "source_file": "front-end/App.js",
       "source_location": "L163",
       "weight": 1.0,
-      "confidence_score": 1.0,
       "source": "front_end_app",
-      "target": "front_end_app_headername"
+      "target": "front_end_app_headername",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -13255,19 +13255,19 @@
       "source_file": "front-end/App.js",
       "source_location": "L168",
       "weight": 1.0,
-      "confidence_score": 1.0,
       "source": "front_end_app",
-      "target": "front_end_app_mainappshell"
+      "target": "front_end_app_mainappshell",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "front-end/App.js",
-      "source_location": "L1821",
+      "source_location": "L1832",
       "weight": 1.0,
-      "confidence_score": 1.0,
       "source": "front_end_app",
-      "target": "front_end_app_makestyles"
+      "target": "front_end_app_makestyles",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -13275,698 +13275,52 @@
       "source_file": "front-end/App.js",
       "source_location": "L146",
       "weight": 1.0,
-      "confidence_score": 1.0,
       "source": "front_end_app",
-      "target": "front_end_app_screen_titles"
+      "target": "front_end_app_screen_titles",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports_from",
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "front-end/App.js",
-      "source_location": "L115",
+      "source_location": "L102",
       "weight": 1.0,
-      "confidence_score": 1.0,
       "source": "front_end_app",
-      "target": "front_end_components_allactivity"
+      "target": "front_end_components_auth",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "front-end/App.js",
-      "source_location": "L115",
+      "source_location": "L102",
       "weight": 1.0,
-      "confidence_score": 1.0,
       "source": "front_end_app",
-      "target": "front_end_components_allactivity_allactivity"
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L114",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_calendarview"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L114",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_calendarview_calendarview"
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L103",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_dashboard"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L103",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_dashboard_dashboard"
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L104",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_health"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L104",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_health_health"
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L117",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_offlinesummaryview"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L117",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_offlinesummaryview_offlinesummaryview"
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L111",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_onboarding"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L111",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_onboarding_onboarding"
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L109",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_professionalview"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L109",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_professionalview_professionalview"
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L116",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_search"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L116",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_search_search"
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L106",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_services"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L106",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_services_services"
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L127",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_settings_aboutapp"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L127",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_settings_aboutapp_aboutapp"
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L128",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_settings_changepassword"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L128",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_settings_changepassword_changepassword"
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L122",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_settings_editprofile"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L122",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_settings_editprofile_editprofile"
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L123",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_settings_generalsettings"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L123",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_settings_generalsettings_generalsettings"
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L126",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_settings_helpsupport"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L126",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_settings_helpsupport_helpsupport"
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L125",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_settings_languagepreferences"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L125",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_settings_languagepreferences_languagepreferences"
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L129",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_settings_privacysettings"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L129",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_settings_privacysettings_privacysettings"
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L124",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_settings_themepreferences"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L124",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_settings_themepreferences_themepreferences"
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L121",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_settings_viewprofile"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L121",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_settings_viewprofile_viewprofile"
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L108",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_sharerecords"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L108",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_sharerecords_sharerecords"
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L118",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_splash"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L118",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app",
-      "target": "front_end_components_splash_splash"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L15",
-      "weight": 1.0,
-      "source": "front_end_app_expo",
-      "target": "front_end_app_expo_android",
+      "target": "front_end_components_auth_auth",
       "confidence_score": 1.0
     },
     {
-      "relation": "contains",
+      "relation": "calls",
+      "context": "call",
       "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L56",
+      "source_file": "front-end/App.js",
+      "source_location": "L1043",
       "weight": 1.0,
-      "source": "front_end_app_expo",
-      "target": "front_end_app_expo_extra",
+      "source": "front_end_app_mainappshell",
+      "target": "front_end_app_headername",
       "confidence_score": 1.0
     },
     {
-      "relation": "contains",
+      "relation": "calls",
+      "context": "call",
       "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L10",
+      "source_file": "front-end/App.js",
+      "source_location": "L177",
       "weight": 1.0,
-      "source": "front_end_app_expo",
-      "target": "front_end_app_expo_icon",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L11",
-      "weight": 1.0,
-      "source": "front_end_app_expo",
-      "target": "front_end_app_expo_ios",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L3",
-      "weight": 1.0,
-      "source": "front_end_app_expo",
-      "target": "front_end_app_expo_name",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L8",
-      "weight": 1.0,
-      "source": "front_end_app_expo",
-      "target": "front_end_app_expo_newarchenabled",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L6",
-      "weight": 1.0,
-      "source": "front_end_app_expo",
-      "target": "front_end_app_expo_orientation",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L28",
-      "weight": 1.0,
-      "source": "front_end_app_expo",
-      "target": "front_end_app_expo_plugins",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L9",
-      "weight": 1.0,
-      "source": "front_end_app_expo",
-      "target": "front_end_app_expo_scheme",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L4",
-      "weight": 1.0,
-      "source": "front_end_app_expo",
-      "target": "front_end_app_expo_slug",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L7",
-      "weight": 1.0,
-      "source": "front_end_app_expo",
-      "target": "front_end_app_expo_userinterfacestyle",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L5",
-      "weight": 1.0,
-      "source": "front_end_app_expo",
-      "target": "front_end_app_expo_version",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L23",
-      "weight": 1.0,
-      "source": "front_end_app_expo",
-      "target": "front_end_app_expo_web",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L13",
-      "weight": 1.0,
-      "source": "front_end_app_expo_ios",
-      "target": "front_end_app_ios_bundleidentifier",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L12",
-      "weight": 1.0,
-      "source": "front_end_app_expo_ios",
-      "target": "front_end_app_ios_supportstablet",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L17",
-      "weight": 1.0,
-      "source": "front_end_app_expo_android",
-      "target": "front_end_app_android_adaptiveicon",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L16",
-      "weight": 1.0,
-      "source": "front_end_app_expo_android",
-      "target": "front_end_app_android_package",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L21",
-      "weight": 1.0,
-      "source": "front_end_app_expo_android",
-      "target": "front_end_app_android_permissions",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L18",
-      "weight": 1.0,
-      "source": "front_end_app_android_adaptiveicon",
-      "target": "front_end_app_adaptiveicon_backgroundcolor",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L19",
-      "weight": 1.0,
-      "source": "front_end_app_android_adaptiveicon",
-      "target": "front_end_app_adaptiveicon_foregroundimage",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L24",
-      "weight": 1.0,
-      "source": "front_end_app_expo_web",
-      "target": "front_end_app_web_bundler",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L26",
-      "weight": 1.0,
-      "source": "front_end_app_expo_web",
-      "target": "front_end_app_web_favicon",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L25",
-      "weight": 1.0,
-      "source": "front_end_app_expo_web",
-      "target": "front_end_app_web_output",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L57",
-      "weight": 1.0,
-      "source": "front_end_app_expo_extra",
-      "target": "front_end_app_extra_eas",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/app.json",
-      "source_location": "L58",
-      "weight": 1.0,
-      "source": "front_end_app_extra_eas",
-      "target": "front_end_app_eas_projectid",
+      "source": "front_end_app_mainappshell",
+      "target": "front_end_app_makestyles",
       "confidence_score": 1.0
     },
     {
@@ -13982,12 +13336,262 @@
     {
       "relation": "contains",
       "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L15",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo",
+      "target": "front_end_app_expo_android"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L56",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo",
+      "target": "front_end_app_expo_extra"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L10",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo",
+      "target": "front_end_app_expo_icon"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L11",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo",
+      "target": "front_end_app_expo_ios"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L3",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo",
+      "target": "front_end_app_expo_name"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L8",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo",
+      "target": "front_end_app_expo_newarchenabled"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L6",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo",
+      "target": "front_end_app_expo_orientation"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L28",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo",
+      "target": "front_end_app_expo_plugins"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L9",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo",
+      "target": "front_end_app_expo_scheme"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L4",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo",
+      "target": "front_end_app_expo_slug"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L7",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo",
+      "target": "front_end_app_expo_userinterfacestyle"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L5",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo",
+      "target": "front_end_app_expo_version"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L23",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo",
+      "target": "front_end_app_expo_web"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L13",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo_ios",
+      "target": "front_end_app_ios_bundleidentifier"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L12",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo_ios",
+      "target": "front_end_app_ios_supportstablet"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L17",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo_android",
+      "target": "front_end_app_android_adaptiveicon"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L16",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo_android",
+      "target": "front_end_app_android_package"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L21",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo_android",
+      "target": "front_end_app_android_permissions"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L18",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_android_adaptiveicon",
+      "target": "front_end_app_adaptiveicon_backgroundcolor"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L19",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_android_adaptiveicon",
+      "target": "front_end_app_adaptiveicon_foregroundimage"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L24",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo_web",
+      "target": "front_end_app_web_bundler"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L26",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo_web",
+      "target": "front_end_app_web_favicon"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L25",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo_web",
+      "target": "front_end_app_web_output"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L57",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_expo_extra",
+      "target": "front_end_app_extra_eas"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "front-end/app.json",
+      "source_location": "L58",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "front_end_app_extra_eas",
+      "target": "front_end_app_eas_projectid"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
       "source_file": "front-end/components/Splash.js",
       "source_location": "L182",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "front_end_components_splash",
-      "target": "front_end_components_splash_makestyles",
-      "confidence_score": 1.0
+      "target": "front_end_components_splash_makestyles"
     },
     {
       "relation": "contains",
@@ -13995,9 +13599,9 @@
       "source_file": "front-end/components/Splash.js",
       "source_location": "L57",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "front_end_components_splash",
-      "target": "front_end_components_splash_splash",
-      "confidence_score": 1.0
+      "target": "front_end_components_splash_splash"
     },
     {
       "relation": "calls",
@@ -14006,9 +13610,9 @@
       "source_file": "front-end/components/Splash.js",
       "source_location": "L59",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "front_end_components_splash_splash",
-      "target": "front_end_components_splash_makestyles",
-      "confidence_score": 1.0
+      "target": "front_end_components_splash_makestyles"
     },
     {
       "relation": "contains",
@@ -14016,9 +13620,9 @@
       "source_file": "front-end/components/settings/AboutApp.js",
       "source_location": "L11",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "front_end_components_settings_aboutapp",
-      "target": "front_end_components_settings_aboutapp_aboutapp",
-      "confidence_score": 1.0
+      "target": "front_end_components_settings_aboutapp_aboutapp"
     },
     {
       "relation": "contains",
@@ -14026,9 +13630,9 @@
       "source_file": "front-end/components/settings/AboutApp.js",
       "source_location": "L64",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "front_end_components_settings_aboutapp",
-      "target": "front_end_components_settings_aboutapp_makestyles",
-      "confidence_score": 1.0
+      "target": "front_end_components_settings_aboutapp_makestyles"
     },
     {
       "relation": "calls",
@@ -14037,31 +13641,9 @@
       "source_file": "front-end/components/settings/AboutApp.js",
       "source_location": "L13",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "front_end_components_settings_aboutapp_aboutapp",
-      "target": "front_end_components_settings_aboutapp_makestyles",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L1032",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app_mainappshell",
-      "target": "front_end_app_headername"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "front-end/App.js",
-      "source_location": "L177",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "front_end_app_mainappshell",
-      "target": "front_end_app_makestyles"
+      "target": "front_end_components_settings_aboutapp_makestyles"
     },
     {
       "relation": "contains",
@@ -30581,5 +30163,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "b9f6eb41d9c1154bacffe14038b30bd2ff99a364"
+  "built_at_commit": "7e44f4e495062483b6a59fb661e5dded56a2307e"
 }

@@ -71,9 +71,18 @@ const SECTION_ORDER = [
     "profile",
 ];
 
+// growth_records.measured_at (migration 007). Reading only: never rank or
+// discount a measurement by where it was taken.
+const GROWTH_PLACE = {
+    home: "at home",
+    health_center: "health centre",
+    clinic: "clinic",
+    hospital: "hospital",
+};
+
 // Short labels for the jump bar. RECORD_LABELS is written for the parent
-// choosing what to share ("Medical History (Illnesses, Medications,
-// Hospitalizations)") and is far too long to sit in a chip.
+// choosing what to share ("Allergies & Hereditary Conditions") and is too
+// long to sit in a chip.
 const SECTION_SHORT = {
     vaccinations: "Immunisation",
     growth: "Growth",
@@ -1099,10 +1108,16 @@ function RecordsView({ session, onEnd, onExit }) {
                     child differently. */}
                 {(p.growth.measurements || []).length > 0 && dob && sexKey ? (
                     <>
+                        {/* `plain` is deliberately NOT passed. The parent's
+                            Dashboard card states the percentile in words and
+                            drops the outer reference band; this screen keeps
+                            the ordinal and both bands, which is the shorthand a
+                            clinician reads fluently. */}
                         <GrowthChart
                             rows={p.growth.measurements}
                             sex={p.profile?.sex}
                             dateOfBirth={dob}
+                            name={(p.profile?.name || "").split(" ")[0]}
                         />
                         <GrowthTrend
                             rows={p.growth.measurements}
@@ -1137,7 +1152,14 @@ function RecordsView({ session, onEnd, onExit }) {
                                 title={`${g.weight ?? "—"} kg · ${g.height ?? "—"} cm${
                                     g.head_circumference ? ` · HC ${g.head_circumference} cm` : ""
                                 }`}
-                                sub={shortDate(g.date_recorded)}
+                                // Where it was taken, when recorded. A clinic
+                                // scale and a home scale are different
+                                // instruments and the difference is the
+                                // clinician's to weigh -- the app states the
+                                // fact and stops there (migration 007).
+                                sub={[shortDate(g.date_recorded), GROWTH_PLACE[g.measured_at]]
+                                    .filter(Boolean)
+                                    .join(" · ")}
                                 flag={pct ? `${pct} (WHO percentile)` : null}
                             />
                         );

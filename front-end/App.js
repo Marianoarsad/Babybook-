@@ -247,11 +247,21 @@ function MainAppShell({
     const [authScene, setAuthScene] = useState("login");
     // Healthcare Professional mode (separate actor, no parent account)
     const [professionalMode, setProfessionalMode] = useState(false);
-    const [parentName, setParentName] = useState("Sarah");
-    const [parentGender, setParentGender] = useState("Female");
-    const [parentAvatar, setParentAvatar] = useState(
-        "https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop",
-    );
+    // All three start EMPTY, and that is the point. parentName defaulted to
+    // the literal string "Sarah" and parentAvatar to a stock photograph of a
+    // stranger, so before the session was restored the app addressed every
+    // parent by a name that was not theirs, beside a face that was not theirs.
+    // Same family as the invented "Dr. Sarah Chen" removed from the Care Team
+    // card. applyUser() fills these from the server; until it does, the header
+    // shows nothing rather than showing a fiction, and ui/Avatar.js falls back
+    // to the parent's own initials.
+    const [parentName, setParentName] = useState("");
+    // Who the account holder is to the child ("mother" | "father" |
+    // "grandparent" | "guardian" | "other"). Replaced parentGender, which the
+    // registration form asked for as Female/Male and nothing ever used except
+    // to print it back. See utils/relationship.js.
+    const [parentRelationship, setParentRelationship] = useState("");
+    const [parentAvatar, setParentAvatar] = useState("");
 
     // Main navigation view
     const [currentView, setCurrentView] = useState("dashboard");
@@ -542,8 +552,11 @@ function MainAppShell({
     const applyUser = (user) => {
         if (!user) return;
         setParentName(user.fullName || user.full_name || "Parent");
-        if (user.gender) setParentGender(user.gender);
-        if (user.avatarUrl) setParentAvatar(user.avatarUrl);
+        // Assigned unconditionally, not behind an `if`: a field the parent has
+        // just CLEARED has to clear here too, and the old guarded form left the
+        // previous value on screen after a successful save.
+        setParentRelationship(user.relationship || "");
+        setParentAvatar(user.avatarUrl || "");
         setConsentDue(!!user.consentReviewDue);
     };
 
@@ -1178,7 +1191,7 @@ function MainAppShell({
                     <ViewProfile
                         parentName={parentName}
                         parentAvatar={parentAvatar}
-                        parentGender={parentGender}
+                        parentRelationship={parentRelationship}
                         onEdit={() => changeView("editProfile")}
                     />
                 )}
@@ -1187,8 +1200,8 @@ function MainAppShell({
                         parentName={parentName}
                         onUpdateParentName={setParentName}
                         parentAvatar={parentAvatar}
-                        onUpdateParentAvatar={setParentAvatar}
-                        parentGender={parentGender}
+                        parentRelationship={parentRelationship}
+                        onUpdateParentRelationship={setParentRelationship}
                     />
                 )}
                 {currentView === "generalSettings" && <GeneralSettings />}
@@ -1774,10 +1787,15 @@ export default function App() {
     // ("auto" | "girl" | "boy") can force it. Default is "auto".
     const [themeGender, setThemeGender] = useState(undefined);
     const [themeOverride, setThemeOverride] = useState("auto");
-    // Independent light/dark axis — "system" follows the OS setting, or a
-    // manual "light"/"dark" override. Combines with themeOverride above
+    // Independent light/dark axis — a manual "light"/"dark" choice, or
+    // "system" to follow the OS setting. Combines with themeOverride above
     // (e.g. "girl" + "dark" = dark pink theme).
-    const [schemeOverride, setSchemeOverride] = useState("system");
+    //
+    // Starts at "light", which is also what an absent bb_dark_mode key means:
+    // the app opens light for everyone until a parent picks otherwise. The
+    // effect below still restores a saved choice, so anyone who has already
+    // chosen "system" or "dark" keeps it.
+    const [schemeOverride, setSchemeOverride] = useState("light");
 
     useEffect(() => {
         (async () => {

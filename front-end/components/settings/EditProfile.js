@@ -1,31 +1,44 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Image, Animated } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Animated } from "react-native";
 import { SectionContainerCard } from "../common/Cards";
-import { storage } from "../../utils/storageAdapter";
 import { api } from "../../utils/api";
 import { useToast } from "../ui/Toast";
 import { SkeletonBlock } from "../ui/Skeleton";
 import KeyboardAvoider from "../ui/KeyboardAvoider";
+import Avatar from "../ui/Avatar";
 import { useTheme } from "../../context/ThemeContext";
 import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
 import { useScroll } from "../../context/ScrollContext";
-import { space, radius, type } from "../../theme";
+import { RELATIONSHIPS, relationshipLabel } from "../../utils/relationship";
+import { space, radius, type, MIN_TOUCH } from "../../theme";
 
-const PREDEFINED_AVATARS = [
-    "https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop",
-    "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop",
-    "https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=200&auto=format&fit=crop",
-    "https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?q=80&w=200&auto=format&fit=crop",
-];
-
-// Guardian account fields (name, contact, avatar). Language/theme moved to
-// their own menu destinations; logout lives in the side menu.
+// Guardian account fields (name, contact, relationship, city, avatar).
+// Language/theme moved to their own menu destinations; logout lives in the side
+// menu.
+//
+// Two things this screen used to get wrong, both fixed here:
+//
+// 1. The Email box was editable, and saving it did nothing. handleSaveInfo sent
+//    fullName/phoneNumber/gender/avatarUrl and PUT /me did not accept an email
+//    at all, so the parent edited the field, was told "Profile settings updated
+//    successfully!", and the old address came back on the next load. Email is
+//    now its own block with its own control, because it is the login identity
+//    and its save can fail on the server's terms (wrong password, address
+//    already taken) in a way none of the other fields can.
+//
+// 2. "Home City / Region" wrote to localStorage under bb_parent_city and was
+//    read back only by this file — it never reached the server, never synced to
+//    a second device, and pre-filled "Quezon City, NCR" for every parent alive.
+//    It is a real column now, and it starts blank.
+//
+// The four PREDEFINED_AVATARS (Unsplash photographs of strangers, one of them
+// the default) are gone; ui/Avatar.js shows the parent's own initials instead.
 export default function EditProfile({
     parentName,
     onUpdateParentName,
     parentAvatar,
-    onUpdateParentAvatar,
-    parentGender,
+    parentRelationship,
+    onUpdateParentRelationship,
 }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -37,19 +50,25 @@ export default function EditProfile({
 
     const [email, setEmail] = useState("");
     const [phone, setPhone] = useState("");
-    const [city, setCity] = useState("Quezon City, NCR");
+    const [city, setCity] = useState("");
     const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+
+    // Sign-in email, kept apart from the fields above on purpose (see header).
+    const [newEmail, setNewEmail] = useState("");
+    const [emailPassword, setEmailPassword] = useState("");
+    const [emailError, setEmailError] = useState("");
+    const [emailSaving, setEmailSaving] = useState(false);
 
     useEffect(() => {
         (async () => {
             setLoading(true);
             try {
-                const savedCity = await storage.getItem("bb_parent_city");
-                if (savedCity) setCity(savedCity);
                 const { user } = await api.me();
                 if (user) {
-                    if (user.email) setEmail(user.email);
-                    if (user.phoneNumber) setPhone(user.phoneNumber);
+                    setEmail(user.email || "");
+                    setPhone(user.phoneNumber || "");
+                    setCity(user.city || "");
                 }
             } catch (e) {
                 console.log("load profile:", e.message);
@@ -64,17 +83,50 @@ export default function EditProfile({
             toast.error("Name cannot be empty.");
             return;
         }
+        setSaving(true);
         try {
-            await storage.setItem("bb_parent_city", city);
-            await api.updateMe({
+            // Every value this call sends is a value the server stores. The old
+            // version also passed a city that went nowhere and an email the
+            // endpoint ignored, then reported success for both.
+            const { user } = await api.updateMe({
                 fullName: parentName,
                 phoneNumber: phone,
-                gender: parentGender,
-                avatarUrl: parentAvatar,
+                relationship: parentRelationship || "",
+                city,
             });
-            toast.success("Profile settings updated successfully!");
+            // Read the saved row back instead of trusting local state, so a
+            // field the server rejected or normalised shows what was actually
+            // stored.
+            if (user) {
+                setPhone(user.phoneNumber || "");
+                setCity(user.city || "");
+                if (onUpdateParentRelationship) onUpdateParentRelationship(user.relationship || "");
+            }
+            toast.success("Profile updated");
         } catch (e) {
             toast.error(e.message || "Could not update profile");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleChangeEmail = async () => {
+        const next = newEmail.trim();
+        if (!next) return setEmailError("Enter the new email address");
+        if (next.toLowerCase() === email.toLowerCase()) return setEmailError("That is already your email address");
+        if (!emailPassword) return setEmailError("Enter your current password to confirm");
+        setEmailError("");
+        setEmailSaving(true);
+        try {
+            const { user } = await api.changeEmail({ newEmail: next, currentPassword: emailPassword });
+            setEmail(user.email || next);
+            setNewEmail("");
+            setEmailPassword("");
+            toast.success("Sign-in email updated");
+        } catch (e) {
+            setEmailError(e.message || "Could not change the email address");
+        } finally {
+            setEmailSaving(false);
         }
     };
 
@@ -86,25 +138,14 @@ export default function EditProfile({
             keyboardShouldPersistTaps="handled"
             {...scrollProps}
         >
-            {/* Prominent ringed avatar hero — the photo picker moved up here
-                (out of its old "Select Guardian Avatar" card slot) so the
-                thing being edited is the first thing seen. */}
             <View style={styles.headerBox}>
-                <View style={styles.avatarRing}>
-                    <Image source={{ uri: parentAvatar }} style={styles.avatarMain} />
-                </View>
+                <Avatar uri={parentAvatar} name={parentName} size={104} borderWidth={3} />
                 <Text style={styles.parentNameText}>{parentName}</Text>
-                <Text style={styles.parentRoleText}>Primary Guardian ({parentGender})</Text>
-                <View style={styles.avatarPickerRow}>
-                    {PREDEFINED_AVATARS.map((av, idx) => (
-                        <TouchableOpacity key={idx} onPress={() => onUpdateParentAvatar(av)}>
-                            <Image
-                                source={{ uri: av }}
-                                style={[styles.avatarOption, parentAvatar === av && styles.avatarOptionSelected]}
-                            />
-                        </TouchableOpacity>
-                    ))}
-                </View>
+                <Text style={styles.parentRoleText}>
+                    {relationshipLabel(parentRelationship)
+                        ? `Primary Guardian · ${relationshipLabel(parentRelationship)}`
+                        : "Primary Guardian"}
+                </Text>
             </View>
 
             <SectionContainerCard title="Guardian Information" subtitle="Keep your contact details up to date">
@@ -121,33 +162,148 @@ export default function EditProfile({
                     <>
                         <View style={styles.formGroup}>
                             <Text style={styles.label}>Full Name</Text>
-                            <TextInput style={styles.input} value={parentName} onChangeText={onUpdateParentName} />
-                        </View>
-                        <View style={styles.formGroup}>
-                            <Text style={styles.label}>Email Address</Text>
                             <TextInput
                                 style={styles.input}
-                                keyboardType="email-address"
-                                autoCapitalize="none"
-                                value={email}
-                                onChangeText={setEmail}
+                                value={parentName}
+                                onChangeText={onUpdateParentName}
+                                accessibilityLabel="Full Name"
+                                autoComplete="name"
+                                textContentType="name"
+                            />
+                        </View>
+
+                        {/* The same five chips the Create an Account form uses,
+                            from the same list, so the two screens cannot offer
+                            different answers to one question. */}
+                        <View style={styles.formGroup}>
+                            <Text style={styles.label}>I am the child's…</Text>
+                            <View style={styles.chipWrap}>
+                                {RELATIONSHIPS.map((opt) => {
+                                    const on = parentRelationship === opt.key;
+                                    return (
+                                        <TouchableOpacity
+                                            key={opt.key}
+                                            onPress={() =>
+                                                onUpdateParentRelationship && onUpdateParentRelationship(opt.key)
+                                            }
+                                            accessibilityRole="button"
+                                            accessibilityState={{ selected: on }}
+                                            accessibilityLabel={opt.label}
+                                            style={[styles.chip, on && styles.chipOn]}
+                                        >
+                                            <Text style={[styles.chipText, on && styles.chipTextOn]}>{opt.label}</Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </View>
+                        </View>
+
+                        <View style={styles.formGroup}>
+                            <Text style={styles.label}>Phone Number</Text>
+                            <TextInput
+                                style={styles.input}
+                                keyboardType="phone-pad"
+                                value={phone}
+                                onChangeText={setPhone}
+                                accessibilityLabel="Phone Number"
+                                placeholder="09XX XXX XXXX"
+                                placeholderTextColor={colors.placeholder}
+                                autoComplete="tel"
+                                textContentType="telephoneNumber"
                             />
                         </View>
                         <View style={styles.formGroup}>
-                            <Text style={styles.label}>Phone Number</Text>
-                            <TextInput style={styles.input} keyboardType="phone-pad" value={phone} onChangeText={setPhone} />
-                        </View>
-                        <View style={styles.formGroup}>
-                            <Text style={styles.label}>Home City / Region</Text>
-                            <TextInput style={styles.input} value={city} onChangeText={setCity} />
+                            <Text style={styles.label}>City / Municipality</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={city}
+                                onChangeText={setCity}
+                                accessibilityLabel="City / Municipality"
+                                placeholder="Where you live"
+                                placeholderTextColor={colors.placeholder}
+                                autoComplete="postal-address-locality"
+                                textContentType="addressCity"
+                            />
                         </View>
                         <TouchableOpacity
                             onPress={handleSaveInfo}
-                            style={styles.saveBtn}
+                            disabled={saving}
+                            style={[styles.saveBtn, saving && { opacity: 0.6 }]}
                             accessibilityRole="button"
+                            accessibilityState={{ disabled: saving }}
                             accessibilityLabel="Save Changes"
                         >
-                            <Text style={styles.saveBtnText}>Save Changes</Text>
+                            <Text style={styles.saveBtnText}>{saving ? "Saving…" : "Save Changes"}</Text>
+                        </TouchableOpacity>
+                    </>
+                )}
+            </SectionContainerCard>
+
+            <SectionContainerCard
+                title="Sign-in Email"
+                subtitle="The address you log in with, and where a password reset is sent"
+            >
+                {loading ? (
+                    <SkeletonBlock width="70%" height={14} radius={6} />
+                ) : (
+                    <>
+                        <View style={styles.currentRow}>
+                            <Text style={styles.currentLabel}>Current</Text>
+                            <Text style={styles.currentValue} numberOfLines={1}>
+                                {email || "Not recorded"}
+                            </Text>
+                        </View>
+                        <View style={styles.formGroup}>
+                            <Text style={styles.label}>New Email Address</Text>
+                            <TextInput
+                                style={[styles.input, emailError && styles.inputError]}
+                                keyboardType="email-address"
+                                autoCapitalize="none"
+                                value={newEmail}
+                                onChangeText={(t) => {
+                                    setNewEmail(t);
+                                    if (emailError) setEmailError("");
+                                }}
+                                placeholder="Enter the new address"
+                                accessibilityLabel="New Email Address"
+                                placeholderTextColor={colors.placeholder}
+                                autoComplete="email"
+                                textContentType="username"
+                            />
+                        </View>
+                        <View style={styles.formGroup}>
+                            <Text style={styles.label}>Current Password</Text>
+                            <TextInput
+                                style={[styles.input, emailError && styles.inputError]}
+                                secureTextEntry
+                                value={emailPassword}
+                                onChangeText={(t) => {
+                                    setEmailPassword(t);
+                                    if (emailError) setEmailError("");
+                                }}
+                                placeholder="Confirm it's you"
+                                accessibilityLabel="Current Password"
+                                placeholderTextColor={colors.placeholder}
+                                autoComplete="current-password"
+                                textContentType="password"
+                            />
+                        </View>
+                        {emailError ? (
+                            <Text selectable style={styles.errorText}>
+                                {emailError}
+                            </Text>
+                        ) : null}
+                        <TouchableOpacity
+                            onPress={handleChangeEmail}
+                            disabled={emailSaving}
+                            style={[styles.secondaryBtn, emailSaving && { opacity: 0.6 }]}
+                            accessibilityRole="button"
+                            accessibilityState={{ disabled: emailSaving }}
+                            accessibilityLabel="Change sign-in email"
+                        >
+                            <Text style={styles.secondaryBtnText}>
+                                {emailSaving ? "Changing…" : "Change Email"}
+                            </Text>
                         </TouchableOpacity>
                     </>
                 )}
@@ -165,21 +321,8 @@ const makeStyles = (colors) =>
         // Padding on the content so the bottom clearance scrolls with it.
         content: { padding: space.lg },
         headerBox: { alignItems: "center", marginVertical: space.lg },
-        avatarRing: {
-            width: 104,
-            height: 104,
-            borderRadius: 52,
-            borderWidth: 3,
-            borderColor: colors.primary,
-            alignItems: "center",
-            justifyContent: "center",
-        },
-        avatarMain: { width: 96, height: 96, borderRadius: 48 },
         parentNameText: { ...type.heading, color: colors.primary, marginTop: space.sm },
         parentRoleText: { ...type.caption, color: colors.textMuted, marginTop: 2 },
-        avatarPickerRow: { flexDirection: "row", gap: space.sm, marginTop: space.lg },
-        avatarOption: { width: 50, height: 50, borderRadius: 25, borderWidth: 2, borderColor: "transparent" },
-        avatarOptionSelected: { borderColor: colors.accentStrong },
         formGroup: { marginBottom: space.md },
         label: { ...type.subheading, color: colors.textMuted, marginBottom: space.xs },
         input: {
@@ -193,6 +336,25 @@ const makeStyles = (colors) =>
             ...type.body,
             color: colors.text,
         },
+        inputError: { borderColor: colors.danger },
+        errorText: { ...type.caption, color: colors.danger, marginBottom: space.sm },
+        chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
+        chip: {
+            minHeight: MIN_TOUCH,
+            justifyContent: "center",
+            paddingHorizontal: space.md,
+            borderRadius: radius.pill,
+            borderCurve: "continuous",
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: colors.surfaceAlt,
+        },
+        chipOn: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+        chipText: { ...type.caption, color: colors.textSecondary },
+        chipTextOn: { fontWeight: "700", color: colors.primary },
+        currentRow: { flexDirection: "row", alignItems: "center", gap: space.sm, marginBottom: space.md },
+        currentLabel: { ...type.subheading, color: colors.textMuted },
+        currentValue: { ...type.body, color: colors.text, flex: 1 },
         saveBtn: {
             backgroundColor: colors.accentStrong,
             borderRadius: radius.md,
@@ -203,4 +365,15 @@ const makeStyles = (colors) =>
             marginTop: space.sm,
         },
         saveBtnText: { ...type.label, color: colors.onAccent },
+        secondaryBtn: {
+            borderWidth: 1,
+            borderColor: colors.primary,
+            borderRadius: radius.md,
+            borderCurve: "continuous",
+            height: 44,
+            justifyContent: "center",
+            alignItems: "center",
+            marginTop: space.sm,
+        },
+        secondaryBtnText: { ...type.label, color: colors.primary },
     });

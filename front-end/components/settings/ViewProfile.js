@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, Image, TouchableOpacity, Animated } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../context/ThemeContext";
 import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
@@ -7,6 +7,8 @@ import { useScroll } from "../../context/ScrollContext";
 import { space, radius, type, shadow } from "../../theme";
 import { api } from "../../utils/api";
 import { SkeletonBlock } from "../ui/Skeleton";
+import Avatar from "../ui/Avatar";
+import { relationshipLabel } from "../../utils/relationship";
 
 // Read-only account summary. "Edit Profile" (a separate menu destination)
 // is where the guardian actually changes these fields.
@@ -16,7 +18,7 @@ import { SkeletonBlock } from "../ui/Skeleton";
 // avatar/name block on top, an icon-led fact grid underneath) so the
 // parent's own profile reads as a sibling of the child's, not a
 // differently-designed screen.
-export default function ViewProfile({ parentName, parentAvatar, parentGender, onEdit }) {
+export default function ViewProfile({ parentName, parentAvatar, parentRelationship, onEdit }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
@@ -25,6 +27,7 @@ export default function ViewProfile({ parentName, parentAvatar, parentGender, on
     const { scrollProps } = useScroll();
     const [email, setEmail] = useState("");
     const [phone, setPhone] = useState("");
+    const [city, setCity] = useState("");
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -33,8 +36,9 @@ export default function ViewProfile({ parentName, parentAvatar, parentGender, on
             try {
                 const { user } = await api.me();
                 if (user) {
-                    if (user.email) setEmail(user.email);
-                    if (user.phoneNumber) setPhone(user.phoneNumber);
+                    setEmail(user.email || "");
+                    setPhone(user.phoneNumber || "");
+                    setCity(user.city || "");
                 }
             } catch (e) {
                 console.log("view profile:", e.message);
@@ -44,10 +48,16 @@ export default function ViewProfile({ parentName, parentAvatar, parentGender, on
         })();
     }, []);
 
+    // "Not recorded" throughout, which is the wording OfflineSummaryView and
+    // ProfessionalView already use — because "nobody entered this" and "this
+    // person has none" must not look the same. The phone row used to read "No
+    // phone on file" on literally every account, since the Create an Account
+    // form never asked for one.
     const facts = [
-        { icon: "mail-outline", text: email || "No email on file" },
-        { icon: "call-outline", text: phone || "No phone on file" },
-        { icon: "male-female-outline", text: parentGender || "Not set" },
+        { icon: "mail-outline", text: email || "Not recorded" },
+        { icon: "call-outline", text: phone || "Not recorded" },
+        { icon: "people-outline", text: relationshipLabel(parentRelationship) || "Not recorded" },
+        { icon: "location-outline", text: city || "Not recorded" },
     ];
 
     return (
@@ -59,15 +69,17 @@ export default function ViewProfile({ parentName, parentAvatar, parentGender, on
         >
             <View style={styles.profileCard}>
                 <View style={styles.headerRow}>
-                    <Image source={{ uri: parentAvatar }} style={styles.avatarMain} />
+                    <Avatar uri={parentAvatar} name={parentName} size={64} borderWidth={2} />
                     <View style={{ flex: 1 }}>
-                        <Text style={styles.parentNameText}>{parentName}</Text>
+                        <Text style={styles.parentNameText} numberOfLines={2}>
+                            {parentName}
+                        </Text>
                         <Text style={styles.parentRoleText}>Primary Guardian</Text>
                     </View>
                 </View>
                 <View style={styles.metaGrid}>
                     {loading
-                        ? [0, 1, 2].map((i) => (
+                        ? [0, 1, 2, 3].map((i) => (
                               <SkeletonBlock
                                   key={i}
                                   width={i % 2 ? "52%" : "64%"}
@@ -112,12 +124,11 @@ const makeStyles = (colors) =>
             ...shadow.card,
         },
         headerRow: { flexDirection: "row", alignItems: "center", gap: space.md },
-        avatarMain: { width: 64, height: 64, borderRadius: 32, borderWidth: 2, borderColor: colors.primary },
         parentNameText: { ...type.heading, color: colors.primary },
         parentRoleText: { ...type.caption, color: colors.textMuted, marginTop: 2 },
         metaGrid: { marginTop: space.lg },
         metaItem: { flexDirection: "row", alignItems: "center", gap: space.sm, marginBottom: space.sm },
-        metaText: { ...type.caption, color: colors.textSecondary },
+        metaText: { ...type.caption, color: colors.textSecondary, flex: 1 },
         editBtn: {
             flexDirection: "row",
             height: 48,

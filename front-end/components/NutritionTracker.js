@@ -1186,11 +1186,23 @@ const makeStyles = (colors) =>
             marginBottom: space.md,
         },
         inputError: { borderColor: colors.danger },
-        inputFlex: { flex: 1, marginBottom: space.md },
+        // minWidth: 0 is load-bearing, not tidying. react-native-web renders
+        // TextInput as a real <input>, and unlike View it gets no min-width
+        // reset — so `min-width: auto` resolves to the element's INTRINSIC
+        // width (measured: 228px here). With flex-basis at 0% the field still
+        // refuses to shrink below that, and whatever shares the row gets
+        // pushed out of the card: the mL/oz selector was 9px past the edge at
+        // 390pt and 79px past it at 320pt, leaving "oz" unreachable.
+        // Same family as the `flex: 0` trap noted in Dashboard.js, mirrored.
+        inputFlex: { flex: 1, minWidth: 0, marginBottom: space.md },
         inlineRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
-        inlineUnit: { ...type.body, color: colors.textSecondary, marginBottom: space.md },
+        // Both of inlineRow's trailing items hold their width: once the field
+        // can shrink, flex would otherwise take it out of these instead and
+        // clip "oz" / "minutes".
+        inlineUnit: { ...type.body, color: colors.textSecondary, marginBottom: space.md, flexShrink: 0 },
         unitSegment: {
             flexDirection: "row",
+            flexShrink: 0,
             backgroundColor: colors.surfaceAlt,
             borderWidth: 1,
             borderColor: colors.border,

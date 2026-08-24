@@ -14,6 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import QrCodeView from "./QrCodeView";
 import { ageText } from "./Dashboard";
 import { RECORD_LABELS, qrPayloadForCode, VISIT_REASON_MAX } from "../utils/shareStore";
+import { exportChildRecordsPdf, pdfExportAvailable } from "../utils/exportPdf";
 import { api } from "../utils/api";
 import { useToast } from "./ui/Toast";
 import { useTheme } from "../context/ThemeContext";
@@ -63,6 +64,7 @@ export default function ShareRecords({ profile }) {
     const [visitReason, setVisitReason] = useState("");
     const [generating, setGenerating] = useState(false);
     const [activeShare, setActiveShare] = useState(null);
+    const [exportingPdf, setExportingPdf] = useState(false);
     const [history, setHistory] = useState([]);
     const [accessLog, setAccessLog] = useState([]);
     const [historyVisible, setHistoryVisible] = useState(10);
@@ -149,6 +151,23 @@ export default function ShareRecords({ profile }) {
             await refresh();
         } catch (e) {
             alert(e.message || "Could not revoke");
+        }
+    };
+
+    // Prints exactly what step 1 has ticked — the same selection a QR code
+    // would carry, so paper and screen can't disagree. The key names in
+    // RECORD_LABELS already match the PDF template's CATEGORY_LABELS, so
+    // there is no mapping table in between to drift. Untick "Allergies" and
+    // the printout has no allergy line either.
+    const handleExportPdf = async () => {
+        if (selected.size === 0) return;
+        setExportingPdf(true);
+        try {
+            await exportChildRecordsPdf(profile, { scope: new Set(selected) });
+        } catch (e) {
+            alert(e.message || "Could not export records");
+        } finally {
+            setExportingPdf(false);
         }
     };
 
@@ -322,6 +341,25 @@ export default function ShareRecords({ profile }) {
                 )}
             </TouchableOpacity>
 
+            {/* Paper alternative to the QR, not a follow-up to it — for a
+                clinic with no scanner, or a parent with no signal. Prints the
+                same selection ticked above, so the two routes always carry
+                the same records. */}
+            {pdfExportAvailable() ? (
+                <TouchableOpacity
+                    style={[styles.printBtn, selected.size === 0 && { opacity: 0.5 }]}
+                    onPress={handleExportPdf}
+                    disabled={exportingPdf || selected.size === 0}
+                    accessibilityRole="button"
+                    accessibilityLabel="Save or print the selected records as a PDF"
+                >
+                    <Ionicons name="print-outline" size={16} color={colors.primaryDark} />
+                    <Text style={styles.printBtnText}>
+                        {exportingPdf ? "Preparing…" : "Save or print as PDF"}
+                    </Text>
+                </TouchableOpacity>
+            ) : null}
+
             {!loading && (
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>Active & recent shares</Text>
@@ -488,6 +526,15 @@ const makeStyles = (colors) => StyleSheet.create({
         paddingHorizontal: 9, paddingVertical: 4, borderRadius: 10, maxWidth: "100%",
     },
     chipText: { ...type.caption, color: colors.primaryDark, fontWeight: "700", flexShrink: 1 },
+    printBtn: {
+        flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+        width: "100%", height: 46, borderRadius: 23, marginBottom: 16,
+        backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primaryDark,
+    },
+    // primaryDark, not primary: this sits on surfaceAlt, where primary
+    // measures 4.20:1 — under AA. Same reason the button it replaces on the
+    // Health screen used primaryDark.
+    printBtnText: { color: colors.primaryDark, ...type.caption, fontWeight: "800" },
     resultBtns: { flexDirection: "row", gap: 10, width: "100%" },
     revokeBtn: {
         flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
