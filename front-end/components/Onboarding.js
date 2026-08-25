@@ -7,12 +7,16 @@ import { useResponsive } from "../utils/responsive";
 import Gradient from "./ui/Gradient";
 import Button from "./ui/Button";
 
-// Welcome carousel shown once, on the very first launch, before Landing.js.
-// Built from the app's genuine differentiators rather than generic app-store
-// copy — the auto-generated DOH schedule and the doctor QR share are the two
-// things that don't exist in comparable apps. See App.js for the once-only
-// gating (utils/firstRun.js) and Landing.js for the page returning visitors
-// and web traffic see instead.
+// Welcome carousel shown once, on the very first launch, between the splash
+// (components/Splash.js) and sign-in. Built from the app's genuine
+// differentiators rather than generic app-store copy — the auto-generated DOH
+// schedule and the doctor QR share are the two things that don't exist in
+// comparable apps. See App.js for the once-only gating (utils/firstRun.js).
+//
+// This is now the ONLY place the app explains itself before sign-in. Landing.js
+// used to repeat these same four features immediately afterwards as a
+// marketing page; it was deleted, and these cards should not grow into a
+// replacement for it.
 const CARDS = [
     {
         icon: "book-outline",

@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
-import { space, radius, shadow } from "../theme";
+import { space, radius, shadow, type } from "../theme";
+import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
+import { useScroll } from "../context/ScrollContext";
 import { api } from "../utils/api";
 import {
     vaccinationToApp,
@@ -32,6 +34,9 @@ import { useRefreshControl } from "./ui/useRefreshControl";
 export default function Search({ profile, onClose, onNavigate }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
+    const { scrollProps } = useScroll();
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [query, setQuery] = useState("");
@@ -189,20 +194,14 @@ export default function Search({ profile, onClose, onNavigate }) {
 
     return (
         <View style={styles.root}>
-            <View style={styles.header}>
-                <TouchableOpacity
-                    onPress={onClose}
-                    style={styles.headerBtn}
-                    accessibilityRole="button"
-                    accessibilityLabel="Back"
-                >
-                    <Ionicons name="arrow-back" size={22} color={colors.text} />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Search</Text>
-                <View style={styles.headerBtn} />
-            </View>
+            {/* No header here on purpose: App.js draws "← Search" from
+                SCREEN_TITLES. A second bar would render underneath the floating
+                app header and the two titles would overlap.
 
-            <View style={styles.searchBarWrap}>
+                The input stays OUTSIDE the ScrollView so it holds still while
+                results scroll, which means it has to clear the header itself —
+                padTop reaches contentContainerStyle, not siblings of it. */}
+            <View style={[styles.searchBarWrap, { marginTop: padTop }]}>
                 <Ionicons name="search-outline" size={18} color={colors.textMuted} />
                 <TextInput
                     style={styles.searchInput}
@@ -224,7 +223,12 @@ export default function Search({ profile, onClose, onNavigate }) {
                 )}
             </View>
 
-            <ScrollView contentContainerStyle={styles.content} refreshControl={refreshControl}>
+            <Animated.ScrollView
+                contentContainerStyle={[styles.content, { paddingBottom: padBottom }]}
+                refreshControl={refreshControl}
+                {...scrollProps}
+                keyboardShouldPersistTaps="handled"
+            >
                 {loading && items.length === 0 ? (
                     <AppointmentsSkeleton />
                 ) : query.trim().length === 0 ? (
@@ -261,32 +265,21 @@ export default function Search({ profile, onClose, onNavigate }) {
                         ))}
                     </View>
                 )}
-            </ScrollView>
+            </Animated.ScrollView>
         </View>
     );
 }
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        root: { flex: 1, backgroundColor: colors.background },
-        header: {
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            paddingHorizontal: space.md,
-            paddingVertical: space.sm,
-            backgroundColor: colors.surface,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.hairline,
-        },
-        headerBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-        headerTitle: { fontSize: 18, fontWeight: "800", color: colors.primary },
+        // transparent, not colors.background: App.js paints the page gradient.
+
+        root: { flex: 1, backgroundColor: "transparent" },
         searchBarWrap: {
             flexDirection: "row",
             alignItems: "center",
             gap: space.sm,
             marginHorizontal: space.lg,
-            marginTop: space.md,
             backgroundColor: colors.surfaceAlt,
             borderWidth: 1,
             borderColor: colors.border,
@@ -296,7 +289,7 @@ const makeStyles = (colors) =>
             height: 44,
         },
         searchInput: { flex: 1, fontSize: 16, color: colors.text, height: 44 },
-        content: { padding: space.lg, paddingBottom: space.xxl },
+        content: { padding: space.lg },
         resultsCard: {
             backgroundColor: colors.surface,
             borderRadius: radius.xl,
@@ -315,7 +308,7 @@ const makeStyles = (colors) =>
         },
         rowBorder: { borderBottomWidth: 1, borderBottomColor: colors.hairline },
         rowIcon: { width: 40, height: 40, borderRadius: radius.md, borderCurve: "continuous", alignItems: "center", justifyContent: "center" },
-        rowTitle: { fontSize: 14, fontWeight: "700", color: colors.text },
-        rowSubtitle: { fontSize: 12, fontWeight: "500", color: colors.textMuted, marginTop: 1 },
-        rowDate: { fontSize: 11, fontWeight: "600", color: colors.textMuted, marginLeft: space.xs },
+        rowTitle: { ...type.label, fontWeight: "700", color: colors.text },
+        rowSubtitle: { ...type.caption, fontWeight: "500", color: colors.textMuted, marginTop: 1 },
+        rowDate: { ...type.caption, fontWeight: "600", color: colors.textMuted, marginLeft: space.xs, flexShrink: 0 },
     });

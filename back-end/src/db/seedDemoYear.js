@@ -85,11 +85,22 @@ async function seed() {
             // ---------------- USER (parent) ----------------
             const hash = await bcrypt.hash(DEMO_PASSWORD, 10);
             const u = await c.query(
+                // The phone was "+1 555-0148" -- a US number on the demo
+                // account of an app built for Philippine families. Now a PH
+                // mobile in the format a parent would actually type.
                 `INSERT INTO users
-                    (full_name, email, password_hash, phone_number, gender, created_at,
+                    (full_name, email, password_hash, phone_number, relationship, city, created_at,
                      consent_accepted, consent_date, consent_reviewed_at, retention_until)
-                 VALUES ($1,$2,$3,$4,$5,$6, TRUE, now(), now(), (CURRENT_DATE + INTERVAL '6 years')) RETURNING id`,
-                ["Jasmine Rivera", DEMO_EMAIL, hash, "+1 555-0148", "Female", addDays(DOB, -7)]
+                 VALUES ($1,$2,$3,$4,$5,$6,$7, TRUE, now(), now(), (CURRENT_DATE + INTERVAL '6 years')) RETURNING id`,
+                [
+                    "Jasmine Rivera",
+                    DEMO_EMAIL,
+                    hash,
+                    "0917 555 0148",
+                    "mother",
+                    "Quezon City",
+                    addDays(DOB, -7),
+                ]
             );
             const userId = u.rows[0].id;
 
@@ -242,17 +253,96 @@ async function seed() {
             );
 
             // ================= MEDICAL HISTORY =================
+            //
+            // Every illness and the hospital stay carry a resolved_date, so the
+            // lists and the healthcare professional's view show real durations
+            // ("6 days", "2 days") rather than a bare start date. Before
+            // migration 005 there was nowhere to put the end date and no way
+            // for the app to set `resolved` at all, so a reviewer opening the
+            // demo met a year of old colds presented as still happening.
+            //
+            // care_level records what the family DID, not how bad it was.
+            const coldStart = addMonths(DOB, 5);
+            const earStart = addMonths(DOB, 9.5);
+            const jaundiceStart = addDays(DOB, 2);
             await c.query(
-                `INSERT INTO medical_history (child_id, category, title, description, date_recorded, resolved, notes)
+                `INSERT INTO medical_history
+                    (child_id, category, title, description, date_recorded, resolved,
+                     resolved_date, care_level, facility, notes,
+                     dose_amount, frequency_per_day, dose_times, course_days, prescribed_by)
                  VALUES
-                  ($1,'Hereditary Condition','Asthma (Paternal Grandfather)','Family history noted at birth.',$2,FALSE,'Monitor for wheezing or respiratory symptoms.'),
-                  ($1,'Illness','Common Cold','Runny nose, mild cough, low-grade fever.',$3,TRUE,'Resolved within a week with rest and fluids.'),
-                  ($1,'Allergy','Mild Egg Sensitivity','Slight rash around the mouth after first egg exposure.',$4,FALSE,'Pediatrician says likely mild; continue small exposures and monitor.'),
-                  ($1,'Illness','Ear Infection (Otitis Media)','Fussiness, tugging at ear, fever up to 38.4°C.',$5,TRUE,'Treated with amoxicillin; follow-up exam clear.'),
-                  ($1,'Medication','Amoxicillin','400mg/5mL suspension, twice daily.',$5,TRUE,'10-day course completed, no side effects.'),
-                  ($1,'Hospitalization','Neonatal Jaundice — Phototherapy','Elevated bilirubin noted before discharge; kept an extra day for phototherapy.',$6,TRUE,'Levels normalized; cleared by pediatrician, see Newborn Jaundice Follow-up checkup.')`,
-                [childId, ymd(DOB), ymd(addMonths(DOB, 5)), ymd(addMonths(DOB, 8)), ymd(addMonths(DOB, 9.5)), ymd(addDays(DOB, 2))]
+                  ($1,'Hereditary Condition','Asthma (Paternal Grandfather)','Family history noted at birth.',$2,FALSE,NULL,NULL,NULL,'Monitor for wheezing or respiratory symptoms.',NULL,NULL,NULL,NULL,NULL),
+                  ($1,'Illness','Common Cold','Runny nose, mild cough, low-grade fever.',$3,TRUE,$4,'home',NULL,'Resolved within a week with rest and fluids.',NULL,NULL,NULL,NULL,NULL),
+                  ($1,'Allergy','Mild Egg Sensitivity','Slight rash around the mouth after first egg exposure.',$5,FALSE,NULL,NULL,NULL,'Pediatrician says likely mild; continue small exposures and monitor.',NULL,NULL,NULL,NULL,NULL),
+                  ($1,'Illness','Ear Infection (Otitis Media)','Fussiness, tugging at ear, fever up to 38.4°C.',$6,TRUE,$7,'doctor','Metro General Pediatric Clinic','Treated with amoxicillin; follow-up exam clear.',NULL,NULL,NULL,NULL,NULL),
+                  -- A finished course: real amount, frequency and length, so the
+                  -- Finished list shows "10 days" rather than a bare date.
+                  ($1,'Medication','Amoxicillin','Give with food. Finish the whole course even if he seems better.',$6,TRUE,$7,NULL,NULL,'10-day course completed, no side effects.','5 mL',2,$10,10,'Dr. Michael Tan'),
+                  -- A course running RIGHT NOW, so the tab demonstrates the dose
+                  -- tracker on a part-finished day instead of an empty state.
+                  ($1,'Medication','Paracetamol (Biogesic)','For fever above 38°C. Not more than four doses in a day.',$11,FALSE,NULL,NULL,NULL,NULL,'2.5 mL',3,$12,5,NULL),
+                  ($1,'Hospitalization','Neonatal Jaundice — Phototherapy','Elevated bilirubin noted before discharge; kept an extra day for phototherapy.',$8,TRUE,$9,NULL,'Metro General Hospital','Levels normalized; cleared by pediatrician, see Newborn Jaundice Follow-up checkup.',NULL,NULL,NULL,NULL,NULL)`,
+                [
+                    childId,
+                    ymd(DOB),
+                    ymd(coldStart),
+                    ymd(addDays(coldStart, 6)),
+                    ymd(addMonths(DOB, 8)),
+                    ymd(earStart),
+                    ymd(addDays(earStart, 10)),
+                    ymd(jaundiceStart),
+                    ymd(addDays(jaundiceStart, 2)),
+                    JSON.stringify(["08:00", "20:00"]),
+                    ymd(addDays(NOW, -1)),
+                    JSON.stringify(["08:00", "14:00", "20:00"]),
+                ]
             );
+
+            // Link the antibiotic to the infection it treated, and record the
+            // doses already given for the course that is still running. Titles
+            // are seeded as plaintext (decryptRow passes unencrypted values
+            // straight through), so they can be matched on directly here.
+            const earRow = (
+                await c.query(
+                    `SELECT id FROM medical_history WHERE child_id = $1 AND title = 'Ear Infection (Otitis Media)' LIMIT 1`,
+                    [childId]
+                )
+            ).rows[0];
+            const amoxRow = (
+                await c.query(
+                    `SELECT id FROM medical_history WHERE child_id = $1 AND title = 'Amoxicillin' LIMIT 1`,
+                    [childId]
+                )
+            ).rows[0];
+            const paraRow = (
+                await c.query(
+                    `SELECT id FROM medical_history WHERE child_id = $1 AND title = 'Paracetamol (Biogesic)' LIMIT 1`,
+                    [childId]
+                )
+            ).rows[0];
+            if (earRow && amoxRow) {
+                await c.query(`UPDATE medical_history SET treats_id = $1 WHERE id = $2`, [
+                    earRow.id,
+                    amoxRow.id,
+                ]);
+            }
+            if (paraRow) {
+                // Yesterday complete, today one of three — the state a parent
+                // is actually in when they open the app mid-course.
+                const doseRows = [
+                    [ymd(addDays(NOW, -1)), "08:00"],
+                    [ymd(addDays(NOW, -1)), "14:00"],
+                    [ymd(addDays(NOW, -1)), "20:00"],
+                    [ymd(NOW), "08:00"],
+                ];
+                for (const [d, t] of doseRows) {
+                    await c.query(
+                        `INSERT INTO medication_doses (child_id, medication_id, given_date, given_time)
+                         VALUES ($1,$2,$3,$4)`,
+                        [childId, paraRow.id, d, t]
+                    );
+                }
+            }
 
             // ================= GROWTH RECORDS =================
             for (const g of GROWTH_CURVE) {
@@ -273,15 +363,34 @@ async function seed() {
 
             // ================= MILESTONES =================
             const PHOTO = (seed) => `https://picsum.photos/seed/babybook-${seed}/600/600`;
+            // Six of these are spelled EXACTLY as the app's Development
+            // Checklist spells them (front-end/utils/milestoneChecklist.js), so
+            // they tick its boxes. Matching is case- and spacing-insensitive
+            // but never fuzzy, so a near-miss silently ticks nothing — which is
+            // how the demo once ended up showing empty checkboxes beside eleven
+            // achieved milestones.
+            //
+            // Two of the six ("Waves bye-bye", "Pulls up to stand") are in the
+            // CDC 12-month band on purpose. The demo child is about a year old,
+            // so that is the band the Milestones tab opens on — without them a
+            // reviewer would land on a screen with nothing ticked and conclude
+            // the matching is broken.
+            //
+            // The rest are deliberately NOT on the checklist. They are the
+            // free-text milestones a parent types themselves, they keep the
+            // Gallery reading like a family's own words rather than a clinical
+            // list, and they exercise the half of the feature the checklist
+            // cannot reach. Note CDC's 2022 revision dropped crawling entirely,
+            // which is exactly why a parent needs to be able to type it.
             const milestoneRows = [
-                ["Social Smile", 1.5, "Smiled back for the first time during morning feeding.", true, PHOTO("smile")],
-                ["Held Head Up (Tummy Time)", 2, "Lifted head and chest during tummy time.", true, null],
-                ["Rolled Over (Tummy to Back)", 4, "Surprised us during playtime on the mat.", true, PHOTO("rollover")],
-                ["Sat Without Support", 6, "Sat up steady for a full minute.", true, PHOTO("sit")],
+                ["Seems happy to see you when you walk up to them", 1.5, "Smiled back for the first time during morning feeding.", true, PHOTO("smile")],
+                ["Holds head up when on tummy", 2, "Lifted head and chest during tummy time.", true, null],
+                ["Rolls from tummy to back", 4, "Surprised us during playtime on the mat.", true, PHOTO("rollover")],
+                ["Sits without support", 6, "Sat up steady for a full minute.", true, PHOTO("sit")],
                 ["Started Solid Foods", 6, "First taste of rice cereal — mixed reaction, mostly wore it.", true, PHOTO("solids")],
                 ["Crawling", 8.5, "Full-speed crawl across the living room.", true, null],
-                ["Waved Bye-Bye", 10, "Waved at grandma on a video call.", true, null],
-                ["Pulled to Stand", 9.5, "Pulled up on the couch, very proud of himself.", true, PHOTO("stand")],
+                ['Waves "bye-bye"', 10, "Waved at grandma on a video call.", true, null],
+                ["Pulls up to stand", 9.5, "Pulled up on the couch, very proud of himself.", true, PHOTO("stand")],
                 ["First Word (\"Mama\")", 11, "Said it clearly, twice, then went back to babbling.", true, PHOTO("word")],
                 ["Cruising Along Furniture", 11.5, "Cruising from the couch to the coffee table.", true, null],
                 ["First Steps", 12.5, "Three wobbly steps before plopping down laughing.", true, PHOTO("steps")],
@@ -303,25 +412,29 @@ async function seed() {
             );
 
             // ================= NUTRITION: solid-food introductions =================
+            // `severity` is the structured field the app counts and filters on;
+            // `reaction` is only the description of one, so it stays null when
+            // nothing happened rather than holding the string "None".
             const solidRows = [
-                [6, "Rice Cereal", "None", "First solid food."],
-                [6.5, "Mashed Banana", "None", null],
-                [7, "Avocado", "None", null],
-                [7.5, "Sweet Potato", "None", null],
-                [8, "Scrambled Egg", "Mild rash around mouth — resolved within hours", "Discussed with pediatrician; continue monitoring."],
-                [8.5, "Pureed Chicken", "None", null],
-                [9, "Oats & Yogurt", "None", null],
-                [10, "Peanut Butter (thinned)", "None", "Introduced per pediatrician guidance, watched closely."],
-                [11, "Soft Finger Foods", "None", null],
-                [12, "Table Foods", "None", "Three meals + two snacks a day now."],
+                [6, "Rice Cereal", "none", null, "First solid food."],
+                [6.5, "Mashed Banana", "none", null, null],
+                [7, "Avocado", "none", null, null],
+                [7.5, "Sweet Potato", "none", null, null],
+                [8, "Scrambled Egg", "mild", "Mild rash around mouth — resolved within hours", "Discussed with pediatrician; continue monitoring."],
+                [8.5, "Pureed Chicken", "none", null, null],
+                [9, "Oats & Yogurt", "none", null, null],
+                [10, "Peanut Butter (thinned)", "none", null, "Introduced per pediatrician guidance, watched closely."],
+                [11, "Soft Finger Foods", "none", null, null],
+                [12, "Table Foods", "none", null, "Three meals + two snacks a day now."],
             ];
-            for (const [m, food, reaction, notes] of solidRows) {
+            for (const [m, food, severity, reaction, notes] of solidRows) {
                 const date = jitterDays(addMonths(DOB, m), 2);
                 if (date > NOW) continue;
                 await c.query(
-                    `INSERT INTO nutrition_records (child_id, entry_type, food_introduced, reaction, entry_date, entry_time, notes)
-                     VALUES ($1,'solid',$2,$3,$4,'12:00',$5)`,
-                    [childId, food, reaction, ymd(date), notes]
+                    `INSERT INTO nutrition_records
+                        (child_id, entry_type, food_introduced, reaction_severity, reaction, entry_date, entry_time, notes)
+                     VALUES ($1,'solid',$2,$3,$4,$5,'12:00',$6)`,
+                    [childId, food, severity, reaction, ymd(date), notes]
                 );
             }
 
@@ -447,6 +560,16 @@ async function seed() {
                 if (ageMonths < 12) return { milk_type: "Mixed", brand: "Enfamil A+" };
                 return { milk_type: "Formula", brand: "Enfamil A+" };
             }
+            // How each feed was given. Breastmilk months are fed at the breast
+            // (minutes + side, no volume); formula is always a bottle. The
+            // Mixed months genuinely mix the two within a single day, which is
+            // what a mixed-fed baby looks like and what exercises the app's
+            // "this day has both kinds" handling.
+            function methodFor(milkType, index) {
+                if (milkType === "Breastmilk") return "breast";
+                if (milkType === "Formula") return "bottle";
+                return index % 2 === 0 ? "breast" : "bottle";
+            }
             function ageMonthsAt(date) {
                 return (date.getTime() - DOB.getTime()) / (30.44 * DAY_MS);
             }
@@ -461,13 +584,30 @@ async function seed() {
                     const hour = Math.round((24 / mp.perDay) * i + Math.random() * 1.5);
                     const fedAt = new Date(dayStart.getTime() + hour * 60 * 60 * 1000);
                     if (fedAt > NOW) continue;
-                    const ml = Math.round(mp.ml[0] + Math.random() * (mp.ml[1] - mp.ml[0]));
-                    await c.query(
-                        `INSERT INTO nutrition_records
-                            (child_id, entry_type, milk_type, formula_brand, quantity, unit, entry_date, entry_time)
-                         VALUES ($1,'milk',$2,$3,$4,'mL',$5,$6)`,
-                        [childId, mt.milk_type, mt.brand, ml, ymd(fedAt), `${pad2(fedAt.getHours())}:${pad2(fedAt.getMinutes())}`]
-                    );
+                    const time = `${pad2(fedAt.getHours())}:${pad2(fedAt.getMinutes())}`;
+                    const method = methodFor(mt.milk_type, i);
+                    if (method === "breast") {
+                        // Roughly one feed in five has no duration, because
+                        // that is what real use looks like — the field is
+                        // optional and a parent logging a night feed hours
+                        // later genuinely does not know the minutes. The
+                        // charts have to stay readable against that.
+                        const mins = i % 5 === 0 ? null : 10 + Math.round(Math.random() * 15);
+                        await c.query(
+                            `INSERT INTO nutrition_records
+                                (child_id, entry_type, milk_type, feed_method, duration_minutes, entry_date, entry_time)
+                             VALUES ($1,'milk',$2,'breast',$3,$4,$5)`,
+                            [childId, mt.milk_type, mins, ymd(fedAt), time]
+                        );
+                    } else {
+                        const ml = Math.round(mp.ml[0] + Math.random() * (mp.ml[1] - mp.ml[0]));
+                        await c.query(
+                            `INSERT INTO nutrition_records
+                                (child_id, entry_type, milk_type, feed_method, formula_brand, quantity, unit, entry_date, entry_time)
+                             VALUES ($1,'milk',$2,'bottle',$3,$4,'mL',$5,$6)`,
+                            [childId, mt.milk_type, mt.brand, ml, ymd(fedAt), time]
+                        );
+                    }
                 }
             }
 

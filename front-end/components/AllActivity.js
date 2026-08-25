@@ -1,22 +1,30 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
-import { space, radius, shadow } from "../theme";
+import { space, radius, shadow, type } from "../theme";
+import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
+import { useScroll } from "../context/ScrollContext";
 import { api } from "../utils/api";
 import { EmptyStateCard } from "./common/Cards";
 import { AppointmentsSkeleton } from "./ui/Skeleton";
 import { useRefreshControl } from "./ui/useRefreshControl";
 import ShowMore from "./ui/ShowMore";
+import { feedRowSummary } from "../utils/adapters";
+import { todayLocal } from "../utils/dates";
 
 // "See all" destination for Dashboard's Recent Activity section. Dashboard
 // only ever loads its 5 most recent items to begin with, so this screen does
 // its own separate, larger fetch rather than trying to reveal more of an
 // already-limited list. The item-building logic below mirrors Dashboard.js's
 // Recent Activity effect on purpose, since this is the full version of it.
-export default function AllActivity({ profile, onClose }) {
+export default function AllActivity({ profile }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
+
+    const { scrollProps } = useScroll();
     const [activity, setActivity] = useState([]);
     const [loading, setLoading] = useState(true);
     const [visibleCount, setVisibleCount] = useState(10);
@@ -33,7 +41,7 @@ export default function AllActivity({ profile, onClose }) {
                     api.listRecords(profile.id, "milestones").catch(() => []),
                 ]);
                 if (!active) return;
-                const todayStr = new Date().toISOString().slice(0, 10);
+                const todayStr = todayLocal();
                 const items = [];
                 (vax || [])
                     .filter((v) => v.status === "completed" && v.date_given)
@@ -60,15 +68,10 @@ export default function AllActivity({ profile, onClose }) {
                         }),
                     );
                 (nutrition || []).forEach((n) => {
-                    const isMilk = (n.entry_type || "milk") === "milk";
-                    const qty = n.quantity != null && n.quantity !== "" ? Number(n.quantity) : null;
-                    const subtitle = isMilk
-                        ? `${n.milk_type || "Milk"}${qty != null ? ` • ${qty} ${n.unit || "mL"}` : ""}`
-                        : `Solid Food${n.food_introduced ? ` • ${n.food_introduced}` : ""}`;
                     items.push({
                         key: `nut-${n.id}`,
                         title: "Feeding Logged",
-                        subtitle,
+                        subtitle: feedRowSummary(n),
                         date: String(n.entry_date).slice(0, 10),
                         icon: "restaurant",
                         tone: "success",
@@ -107,79 +110,61 @@ export default function AllActivity({ profile, onClose }) {
     const toneColor = { primary: colors.primary, danger: colors.danger, success: colors.success, info: colors.info };
 
     return (
-        <View style={styles.root}>
-            <View style={styles.header}>
-                <TouchableOpacity
-                    onPress={onClose}
-                    style={styles.headerBtn}
-                    accessibilityRole="button"
-                    accessibilityLabel="Back"
-                >
-                    <Ionicons name="arrow-back" size={22} color={colors.text} />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Recent Activity</Text>
-                <View style={styles.headerBtn} />
-            </View>
-            <ScrollView contentContainerStyle={styles.content} refreshControl={refreshControl}>
-                {loading && activity.length === 0 ? (
-                    <AppointmentsSkeleton />
-                ) : !loading && activity.length === 0 ? (
-                    <EmptyStateCard message="No activity yet." icon="time-outline" />
-                ) : (
-                    <View style={styles.activityCard}>
-                        {activity.slice(0, visibleCount).map((a, idx, shown) => {
-                            const tone = toneColor[a.tone] || colors.primary;
-                            return (
-                                <View
-                                    key={a.key}
-                                    style={[styles.activityRow, idx < shown.length - 1 && styles.activityRowBorder]}
-                                >
-                                    <View style={styles.activityLeft}>
-                                        <View style={[styles.activityIcon, { backgroundColor: tone + "1A" }]}>
-                                            <Ionicons name={a.icon} size={18} color={tone} />
-                                        </View>
-                                        <View style={{ flex: 1 }}>
-                                            <Text style={styles.activityTitle}>{a.title}</Text>
-                                            <Text style={styles.activitySubtitle} numberOfLines={1}>
-                                                {a.subtitle}
-                                            </Text>
-                                        </View>
+        <Animated.ScrollView
+            style={styles.root}
+            contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
+            refreshControl={refreshControl}
+            keyboardShouldPersistTaps="handled"
+            {...scrollProps}
+        >
+            {loading && activity.length === 0 ? (
+                <AppointmentsSkeleton />
+            ) : !loading && activity.length === 0 ? (
+                <EmptyStateCard message="No activity yet." icon="time-outline" />
+            ) : (
+                <View style={styles.activityCard}>
+                    {activity.slice(0, visibleCount).map((a, idx, shown) => {
+                        const tone = toneColor[a.tone] || colors.primary;
+                        return (
+                            <View
+                                key={a.key}
+                                style={[styles.activityRow, idx < shown.length - 1 && styles.activityRowBorder]}
+                            >
+                                <View style={styles.activityLeft}>
+                                    <View style={[styles.activityIcon, { backgroundColor: tone + "1A" }]}>
+                                        <Ionicons name={a.icon} size={18} color={tone} />
                                     </View>
-                                    <Text style={styles.activityDate}>{a.date}</Text>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.activityTitle}>{a.title}</Text>
+                                        <Text style={styles.activitySubtitle} numberOfLines={1}>
+                                            {a.subtitle}
+                                        </Text>
+                                    </View>
                                 </View>
-                            );
-                        })}
-                    </View>
-                )}
-                {!loading && (
-                    <ShowMore
-                        total={activity.length}
-                        visible={visibleCount}
-                        onPress={() => setVisibleCount((c) => c + 10)}
-                        noun="activity items"
-                    />
-                )}
-            </ScrollView>
-        </View>
+                                <Text style={styles.activityDate}>{a.date}</Text>
+                            </View>
+                        );
+                    })}
+                </View>
+            )}
+            {!loading && (
+                <ShowMore
+                    total={activity.length}
+                    visible={visibleCount}
+                    onPress={() => setVisibleCount((c) => c + 10)}
+                    noun="activity items"
+                />
+            )}
+        </Animated.ScrollView>
     );
 }
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        root: { flex: 1, backgroundColor: colors.background },
-        header: {
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            paddingHorizontal: space.md,
-            paddingVertical: space.sm,
-            backgroundColor: colors.surface,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.hairline,
-        },
-        headerBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-        headerTitle: { fontSize: 18, fontWeight: "800", color: colors.primary },
-        content: { padding: space.lg, paddingBottom: space.xxl },
+        // transparent, not colors.background: App.js paints the page gradient.
+
+        root: { flex: 1, backgroundColor: "transparent" },
+        content: { padding: space.lg },
         activityCard: {
             backgroundColor: colors.surface,
             borderRadius: radius.xl,
@@ -199,7 +184,7 @@ const makeStyles = (colors) =>
         activityRowBorder: { borderBottomWidth: 1, borderBottomColor: colors.hairline },
         activityLeft: { flexDirection: "row", alignItems: "center", gap: space.md, flex: 1 },
         activityIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-        activityTitle: { fontSize: 14, fontWeight: "700", color: colors.text },
-        activitySubtitle: { fontSize: 12, fontWeight: "500", color: colors.textMuted, marginTop: 1 },
-        activityDate: { fontSize: 11, fontWeight: "600", color: colors.textMuted, marginLeft: space.sm },
+        activityTitle: { ...type.label, fontWeight: "700", color: colors.text },
+        activitySubtitle: { ...type.caption, fontWeight: "500", color: colors.textMuted, marginTop: 1 },
+        activityDate: { ...type.caption, fontWeight: "600", color: colors.textMuted, marginLeft: space.sm, flexShrink: 0 },
     });

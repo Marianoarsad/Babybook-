@@ -41,7 +41,7 @@ export default function TipStrip({ tipKey, children }) {
                 style={styles.closeBtn}
                 accessibilityRole="button"
                 accessibilityLabel="Dismiss tip"
-                hitSlop={8}
+                hitSlop={10}
             >
                 <Ionicons name="close" size={16} color={colors.info} />
             </TouchableOpacity>
@@ -63,7 +63,7 @@ const makeStyles = (colors) =>
             marginBottom: space.sm,
         },
         icon: { marginTop: 1 },
-        text: { ...type.body, color: colors.info, flex: 1, lineHeight: 19 },
+        text: { ...type.body, color: colors.info, flex: 1, minWidth: 0, lineHeight: 22 },
         closeBtn: {
             width: MIN_TOUCH * 0.6,
             height: MIN_TOUCH * 0.6,

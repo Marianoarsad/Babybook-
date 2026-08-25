@@ -1,7 +1,9 @@
 import React, { useMemo } from "react";
-import { View, Text, StyleSheet, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Animated, Image } from "react-native";
 import { SectionContainerCard } from "../common/Cards";
 import { useTheme } from "../../context/ThemeContext";
+import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
+import { useScroll } from "../../context/ScrollContext";
 import { space, radius, type } from "../../theme";
 
 const APP_VERSION = "1.0.0";
@@ -9,12 +11,29 @@ const APP_VERSION = "1.0.0";
 export default function AboutApp() {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
+
+    const { scrollProps } = useScroll();
 
     return (
-        <ScrollView style={styles.container}>
+        <Animated.ScrollView
+            style={styles.container}
+            contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
+            keyboardShouldPersistTaps="handled"
+            {...scrollProps}
+        >
             {/* Version-plate hero — anchors the app identity + clinical
                 credibility claim before the reference sections below. */}
             <View style={styles.brandBox}>
+                <Image
+                    source={require("../../assets/splash-icon.png")}
+                    style={styles.brandLogo}
+                    resizeMode="contain"
+                    accessible
+                    accessibilityRole="image"
+                    accessibilityLabel="BabyBook+"
+                />
                 <Text style={styles.brandTitle}>BabyBook+</Text>
                 <Text style={styles.brandVersion}>Version {APP_VERSION}</Text>
                 <View style={styles.epiBadge}>
@@ -38,14 +57,19 @@ export default function AboutApp() {
                     See Privacy Settings for your consent status and data-retention details.
                 </Text>
             </SectionContainerCard>
-        </ScrollView>
+        </Animated.ScrollView>
     );
 }
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
+        // transparent, not colors.background: App.js paints the page gradient.
+
+        container: { flex: 1, backgroundColor: "transparent" },
+        // Padding on the content so the bottom clearance scrolls with it.
+        content: { padding: space.lg },
         brandBox: { alignItems: "center", marginVertical: space.lg },
+        brandLogo: { width: 72, height: 72, marginBottom: space.xs },
         brandTitle: { ...type.display, color: colors.primary },
         brandVersion: { ...type.caption, color: colors.textMuted, marginTop: 4 },
         epiBadge: {

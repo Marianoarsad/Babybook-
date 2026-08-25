@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SectionContainerCard } from "../common/Cards";
 import { api } from "../../utils/api";
 import { useToast } from "../ui/Toast";
 import { useTheme } from "../../context/ThemeContext";
+import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
+import { useScroll } from "../../context/ScrollContext";
 import { SkeletonBlock } from "../ui/Skeleton";
-import { space, radius, type, shadow } from "../../theme";
+import { space, radius, type, shadow, MIN_TOUCH } from "../../theme";
 import { exportChildRecordsPdf, pdfExportAvailable } from "../../utils/exportPdf";
 import { CATEGORY_LABELS } from "../../utils/pdfTemplate";
 
@@ -15,6 +17,10 @@ import { CATEGORY_LABELS } from "../../utils/pdfTemplate";
 export default function PrivacySettings({ profile, onAccountDeleted }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
+
+    const { scrollProps } = useScroll();
     const toast = useToast();
 
     const [user, setUser] = useState(null);
@@ -103,7 +109,12 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
     const bannerBg = reviewDue ? colors.overdueBg : colors.completedBg;
 
     return (
-        <ScrollView style={styles.container}>
+        <Animated.ScrollView
+            style={styles.container}
+            contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
+            keyboardShouldPersistTaps="handled"
+            {...scrollProps}
+        >
             {loading ? (
                 <SkeletonBlock width="100%" height={52} radius={radius.lg} style={{ marginBottom: space.lg }} />
             ) : (
@@ -249,13 +260,17 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
                     </>
                 )}
             </SectionContainerCard>
-        </ScrollView>
+        </Animated.ScrollView>
     );
 }
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
+        // transparent, not colors.background: App.js paints the page gradient.
+
+        container: { flex: 1, backgroundColor: "transparent" },
+        // Padding on the content so the bottom clearance scrolls with it.
+        content: { padding: space.lg },
         consentBanner: {
             flexDirection: "row",
             alignItems: "center",
@@ -266,18 +281,22 @@ const makeStyles = (colors) =>
             marginBottom: space.lg,
         },
         consentBannerText: { ...type.bodyStrong, flex: 1 },
+        // Neither child was flexed, so a long value ran past the card edge.
         row: {
             flexDirection: "row",
             justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: space.md,
+            minHeight: MIN_TOUCH,
             paddingVertical: 10,
             borderBottomWidth: 1,
             borderBottomColor: colors.hairline,
         },
-        rowLabel: { ...type.label, color: colors.textMuted },
-        rowValue: { ...type.label, color: colors.text },
+        rowLabel: { ...type.label, color: colors.textMuted, flex: 1, minWidth: 0 },
+        rowValue: { ...type.label, color: colors.text, flexShrink: 1, textAlign: "right" },
         exportGrid: { marginBottom: space.md },
-        exportRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 7 },
-        exportLabel: { ...type.label, color: colors.text },
+        exportRow: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: MIN_TOUCH, paddingVertical: 7 },
+        exportLabel: { ...type.label, color: colors.text, flex: 1, minWidth: 0 },
         checkbox: {
             width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: colors.primary,
             alignItems: "center", justifyContent: "center", backgroundColor: colors.surface,

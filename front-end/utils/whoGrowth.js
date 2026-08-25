@@ -118,6 +118,28 @@ export function formatPercentile(p) {
     }
 }
 
+// Plain description of where a measurement sits. Deliberately positional, never
+// diagnostic: WHO's own cut-offs carry clinical labels ("underweight") that this
+// product is not entitled to apply — see PRODUCT.md, "Never imply clinical
+// authority". We say where the point is and let a health worker judge it.
+//
+// Lives here rather than in a screen because both the Growth screen's full
+// chart and the Dashboard's compact one need the same wording — two screens
+// describing the same z differently would be worse than either wording alone.
+export function describeZ(z) {
+    const a = Math.abs(z);
+    if (a <= 2) return { text: "Within the range WHO reports for most children this age", flag: false };
+    if (a <= 3)
+        return {
+            text: `${z > 0 ? "Above" : "Below"} the range WHO reports for most children this age`,
+            flag: true,
+        };
+    return {
+        text: `Well ${z > 0 ? "above" : "below"} the range WHO reports for most children this age`,
+        flag: true,
+    };
+}
+
 // Reference curve for one z line across an age span, for drawing.
 export function referenceCurve(indicator, sex, fromDay, toDay, z, steps = 60) {
     const table = WHO.indicators?.[indicator]?.[sex];

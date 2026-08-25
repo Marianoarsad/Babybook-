@@ -1,16 +1,16 @@
 # Graph Report - BabyBook+  (2026-08-14)
 
 ## Corpus Check
-- 127 files · ~372,125 words
+- 135 files · ~153,793 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 998 nodes · 1634 edges · 99 communities (60 shown, 39 thin omitted)
+- 916 nodes · 1418 edges · 108 communities (68 shown, 40 thin omitted)
 - Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 33 edges (avg confidence: 0.51)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `5920dccb`
+- Built from commit: `48ccedc2`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -32,7 +32,6 @@
 - [[_COMMUNITY_Auth Middleware & Records Routes|Auth Middleware & Records Routes]]
 - [[_COMMUNITY_Children Routes (CRUD)|Children Routes (CRUD)]]
 - [[_COMMUNITY_QR Code Generation Engine|QR Code Generation Engine]]
-- [[_COMMUNITY_BabyBook+ Dashboard Redesign — Phase 1 Review|BabyBook+ Dashboard Redesign — Phase 1 Review]]
 - [[_COMMUNITY_Memories Routes|Memories Routes]]
 - [[_COMMUNITY_Graphify Skill Command Rules|Graphify Skill Command Rules]]
 - [[_COMMUNITY_Encryption Utilities (AES)|Encryption Utilities (AES)]]
@@ -69,8 +68,16 @@
 - [[_COMMUNITY_Product|Product]]
 - [[_COMMUNITY_Part 1 — Backend|Part 1 — Backend]]
 - [[_COMMUNITY_adapters.js|adapters.js]]
+- [[_COMMUNITY_3. Primary Direction — The Yellow Card|3. Primary Direction — "The Yellow Card"]]
+- [[_COMMUNITY_App.js|App.js]]
 - [[_COMMUNITY_PrivacySettings.js|PrivacySettings.js]]
 - [[_COMMUNITY_Part 1 — Backend|Part 1 — Backend]]
+- [[_COMMUNITY_ThemeContext.js|ThemeContext.js]]
+- [[_COMMUNITY_CalendarView.js|CalendarView.js]]
+- [[_COMMUNITY_space|space]]
+- [[_COMMUNITY_radius|radius]]
+- [[_COMMUNITY_PhotoAttach.js|PhotoAttach.js]]
+- [[_COMMUNITY_HelpSupport.js|HelpSupport.js]]
 - [[_COMMUNITY_graphify reference GitHub clone and cross-repo merge|graphify reference: GitHub clone and cross-repo merge]]
 - [[_COMMUNITY_graphify reference transcribe video and audio|graphify reference: transcribe video and audio]]
 - [[_COMMUNITY_CLAUDE|CLAUDE.md]]
@@ -114,45 +121,45 @@
 - [[_COMMUNITY_Features|Features]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `useTheme()` - 86 edges
-2. `space` - 36 edges
-3. `radius` - 31 edges
-4. `useToast()` - 25 edges
-5. `shadow` - 22 edges
-6. `BabyBook+` - 22 edges
-7. `type` - 20 edges
-8. `SectionContainerCard()` - 15 edges
-9. `expo` - 13 edges
-10. `Dashboard()` - 12 edges
+1. `useTheme()` - 66 edges
+2. `useToast()` - 27 edges
+3. `space` - 26 edges
+4. `radius` - 23 edges
+5. `BabyBook+` - 22 edges
+6. `expo` - 14 edges
+7. `type` - 14 edges
+8. `shadow` - 14 edges
+9. `Dashboard()` - 12 edges
+10. `3. Detailed Breakdown by Phase` - 12 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `ShareRecords()` --calls--> `ageText()`  [EXTRACTED]
-  front-end/components/ShareRecords.js → front-end/components/Dashboard.js
-- `Dashboard()` --calls--> `useToast()`  [EXTRACTED]
-  front-end/components/Dashboard.js → front-end/components/ui/Toast.js
-- `Dashboard()` --calls--> `useTheme()`  [EXTRACTED]
-  front-end/components/Dashboard.js → front-end/context/ThemeContext.js
-- `NutritionTracker()` --calls--> `useToast()`  [EXTRACTED]
-  front-end/components/NutritionTracker.js → front-end/components/ui/Toast.js
-- `NutritionTracker()` --calls--> `useTheme()`  [EXTRACTED]
-  front-end/components/NutritionTracker.js → front-end/context/ThemeContext.js
+- `OfflineSummaryView()` --calls--> `ageText()`  [EXTRACTED]
+  front-end/components/OfflineSummaryView.js → front-end/components/Dashboard.js
+- `Growth()` --calls--> `todayStr()`  [INFERRED]
+  front-end/components/Growth.js → front-end/components/NutritionTracker.js
+- `Auth()` --calls--> `useToast()`  [EXTRACTED]
+  front-end/components/Auth.js → front-end/components/ui/Toast.js
+- `Services()` --calls--> `useToast()`  [EXTRACTED]
+  front-end/components/Services.js → front-end/components/ui/Toast.js
+- `ChangePassword()` --calls--> `useToast()`  [EXTRACTED]
+  front-end/components/settings/ChangePassword.js → front-end/components/ui/Toast.js
 
 ## Import Cycles
 - None detected.
 
-## Communities (99 total, 39 thin omitted)
+## Communities (108 total, 40 thin omitted)
 
 ### Community 0 - "Front-End Screens & Shared Utils"
 Cohesion: 0.20
 Nodes (8): curve, fs, hb0, mod, Module, path, src, wb0
 
 ### Community 1 - "UI Component Library & Theming"
-Cohesion: 0.16
-Nodes (18): addDays(), addMonths(), bcrypt, { buildSnapshot }, DOB, fs, { generateCode, qrPayloadForCode }, GROWTH_CURVE (+10 more)
+Cohesion: 0.12
+Nodes (22): addDays(), addMonths(), bcrypt, { buildSnapshot }, DOB, fs, { generateCode, qrPayloadForCode }, GROWTH_CURVE (+14 more)
 
 ### Community 2 - "Provider Sharing & QR Scanning"
 Cohesion: 0.06
-Nodes (30): dependencies, expo, @expo-google-fonts/archivo, @expo-google-fonts/public-sans, expo-image-picker, expo-linear-gradient, @expo/metro-runtime, expo-notifications (+22 more)
+Nodes (32): dependencies, expo, @expo-google-fonts/archivo, @expo-google-fonts/public-sans, expo-haptics, expo-image-picker, expo-linear-gradient, @expo/metro-runtime (+24 more)
 
 ### Community 3 - "Back-End Package Manifest"
 Cohesion: 0.38
@@ -163,36 +170,36 @@ Cohesion: 0.06
 Nodes (31): dependencies, bcryptjs, cors, dotenv, express, express-validator, jsonwebtoken, morgan (+23 more)
 
 ### Community 5 - "Auth Routes, JWT & Mailer"
-Cohesion: 0.05
-Nodes (36): 4.2 — Auto-Generate the DOH EPI Immunization Schedule, 4.3 — Access Log Hardening + In-App View Notification, 4.4 — Display Snapshot Capture Time, 4.6 — Export as PDF, BabyBook+ — Tier 2 Implementation Plan, ⚠️ Dependency approval required, Deployment Notes, Parked for future development (do not lose these) (+28 more)
+Cohesion: 0.33
+Nodes (6): 1.1 Generate secrets you'll need, 1.1b Choose your database (read before Render), 1.2 Option A — Render, 1.3 Option B — Railway ⚠️ Inactive, 1.4 Run the migration (once, either platform), Part 1 — Backend
 
 ### Community 6 - "Expo App Configuration"
 Cohesion: 0.07
 Nodes (26): For /graphify add and --watch, For /graphify query, For the commit hook and native CLAUDE.md integration, For --update and --cluster-only, /graphify, Honesty Rules, Interpreter guard for subcommands, Part A - Structural extraction for code files (+18 more)
 
 ### Community 7 - "Back-End App Wiring & Tests"
-Cohesion: 0.29
-Nodes (6): 1. What RA 10173 Requires, 3. Summary of Strengths, 4. Gaps & Recommendations, 5. Overall Compliance Posture, BabyBook+ — Data Privacy Act of 2012 (RA 10173) Compliance Evaluation, Sources
+Cohesion: 0.14
+Nodes (13): 1. What RA 10173 Requires, 2.1 General Data Privacy Principles, 2.2 Rights of the Data Subject, 2.3 Security Measures (Sec. 20), 2.4 Data Retention & Consent (a DPA strength of this system), 2.5 NPC "5 Pillars of Compliance", 2.6 Breach Management, 2. Compliance Assessment (+5 more)
 
 ### Community 8 - "File Upload & Attachments"
-Cohesion: 0.09
-Nodes (22): 1. Current architecture (what has to move), 2. Backend hosting comparison, 3. Frontend hosting comparison (static Expo web export), 4. Recommendation, 5. Migration steps (Railway → Render), 6. Demo-day risk notes, 7. Pre-defense checklist, BabyBook+ — Web Demo Hosting Migration Plan (+14 more)
+Cohesion: 0.50
+Nodes (4): FEATURES, Landing(), makeStyles(), TRUST
 
 ### Community 9 - "Legacy _tmprun Share Store Copy"
 Cohesion: 0.22
 Nodes (8): { ApiError, asyncHandler }, express, { query }, { requireAuth, requireChildOwnership }, router, storage, TYPES, { upload, extOf }
 
 ### Community 10 - "Nutrition Tracker Feature"
-Cohesion: 0.08
-Nodes (23): backgroundColor, adaptiveIcon, package, permissions, projectId, expo, android, extra (+15 more)
+Cohesion: 0.07
+Nodes (26): backgroundColor, _foregroundImage_todo, adaptiveIcon, package, permissions, projectId, expo, android (+18 more)
 
 ### Community 11 - "Database Bootstrap & Server Startup"
 Cohesion: 0.18
 Nodes (11): BabyBook+, Data Model, Documentation Index, Repository Structure, Screens & Modules, Security & Privacy, Table of Contents, Testing (+3 more)
 
 ### Community 12 - "Share Snapshot Generation"
-Cohesion: 0.11
-Nodes (21): { ApiError, asyncHandler }, bcrypt, { body }, consentReviewDue(), crypto, { encrypt, decrypt }, express, { handleValidation } (+13 more)
+Cohesion: 0.12
+Nodes (17): { ApiError, asyncHandler }, bcrypt, { body }, consentReviewDue(), crypto, { encrypt, decrypt }, express, { handleValidation } (+9 more)
 
 ### Community 13 - "Demo Year Seed Data Generator"
 Cohesion: 0.17
@@ -203,44 +210,40 @@ Cohesion: 0.14
 Nodes (13): app, attachmentsRoutes, authRoutes, childrenRoutes, consultRoutes, cors, express, memoriesRoutes (+5 more)
 
 ### Community 15 - "Children Routes (CRUD)"
-Cohesion: 0.11
-Nodes (19): { ApiError, asyncHandler }, { body }, express, { generateCode, qrPayloadForCode }, { handleValidation }, { query }, { RECORD_LABELS, buildSnapshot }, { requireAuth, requireChildOwnership } (+11 more)
+Cohesion: 0.14
+Nodes (15): { ApiError, asyncHandler }, { body }, express, { generateCode, qrPayloadForCode }, { handleValidation }, { query }, { RECORD_LABELS, buildSnapshot }, { requireAuth, requireChildOwnership } (+7 more)
 
 ### Community 16 - "QR Code Generation Engine"
 Cohesion: 0.15
 Nodes (13): 10. Working agreements, 11. graphify, 1. What this is, 2. Repository layout, 3. Architecture & conventions (follow these), 4. Theming system (recently completed), 5. Data model & record types, 6. Environments, commands, deploy (+5 more)
-
-### Community 17 - "BabyBook+ Dashboard Redesign — Phase 1 Review"
-Cohesion: 0.10
-Nodes (19): 1. Remove the Quick Actions section entirely, 2. Replace the Calendar tab with a new actions button, 3. Replace the "Add Medication" shortcut with a new "Log Growth" shortcut, 4. Make Calendar reachable only from the Dashboard, 5. Add an upcoming-appointment box to the Dashboard, 6. Remove repeated information, 7. Show only the 4 most recent Photo Memories and Recent Activity items, each with a way to see the full list, 8. Shorten the greeting text (+11 more)
 
 ### Community 18 - "Memories Routes"
 Cohesion: 0.07
 Nodes (29): Buttons, Cards / Containers, Chips, Colors, Components, Design System: BabyBook+, Do:, Do's and Don'ts (+21 more)
 
 ### Community 20 - "Graphify Skill Command Rules"
-Cohesion: 0.24
-Nodes (12): crypto, decrypt(), decryptRow(), encrypt(), encryptFields(), getKey(), isEncrypted(), { ApiError, asyncHandler } (+4 more)
+Cohesion: 0.22
+Nodes (6): ApiError, asyncHandler(), { ApiError, asyncHandler }, { encryptFields, decryptRow }, express, { query }
 
 ### Community 21 - "Encryption Utilities (AES)"
 Cohesion: 0.12
 Nodes (15): { ApiError, asyncHandler }, { body }, CHILD_COLUMNS, CHILD_ENCRYPTED, { encryptFields, decryptRow }, express, { handleValidation }, { insertEpiSchedule } (+7 more)
 
 ### Community 22 - "Share Code Generation (Back-End)"
-Cohesion: 0.22
-Nodes (11): EPI_SCHEDULE, addOffset(), buildInsert(), { encryptFields, decrypt }, { EPI_SCHEDULE, SCHEDULE_VERSION }, generateEpiSchedule(), insertEpiSchedule(), REMINDER_ENCRYPTED (+3 more)
+Cohesion: 0.16
+Nodes (19): EPI_SCHEDULE, crypto, decrypt(), decryptRow(), encrypt(), encryptFields(), getKey(), isEncrypted() (+11 more)
 
 ### Community 23 - "Vercel Deployment Config"
-Cohesion: 0.29
-Nodes (7): 2.1 General Data Privacy Principles, 2.2 Rights of the Data Subject, 2.3 Security Measures (Sec. 20), 2.4 Data Retention & Consent (a DPA strength of this system), 2.5 NPC "5 Pillars of Compliance", 2.6 Breach Management, 2. Compliance Assessment
+Cohesion: 0.67
+Nodes (3): AppLoadingScreen(), makeStyles(), MESSAGES
 
 ### Community 24 - "2. Current-state audit"
-Cohesion: 0.15
-Nodes (12): 1. Executive summary, 2.1 Entry-point inventory, 2.2 Tap-depth map, 2.3 Redundancy analysis, 2.4 Screen density (five bottom-nav tabs, 375px-wide viewport), 2.5 Orphans and dead ends, 2. Current-state audit, 3. Verdict on the two starting hypotheses (+4 more)
+Cohesion: 0.83
+Nodes (3): ChangePassword(), makeStyles(), passwordStrength()
 
 ### Community 25 - "Reminders & Premium Feature Gaps"
-Cohesion: 0.17
-Nodes (12): 0. Prep already done to the repo, 1.1 Generate secrets you'll need, 1.1b Choose your database (read before Render), 1.2 Option A — Render, 1.3 Option B — Railway ⚠️ Inactive, 1.4 Run the migration (once, either platform), 3.1 Fastest cross-platform prototype (no build, no Apple account), BabyBook+ Deployment Guide (+4 more)
+Cohesion: 0.29
+Nodes (6): 0. Prep already done to the repo, 3.1 Fastest cross-platform prototype (no build, no Apple account), BabyBook+ Deployment Guide, Part 2 — Point the mobile app at your deployed backend, Part 3 — Build the mobile app (EAS internal distribution), Part 4 — Verify end to end
 
 ### Community 26 - "Responsive UI Redesign Plan"
 Cohesion: 0.18
@@ -248,27 +251,27 @@ Nodes (10): handleValidation(), { validationResult }, { asyncHandler }, { body }
 
 ### Community 27 - "Theme & Accessibility Design System"
 Cohesion: 0.13
-Nodes (16): { ApiError, asyncHandler }, { query }, requireAuth, requireChildOwnership, { verifyToken }, ApiError, asyncHandler(), { ApiError } (+8 more)
+Nodes (18): { ApiError, asyncHandler }, { query }, requireAuth, requireChildOwnership, { verifyToken }, { ApiError }, { createResourceRouter }, express (+10 more)
 
 ### Community 28 - "Graphify Extraction Pipeline Docs"
 Cohesion: 0.13
 Nodes (16): ALLOWED, { ApiError }, extOf(), fileFilter(), multer, path, upload, { ApiError, asyncHandler } (+8 more)
 
 ### Community 29 - "Graphify Query/Explain/Path Subcommands"
-Cohesion: 0.22
-Nodes (8): 1. Summary, 2. Tier 1 — Safe to remove, 3. Tier 2 — Probably removable, needs a judgment call, 4. Tier 3 — Uncertain, 5. Consolidation opportunities, 6. Explicitly keeping, 7. Recommended execution order, BabyBook+ Codebase Cleanup Audit
+Cohesion: 0.67
+Nodes (3): LanguagePreferences(), LANGUAGES, makeStyles()
 
 ### Community 30 - "Graphify Update & Cluster-Only Docs"
 Cohesion: 0.25
 Nodes (8): API Reference, Auth — `/api/auth`, Child Records, Children — `/api/children`, Health, Memories & Attachments, QR Consultation — parent side, QR Consultation — professional side (public, no auth)
 
 ### Community 31 - "Deployment Hosting Options"
-Cohesion: 0.29
+Cohesion: 0.33
 Nodes (6): BabyBook+ Explained: What It Does and What Problem It Solves, How It Solves the Problem, Step by Step, The Problem, in Plain Terms, What BabyBook+ Actually Does, Who Uses It, Why This Matters
 
 ### Community 32 - "Data Retention vs Excess Trackers"
-Cohesion: 0.16
-Nodes (15): ageText(), Dashboard(), dayDiff(), growthTrend(), makeStyles(), relativeTime(), shareExpiryText(), useDashboardFetch() (+7 more)
+Cohesion: 0.33
+Nodes (6): AsOf(), makeStyles(), OfflineSummaryView(), cacheSummary(), getSummary(), keyFor()
 
 ### Community 34 - "Evaluation Overall Scores"
 Cohesion: 0.22
@@ -279,8 +282,8 @@ Cohesion: 0.33
 Nodes (5): For /graphify explain, For /graphify path, graphify reference: query, path, explain, Step 0 — Constrained query expansion (REQUIRED before traversal), Step 1 — Traversal
 
 ### Community 37 - "GrowthChart.js"
-Cohesion: 0.16
-Nodes (24): ageChecklists, ageLabel(), describeZ(), Growth(), makeStyles(), METRIC_TABS, GrowthChart(), makeStyles() (+16 more)
+Cohesion: 0.17
+Nodes (17): GrowthChart(), makeStyles(), METRICS, FIELD, makeStyles(), PercentileChart(), Z_LINES, ageInDays() (+9 more)
 
 ### Community 38 - "Supabase Setup"
 Cohesion: 0.08
@@ -308,11 +311,11 @@ Nodes (7): Branch naming, Commit messages, Contributing, Good first issues, Grou
 
 ### Community 49 - "ApiError"
 Cohesion: 0.10
-Nodes (19): LanguageContext, translations, ApiError, clearToken(), getToken(), MIME_TO_EXT, request(), setToken() (+11 more)
+Nodes (20): LanguageContext, translations, api, ApiError, clearToken(), getToken(), MIME_TO_EXT, request() (+12 more)
 
 ### Community 50 - "space"
-Cohesion: 0.05
-Nodes (104): MainAppShell(), makeStyles(), SCREEN_TITLES, AllActivity(), makeStyles(), AppLoadingScreen(), makeStyles(), MESSAGES (+96 more)
+Cohesion: 0.21
+Nodes (13): EmptyStateCard(), ListEntryCard(), makeStyles(), MemoryVisualCard(), RadioRow(), SectionContainerCard(), makeStyles(), Services() (+5 more)
 
 ### Community 52 - "Cards.js"
 Cohesion: 0.57
@@ -323,23 +326,51 @@ Cohesion: 0.12
 Nodes (15): Accessibility & Inclusion, Brand Commitments, Capabilities and Constraints, Confirmed functionality, Evidence on Hand, Explicitly undecided, Known gaps — real, and not to be papered over, Operating Context (+7 more)
 
 ### Community 54 - "Part 1 — Backend"
-Cohesion: 0.19
-Nodes (13): bucketLabel(), buildBuckets(), dayDiffInclusive(), emptyForm(), makeStyles(), milkDurations(), nowTime(), NutritionTracker() (+5 more)
+Cohesion: 0.06
+Nodes (65): MainAppShell(), makeStyles(), SCREEN_TITLES, AllActivity(), makeStyles(), AllMemories(), makeStyles(), CalendarView() (+57 more)
 
 ### Community 55 - "adapters.js"
-Cohesion: 0.15
-Nodes (6): AllMemories(), makeStyles(), childToProfile(), memoryToApp(), num(), profileFormToChild()
+Cohesion: 0.18
+Nodes (3): childToProfile(), num(), profileFormToChild()
+
+### Community 57 - "App.js"
+Cohesion: 0.40
+Nodes (5): DRAWER_WIDTH, makeStyles(), MENU_TITLES, SECTIONS, SideMenu()
 
 ### Community 58 - "PrivacySettings.js"
-Cohesion: 0.22
-Nodes (13): formatCapturedAt(), makeStyles(), ProfessionalView(), RecordsView(), Row(), Section(), SnapshotTimestamp(), makeStyles() (+5 more)
+Cohesion: 0.23
+Nodes (14): formatCapturedAt(), makeStyles(), ProfessionalView(), RecordsView(), Row(), Section(), SnapshotTimestamp(), QrCodeView() (+6 more)
 
 ### Community 59 - "Part 1 — Backend"
 Cohesion: 0.39
 Nodes (8): { createClient }, crypto, deleteFile(), getClient(), isStorageRef(), resolveUrl(), resolveUrlField(), uploadFile()
 
+### Community 60 - "ThemeContext.js"
+Cohesion: 0.24
+Nodes (9): makeStyles(), OPTIONS, ThemePreferences(), defaultValue, ThemeContext, ThemeProvider(), motion, paletteFor() (+1 more)
+
+### Community 61 - "CalendarView.js"
+Cohesion: 0.39
+Nodes (7): DateField(), inputBox(), pad(), parseValue(), PickerField(), toHM(), toISODate()
+
+### Community 62 - "space"
+Cohesion: 0.53
+Nodes (4): ageAt(), makeStyles(), MemoryDetail(), prettyDate()
+
+### Community 63 - "radius"
+Cohesion: 0.21
+Nodes (15): Auth(), styles, makeStyles(), PrivacySettings(), makeStyles(), ViewProfile(), Button(), makeVariants() (+7 more)
+
+### Community 65 - "PhotoAttach.js"
+Cohesion: 0.80
+Nodes (3): PhotoAttach(), pickerAvailable(), pickImage()
+
+### Community 66 - "HelpSupport.js"
+Cohesion: 0.67
+Nodes (3): FAQS, HelpSupport(), makeStyles()
+
 ### Community 78 - "graphify reference: GitHub clone and cross-repo merge"
-Cohesion: 0.20
+Cohesion: 0.33
 Nodes (6): 1. What is BabyBook+?, 2. Timeline at a Glance, 4. Security and Privacy Work (ongoing throughout), 5. Where Things Stand Today (as of August 1, 2026), 6. Quick Glossary, BabyBook+ — Full Project History Summary
 
 ### Community 79 - "graphify reference: transcribe video and audio"
@@ -375,24 +406,24 @@ Cohesion: 0.67
 Nodes (3): Features, For Healthcare Professionals, For Parents
 
 ## Knowledge Gaps
-- **499 isolated node(s):** `SCREEN_TITLES`, `MESSAGES`, `CATEGORY_META`, `TRUST`, `FEATURES` (+494 more)
+- **431 isolated node(s):** `SCREEN_TITLES`, `name`, `slug`, `version`, `orientation` (+426 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **39 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **40 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `useTheme()` connect `space` to `Data Retention vs Excess Trackers`, `Cards.js`, `Part 1 — Backend`, `adapters.js`, `PrivacySettings.js`?**
-  _High betweenness centrality (0.036) - this node is a cross-community bridge._
-- **Why does `QrScanner()` connect `PrivacySettings.js` to `space`?**
-  _High betweenness centrality (0.016) - this node is a cross-community bridge._
-- **Why does `dependencies` connect `Provider Sharing & QR Scanning` to `PrivacySettings.js`?**
-  _High betweenness centrality (0.015) - this node is a cross-community bridge._
-- **What connects `SCREEN_TITLES`, `MESSAGES`, `CATEGORY_META` to the rest of the system?**
-  _527 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Why does `useTheme()` connect `PrivacySettings.js` to `Data Retention vs Excess Trackers`, `PhotoAttach.js`, `HelpSupport.js`, `File Upload & Attachments`, `space`, `CalendarView.js`, `Cards.js`, `Part 1 — Backend`, `Vercel Deployment Config`, `2. Current-state audit`, `App.js`, `3. Primary Direction — "The Yellow Card"`, `ThemeContext.js`, `Graphify Query/Explain/Path Subcommands`, `space`, `radius`?**
+  _High betweenness centrality (0.045) - this node is a cross-community bridge._
+- **Why does `useToast()` connect `Part 1 — Backend` to `2. Current-state audit`, `space`, `radius`?**
+  _High betweenness centrality (0.022) - this node is a cross-community bridge._
+- **What connects `SCREEN_TITLES`, `name`, `slug` to the rest of the system?**
+  _459 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `UI Component Library & Theming` be split into smaller, more focused modules?**
+  _Cohesion score 0.12318840579710146 - nodes in this community are weakly interconnected._
 - **Should `Provider Sharing & QR Scanning` be split into smaller, more focused modules?**
-  _Cohesion score 0.06451612903225806 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.06060606060606061 - nodes in this community are weakly interconnected._
 - **Should `Front-End Package Manifest` be split into smaller, more focused modules?**
   _Cohesion score 0.0625 - nodes in this community are weakly interconnected._
-- **Should `Auth Routes, JWT & Mailer` be split into smaller, more focused modules?**
-  _Cohesion score 0.05405405405405406 - nodes in this community are weakly interconnected._
+- **Should `Expo App Configuration` be split into smaller, more focused modules?**
+  _Cohesion score 0.07407407407407407 - nodes in this community are weakly interconnected._

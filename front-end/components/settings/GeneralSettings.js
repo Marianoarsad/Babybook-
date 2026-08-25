@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { StyleSheet, ScrollView } from "react-native";
+import { StyleSheet, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SectionContainerCard, RadioRow } from "../common/Cards";
 import { storage } from "../../utils/storageAdapter";
 import { notificationsAvailable } from "../../utils/notifications";
 import { useTheme } from "../../context/ThemeContext";
+import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
+import { useScroll } from "../../context/ScrollContext";
 import { space } from "../../theme";
 
 export const LEAD_TIME_KEY = "bb_default_reminder_lead";
@@ -21,6 +23,10 @@ export const LEAD_TIME_OPTIONS = [
 export default function GeneralSettings() {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
+
+    const { scrollProps } = useScroll();
     const [leadDays, setLeadDays] = useState("1");
 
     useEffect(() => {
@@ -36,7 +42,12 @@ export default function GeneralSettings() {
     };
 
     return (
-        <ScrollView style={styles.container}>
+        <Animated.ScrollView
+            style={styles.container}
+            contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
+            keyboardShouldPersistTaps="handled"
+            {...scrollProps}
+        >
             <SectionContainerCard
                 title="Reminder Notifications"
                 subtitle={
@@ -56,11 +67,15 @@ export default function GeneralSettings() {
                     />
                 ))}
             </SectionContainerCard>
-        </ScrollView>
+        </Animated.ScrollView>
     );
 }
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
+        // transparent, not colors.background: App.js paints the page gradient.
+
+        container: { flex: 1, backgroundColor: "transparent" },
+        // Padding on the content so the bottom clearance scrolls with it.
+        content: { padding: space.lg },
     });

@@ -886,7 +886,7 @@ Local notifications don't work on the web build at all, don't survive reinstall,
 **Medium term** — offline caching · WHO growth percentiles · medical history in QR shares · attachment images in snapshots · object storage
 **Longer term** — server-side push notifications · real health-center data · PRC licence verification
 
-Detailed plans live in [`Documents/plans/`](Documents/plans/).
+The current plan lives in [`Documents/BabyBook+_ROADMAP.md`](Documents/BabyBook+_ROADMAP.md); completed plans are kept in [`Documents/archive/`](Documents/archive/).
 
 ---
 
@@ -899,7 +899,9 @@ Detailed plans live in [`Documents/plans/`](Documents/plans/).
 | [`CLAUDE.md`](CLAUDE.md) | Project guide for AI coding assistants |
 | [`BabyBook+_App_Overview.md`](BabyBook+_App_Overview.md) | Plain-language explanation of the app |
 | [`Documents/`](Documents/) | Research paper, evaluations, DPA compliance |
-| [`Documents/plans/`](Documents/plans/) | Implementation plans for upcoming work |
+| [`Documents/BabyBook+_ROADMAP.md`](Documents/BabyBook+_ROADMAP.md) | Where the project stands and what is left before launch |
+| [`Documents/BabyBook+_Feature_Gap_Analysis.md`](Documents/BabyBook+_Feature_Gap_Analysis.md) | Missing features measured against comparable 2026 apps |
+| [`Documents/archive/`](Documents/archive/) | Completed plans, kept for the reasoning behind past decisions |
 | [`graphify-out/`](graphify-out/) | Code knowledge graph |
 
 ---

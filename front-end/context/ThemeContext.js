@@ -7,9 +7,15 @@ import { paletteFor, PALETTES, space, radius, type, shadow, MIN_TOUCH, motion } 
 //   override "auto"  -> palette follows the child's gender (girl/boy)
 //   override "girl" | "boy" | "neutral" -> forced palette
 // A second, independent axis controls light/dark:
+//   schemeOverride "light" (DEFAULT) | "dark" -> forced scheme
 //   schemeOverride "system" -> follows the OS setting (useColorScheme())
-//   schemeOverride "light" | "dark" -> forced scheme
 // The two axes combine (e.g. "girl" + "dark" = dark pink theme).
+//
+// The default is "light", NOT "system", and that is deliberate. With "system"
+// the app had no look of its own: a parent whose phone was on a night schedule
+// met a fully dark BabyBook+ the first time they opened it, having chosen
+// nothing. "system" is still offered in Theme Preferences for anyone who wants
+// it -- it is now opt-in rather than what you get by saying nothing.
 //
 // Consume anywhere with: const { colors } = useTheme();
 const defaultValue = {
@@ -26,7 +32,7 @@ const defaultValue = {
 
 const ThemeContext = createContext(defaultValue);
 
-export function ThemeProvider({ gender, override = "auto", schemeOverride = "system", children }) {
+export function ThemeProvider({ gender, override = "auto", schemeOverride = "light", children }) {
     const systemScheme = useColorScheme();
     const value = useMemo(() => {
         const scheme = schemeOverride === "system" ? (systemScheme === "dark" ? "dark" : "light") : schemeOverride;

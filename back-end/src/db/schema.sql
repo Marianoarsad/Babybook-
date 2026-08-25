@@ -14,6 +14,7 @@ DROP TABLE IF EXISTS memories CASCADE;
 DROP TABLE IF EXISTS nutrition_records CASCADE;
 DROP TABLE IF EXISTS milestones CASCADE;
 DROP TABLE IF EXISTS growth_records CASCADE;
+DROP TABLE IF EXISTS medication_doses CASCADE;
 DROP TABLE IF EXISTS medical_history CASCADE;
 DROP TABLE IF EXISTS checkups CASCADE;
 DROP TABLE IF EXISTS vaccinations CASCADE;
@@ -39,7 +40,12 @@ CREATE TABLE users (
     email               VARCHAR(100) NOT NULL UNIQUE,
     password_hash       VARCHAR(255) NOT NULL,
     phone_number        TEXT,                   -- encrypted at rest
-    gender              VARCHAR(10),
+    -- Who the account holder is to the child. Plaintext so the CHECK is
+    -- enforceable; see migrations/008_user_profile.sql. A family role, never a
+    -- legal or custodial status -- every value here is the account holder.
+    relationship        VARCHAR(20)
+        CHECK (relationship IN ('mother', 'father', 'grandparent', 'guardian', 'other')),
+    city                TEXT,                   -- encrypted at rest
     avatar_url          TEXT,
     -- Data-retention consent (Data Privacy Act of 2012, RA 10173).
     consent_accepted    BOOLEAN NOT NULL DEFAULT FALSE,
@@ -110,6 +116,13 @@ CREATE TABLE vaccinations (
     notes         TEXT,
     source        VARCHAR(20) NOT NULL DEFAULT 'manual'
                   CHECK (source IN ('manual', 'epi')),  -- 'epi' = auto-generated DOH schedule dose
+    dose_number   INTEGER
+                  CHECK (dose_number IS NULL OR (dose_number > 0 AND dose_number <= 10)),
+    -- What happened after the dose. Recorded, never interpreted — see
+    -- migrations/004_vaccination_detail.sql.
+    reaction_severity VARCHAR(10)
+                  CHECK (reaction_severity IN ('none', 'mild', 'severe')),
+    reaction      TEXT,              -- encrypted at rest
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -147,16 +160,57 @@ CREATE TABLE medical_history (
     category      VARCHAR(50) NOT NULL
                   CHECK (category IN ('Illness', 'Allergy', 'Medication', 'Hospitalization', 'Hereditary Condition')),
     title         TEXT,              -- encrypted at rest
-    description   TEXT,
-    date_recorded DATE,
+    description   TEXT,              -- encrypted at rest
+    date_recorded DATE,              -- started / admitted on
     resolved      BOOLEAN NOT NULL DEFAULT FALSE,
+    resolved_date DATE,              -- got better / discharged on
+    -- Where the child was cared for. Illness rows only, and a record of what
+    -- the family DID — not a severity rating. 'home' is not "mild".
+    care_level    VARCHAR(20)
+                  CHECK (care_level IN ('home', 'doctor', 'hospital')),
+    facility      TEXT,              -- hospital / clinic name, encrypted at rest
     notes         TEXT,
+    -- ---- Medication rows only (migration 006) ----
+    -- How much per dose, as the parent was told: "5 mL", "1 tablet". Free text
+    -- and never parsed, validated or converted — the app records what a doctor
+    -- said and is not a pharmacist (PRODUCT.md Principle 5).
+    dose_amount   TEXT,              -- encrypted at rest
+    -- Structured, unlike the amount, so "2 of 3 doses today" is countable.
+    frequency_per_day INTEGER
+                  CHECK (frequency_per_day IS NULL OR (frequency_per_day > 0 AND frequency_per_day <= 12)),
+    dose_times    JSONB,             -- ["08:00","14:00","20:00"] — the parent's chosen times
+    course_days   INTEGER            -- NULL means ongoing / as needed
+                  CHECK (course_days IS NULL OR (course_days > 0 AND course_days <= 365)),
+    prescribed_by TEXT,              -- encrypted at rest
+    -- Which illness this medicine is for. Self-referencing; SET NULL so
+    -- removing the illness never takes the medicine record with it.
+    treats_id     INTEGER REFERENCES medical_history(id) ON DELETE SET NULL,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_medical_history_child ON medical_history(child_id);
 CREATE TRIGGER trg_medical_history_updated BEFORE UPDATE ON medical_history
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =========================================================
+-- MEDICATION DOSES — one row per dose actually given.
+--
+-- Without this the app can list what was prescribed but can never answer the
+-- question a parent has three times a day. given_date / given_time are
+-- separate columns (like nutrition_records): every date this app stores is a
+-- plain local calendar date with no timezone.
+-- =========================================================
+CREATE TABLE medication_doses (
+    id            SERIAL PRIMARY KEY,
+    child_id      INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    medication_id INTEGER NOT NULL REFERENCES medical_history(id) ON DELETE CASCADE,
+    given_date    DATE NOT NULL,
+    given_time    TIME,
+    notes         TEXT,              -- encrypted at rest
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_medication_doses_child ON medication_doses(child_id);
+CREATE INDEX idx_medication_doses_med ON medication_doses(medication_id, given_date);
 
 -- =========================================================
 -- GROWTH RECORDS — includes head circumference.
@@ -168,6 +222,11 @@ CREATE TABLE growth_records (
     weight             DECIMAL(5,2),
     head_circumference DECIMAL(5,2),
     date_recorded      DATE NOT NULL,
+    -- Where the measurement was taken. A record of where the family went, never
+    -- an accuracy or confidence grade; see migrations/007_growth_detail.sql.
+    measured_at        VARCHAR(20)
+        CHECK (measured_at IN ('home', 'health_center', 'clinic', 'hospital')),
+    notes              TEXT,   -- encrypted at rest; not sent in the QR snapshot
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_growth_child ON growth_records(child_id);
@@ -193,8 +252,10 @@ CREATE TRIGGER trg_milestones_updated BEFORE UPDATE ON milestones
 
 -- =========================================================
 -- NUTRITION RECORDS — unified milk + solid-food tracker.
---   entry_type 'milk'  -> milk_type / formula_brand / quantity / unit
---   entry_type 'solid' -> food_introduced / reaction
+--   entry_type 'milk'  -> milk_type / feed_method, then either
+--                         duration_minutes + breast_side ('breast')
+--                         or quantity + unit + formula_brand ('bottle')
+--   entry_type 'solid' -> food_introduced / reaction_severity / reaction
 -- Stored per day (entry_date); edits overwrite in place (updated_at moves).
 -- =========================================================
 CREATE TABLE nutrition_records (
@@ -204,11 +265,27 @@ CREATE TABLE nutrition_records (
                     CHECK (entry_type IN ('milk', 'solid')),
     -- milk fields
     milk_type       VARCHAR(20) CHECK (milk_type IN ('Formula', 'Breastmilk', 'Mixed')),
+    -- How the milk was given. A breastfeed has no measurable volume, so
+    -- requiring quantity for every milk row made the most common feeding
+    -- pattern unrecordable. NULL means a pre-migration row.
+    feed_method     VARCHAR(10) CHECK (feed_method IN ('breast', 'bottle')),
     formula_brand   TEXT,          -- encrypted at rest
-    quantity        DECIMAL(7,2),
+    quantity        DECIMAL(7,2),  -- bottle feeds only
     unit            VARCHAR(5) CHECK (unit IN ('oz', 'mL', 'L')),
+    -- Breastfeeds only, and optional: a parent logging a night feed hours
+    -- later does not know the minutes, and requiring them would only swap an
+    -- invented volume for an invented duration.
+    duration_minutes INTEGER
+                    CHECK (duration_minutes IS NULL OR (duration_minutes > 0 AND duration_minutes <= 240)),
+    -- Not collected by the app — cut from the form as a breastfeeding-tracker
+    -- feature rather than a health-record one. Kept so it is reversible
+    -- without a migration; expect NULL on every row.
+    breast_side     VARCHAR(5) CHECK (breast_side IN ('left', 'right', 'both')),
     -- solid fields
     food_introduced TEXT,          -- encrypted at rest
+    -- Whether there WAS a reaction, so it can be counted and filtered.
+    -- `reaction` below is the free-text description of one.
+    reaction_severity VARCHAR(10) CHECK (reaction_severity IN ('none', 'mild', 'severe')),
     reaction        TEXT,          -- encrypted at rest
     -- shared
     entry_date      DATE NOT NULL DEFAULT CURRENT_DATE,

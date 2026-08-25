@@ -4,21 +4,23 @@ import {
     Text,
     Image,
     StyleSheet,
-    TouchableOpacity,
-    ScrollView,
-    ActivityIndicator,
+    TouchableOpacity,    ActivityIndicator,
     Animated,
     Easing,
     Platform,
+    TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import QrCodeView from "./QrCodeView";
 import { ageText } from "./Dashboard";
-import { RECORD_LABELS, qrPayloadForCode } from "../utils/shareStore";
+import { RECORD_LABELS, qrPayloadForCode, VISIT_REASON_MAX } from "../utils/shareStore";
+import { exportChildRecordsPdf, pdfExportAvailable } from "../utils/exportPdf";
 import { api } from "../utils/api";
 import { useToast } from "./ui/Toast";
 import { useTheme } from "../context/ThemeContext";
-import { motion, shadow, space, type } from "../theme";
+import { motion, shadow, space, type, MIN_TOUCH } from "../theme";
+import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
+import { useScroll } from "../context/ScrollContext";
 import { EmptyStateCard } from "./common/Cards";
 import { useRefreshControl } from "./ui/useRefreshControl";
 import ShowMore from "./ui/ShowMore";
@@ -52,11 +54,17 @@ export default function ShareRecords({ profile }) {
     const alert = (m) => toast.error(m);
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
+
+    const { scrollProps } = useScroll();
     const allKeys = Object.keys(RECORD_LABELS);
     const [selected, setSelected] = useState(() => new Set(allKeys));
     const [ttl, setTtl] = useState(60);
+    const [visitReason, setVisitReason] = useState("");
     const [generating, setGenerating] = useState(false);
     const [activeShare, setActiveShare] = useState(null);
+    const [exportingPdf, setExportingPdf] = useState(false);
     const [history, setHistory] = useState([]);
     const [accessLog, setAccessLog] = useState([]);
     const [historyVisible, setHistoryVisible] = useState(10);
@@ -124,6 +132,7 @@ export default function ShareRecords({ profile }) {
             const share = await api.createShare(profile.id, {
                 recordKeys: keys,
                 ttlMinutes: ttl,
+                visitReason: visitReason.trim(),
             });
             setActiveShare(share);
             toast.success("Ready to show the doctor");
@@ -145,6 +154,23 @@ export default function ShareRecords({ profile }) {
         }
     };
 
+    // Prints exactly what step 1 has ticked — the same selection a QR code
+    // would carry, so paper and screen can't disagree. The key names in
+    // RECORD_LABELS already match the PDF template's CATEGORY_LABELS, so
+    // there is no mapping table in between to drift. Untick "Allergies" and
+    // the printout has no allergy line either.
+    const handleExportPdf = async () => {
+        if (selected.size === 0) return;
+        setExportingPdf(true);
+        try {
+            await exportChildRecordsPdf(profile, { scope: new Set(selected) });
+        } catch (e) {
+            alert(e.message || "Could not export records");
+        } finally {
+            setExportingPdf(false);
+        }
+    };
+
     const expiryText = (iso) => {
         const ms = new Date(iso).getTime() - Date.now();
         if (ms <= 0) return "expired";
@@ -157,7 +183,12 @@ export default function ShareRecords({ profile }) {
     if (activeShare) {
         const keys = activeShare.shared_record_keys || [];
         return (
-            <ScrollView contentContainerStyle={styles.scroll} refreshControl={refreshControl}>
+            <Animated.ScrollView
+                contentContainerStyle={[styles.scroll, { paddingTop: padTop, paddingBottom: padBottom }]}
+                refreshControl={refreshControl}
+                keyboardShouldPersistTaps="handled"
+                {...scrollProps}
+            >
                 <View style={styles.resultCard}>
                     <View style={styles.identityRow}>
                         {profile.avatarUrl && !avatarBroken ? (
@@ -211,13 +242,18 @@ export default function ShareRecords({ profile }) {
                         </TouchableOpacity>
                     </View>
                 </View>
-            </ScrollView>
+            </Animated.ScrollView>
         );
     }
 
     // ---- builder view ----
     return (
-        <ScrollView contentContainerStyle={styles.scroll} refreshControl={refreshControl}>
+        <Animated.ScrollView
+                contentContainerStyle={[styles.scroll, { paddingTop: padTop, paddingBottom: padBottom }]}
+                refreshControl={refreshControl}
+                keyboardShouldPersistTaps="handled"
+                {...scrollProps}
+            >
             <TipStrip tipKey="tip_share">
                 Pick what a doctor may see, then show them the code. Access is read-only and expires on its own.
             </TipStrip>
@@ -246,8 +282,34 @@ export default function ShareRecords({ profile }) {
                 })}
             </View>
 
+            {/* The one thing on the professional's screen that no record can
+                supply: why you are there today. Optional, and deliberately
+                asks for the concern in the parent's own words — the app must
+                never nudge a parent toward naming a diagnosis. */}
             <View style={styles.card}>
-                <Text style={styles.cardTitle}>2 · Access expires after</Text>
+                <Text style={styles.cardTitle}>2 · What is this visit about?</Text>
+                <Text style={styles.reasonHint}>
+                    Optional. Whatever you write here is shown first to the healthcare
+                    professional, in your own words.
+                </Text>
+                <TextInput
+                    style={styles.reasonInput}
+                    value={visitReason}
+                    onChangeText={setVisitReason}
+                    placeholder="e.g. Coughing for 4 days, worse at night, not eating well"
+                    placeholderTextColor={colors.placeholder}
+                    multiline
+                    maxLength={VISIT_REASON_MAX}
+                    textAlignVertical="top"
+                    accessibilityLabel="What this visit is about"
+                />
+                <Text style={styles.reasonCount}>
+                    {visitReason.length}/{VISIT_REASON_MAX}
+                </Text>
+            </View>
+
+            <View style={styles.card}>
+                <Text style={styles.cardTitle}>3 · Access expires after</Text>
                 <View style={styles.ttlRow}>
                     {TTL_OPTIONS.map((o) => (
                         <TouchableOpacity
@@ -278,6 +340,25 @@ export default function ShareRecords({ profile }) {
                     </>
                 )}
             </TouchableOpacity>
+
+            {/* Paper alternative to the QR, not a follow-up to it — for a
+                clinic with no scanner, or a parent with no signal. Prints the
+                same selection ticked above, so the two routes always carry
+                the same records. */}
+            {pdfExportAvailable() ? (
+                <TouchableOpacity
+                    style={[styles.printBtn, selected.size === 0 && { opacity: 0.5 }]}
+                    onPress={handleExportPdf}
+                    disabled={exportingPdf || selected.size === 0}
+                    accessibilityRole="button"
+                    accessibilityLabel="Save or print the selected records as a PDF"
+                >
+                    <Ionicons name="print-outline" size={16} color={colors.primaryDark} />
+                    <Text style={styles.printBtnText}>
+                        {exportingPdf ? "Preparing…" : "Save or print as PDF"}
+                    </Text>
+                </TouchableOpacity>
+            ) : null}
 
             {!loading && (
                 <View style={styles.card}>
@@ -351,57 +432,72 @@ export default function ShareRecords({ profile }) {
                     You control exactly what is shared. The professional can view — never edit, add, or delete. Every view is recorded in your access log.
                 </Text>
             </View>
-        </ScrollView>
+        </Animated.ScrollView>
     );
 }
 
 const makeStyles = (colors) => StyleSheet.create({
-    scroll: { padding: 16, paddingBottom: 40 },
+    scroll: { padding: space.lg },
     headerRow: { flexDirection: "row", marginBottom: 16 },
-    h1: { fontSize: 22, fontWeight: "800", color: colors.primary },
-    h2: { fontSize: 12.5, color: colors.textMuted, marginTop: 4, lineHeight: 17 },
+    h1: { ...type.title, fontWeight: "800", color: colors.primary },
+    h2: { ...type.caption, color: colors.textMuted, marginTop: 4, lineHeight: 18 },
     card: {
         backgroundColor: colors.surface, borderRadius: 20, padding: 16,
         borderWidth: 1, borderColor: colors.border, marginBottom: 14,
     },
-    cardTitle: { fontSize: 13, fontWeight: "800", color: colors.primary, marginBottom: 12 },
-    recRow: { flexDirection: "row", alignItems: "center", paddingVertical: 9 },
+    cardTitle: { ...type.caption, fontWeight: "800", color: colors.primary, marginBottom: 12 },
+    // 44pt: the visible checkbox is 22 and was the whole target.
+    recRow: { flexDirection: "row", alignItems: "center", minHeight: MIN_TOUCH, paddingVertical: 9 },
     checkbox: {
         width: 22, height: 22, borderRadius: 7, borderWidth: 1.5, borderColor: colors.borderStrong,
         alignItems: "center", justifyContent: "center", marginRight: 12, backgroundColor: colors.surface,
     },
     checkboxOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-    recLabel: { flex: 1, fontSize: 13.5, color: colors.text, fontWeight: "500" },
+    recLabel: { flex: 1, minWidth: 0, ...type.body, color: colors.text, fontWeight: "500" },
     ttlRow: { flexDirection: "row", backgroundColor: colors.surfaceAlt, borderRadius: 12, padding: 4 },
-    ttlHint: { fontSize: 10.5, color: colors.textMuted, marginTop: 8, lineHeight: 14 },
-    ttlBtn: { flex: 1, paddingVertical: 9, borderRadius: 9, alignItems: "center" },
+    ttlHint: { ...type.caption, color: colors.textMuted, marginTop: 8, lineHeight: 18 },
+    reasonHint: { ...type.caption, color: colors.textMuted, marginBottom: space.sm, lineHeight: 18 },
+    reasonInput: {
+        ...type.body,
+        color: colors.text,
+        backgroundColor: colors.surfaceAlt,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: 12,
+        borderCurve: "continuous",
+        paddingHorizontal: space.md,
+        paddingVertical: space.sm,
+        minHeight: 88,
+    },
+    reasonCount: { ...type.caption, color: colors.textMuted, textAlign: "right", marginTop: space.xs },
+    ttlBtn: { flex: 1, minWidth: 0, minHeight: MIN_TOUCH, justifyContent: "center", paddingVertical: 9, borderRadius: 9, alignItems: "center" },
     ttlBtnOn: { backgroundColor: colors.surface, shadowColor: colors.text, shadowOpacity: 0.06, shadowRadius: 4, elevation: 1 },
-    ttlText: { fontSize: 12.5, fontWeight: "600", color: colors.textMuted },
+    ttlText: { ...type.caption, fontWeight: "600", color: colors.textMuted },
     ttlTextOn: { color: colors.primary, fontWeight: "800" },
     genBtn: {
         flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
         backgroundColor: colors.accentStrong, height: 50, borderRadius: 25, marginBottom: 16,
         shadowColor: colors.accentStrong, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 10, elevation: 3,
     },
-    genText: { color: colors.onPrimary, fontWeight: "800", fontSize: 14.5 },
+    genText: { color: colors.onPrimary, ...type.label, fontWeight: "800" },
     histRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.surfaceAlt },
-    histCode: { fontSize: 14, fontWeight: "800", color: colors.text, letterSpacing: 1 },
-    histMeta: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
+    histCode: { ...type.label, fontWeight: "800", color: colors.text, letterSpacing: 1 },
+    histMeta: { ...type.caption, color: colors.textMuted, marginTop: 2 },
     statusPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, marginHorizontal: 8 },
     pillActive: { backgroundColor: colors.sharedBg },
     pillDim: { backgroundColor: colors.surfaceAlt },
-    pillText: { fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
-    histRevoke: { padding: 4 },
+    pillText: { ...type.caption, fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
+    histRevoke: { width: MIN_TOUCH, height: MIN_TOUCH, alignItems: "center", justifyContent: "center" },
     logRow: {
         flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8,
         borderTopWidth: 1, borderTopColor: colors.surfaceAlt,
     },
-    logWho: { fontSize: 13, fontWeight: "700", color: colors.text },
-    logMeta: { fontSize: 10.5, color: colors.textMuted, marginTop: 1 },
+    logWho: { ...type.caption, fontWeight: "700", color: colors.text },
+    logMeta: { ...type.caption, color: colors.textMuted, marginTop: 1 },
     privacyNote: {
         flexDirection: "row", gap: 8, backgroundColor: colors.softGreen, borderRadius: 14, padding: 14, alignItems: "flex-start",
     },
-    privacyText: { flex: 1, fontSize: 11.5, color: colors.primaryDark, lineHeight: 16 },
+    privacyText: { flex: 1, ...type.caption, color: colors.primaryDark, lineHeight: 18 },
     resultCard: {
         backgroundColor: colors.surface, borderRadius: 24, padding: 20, alignItems: "center",
         borderWidth: 1, borderColor: colors.border,
@@ -413,26 +509,38 @@ const makeStyles = (colors) => StyleSheet.create({
     identityName: { ...type.heading, color: colors.text },
     identityAge: { ...type.caption, color: colors.textMuted, marginTop: 1 },
     shieldRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
-    resultTitle: { fontSize: 18, fontWeight: "800", color: colors.primary },
-    resultSub: { fontSize: 12.5, color: colors.textMuted, textAlign: "center", lineHeight: 17, marginBottom: 16 },
+    resultTitle: { ...type.heading, fontWeight: "800", color: colors.primary },
+    resultSub: { ...type.caption, color: colors.textMuted, textAlign: "center", lineHeight: 18, marginBottom: 16 },
     qrWrap: {
         padding: 10, backgroundColor: colors.surface, borderRadius: 16,
         borderWidth: 1, borderColor: colors.border, marginBottom: 14,
     },
-    codeLabel: { fontSize: 10, fontWeight: "800", color: colors.textMuted, letterSpacing: 2 },
+    codeLabel: { ...type.caption, fontSize: 11, fontWeight: "800", color: colors.textMuted, letterSpacing: 2 },
     codeText: { fontSize: 28, fontWeight: "900", color: colors.text, letterSpacing: 3, marginTop: 2, marginBottom: 14 },
     sharedChips: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6, marginBottom: 18 },
+    // maxWidth plus a shrinkable label. "Medical History (Illnesses,
+    // Medications, Hospitalizations)" is wider than the card, and a chip that
+    // can neither wrap nor shrink overflowed both of its edges.
     chip: {
         flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: colors.softGreen,
-        paddingHorizontal: 9, paddingVertical: 4, borderRadius: 10,
+        paddingHorizontal: 9, paddingVertical: 4, borderRadius: 10, maxWidth: "100%",
     },
-    chipText: { fontSize: 10.5, color: colors.primaryDark, fontWeight: "700" },
+    chipText: { ...type.caption, color: colors.primaryDark, fontWeight: "700", flexShrink: 1 },
+    printBtn: {
+        flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+        width: "100%", height: 46, borderRadius: 23, marginBottom: 16,
+        backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primaryDark,
+    },
+    // primaryDark, not primary: this sits on surfaceAlt, where primary
+    // measures 4.20:1 — under AA. Same reason the button it replaces on the
+    // Health screen used primaryDark.
+    printBtnText: { color: colors.primaryDark, ...type.caption, fontWeight: "800" },
     resultBtns: { flexDirection: "row", gap: 10, width: "100%" },
     revokeBtn: {
         flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
         height: 46, borderRadius: 23, backgroundColor: colors.dangerBg, borderWidth: 1, borderColor: colors.danger,
     },
-    revokeText: { color: colors.danger, fontWeight: "800", fontSize: 13 },
+    revokeText: { color: colors.danger, ...type.caption, fontWeight: "800" },
     doneBtn: { flex: 1, alignItems: "center", justifyContent: "center", height: 46, borderRadius: 23, backgroundColor: colors.primary },
-    doneText: { color: colors.onPrimary, fontWeight: "800", fontSize: 13 },
+    doneText: { color: colors.onPrimary, ...type.caption, fontWeight: "800" },
 });

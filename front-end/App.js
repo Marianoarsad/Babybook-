@@ -4,7 +4,7 @@ import {
     Text,
     StyleSheet,
     TouchableOpacity,
-    SafeAreaView,
+    Pressable,
     StatusBar,
     Modal,
     TextInput,
@@ -14,7 +14,15 @@ import {
     AppState,
     Animated,
     Easing,
+    useWindowDimensions,
 } from "react-native";
+// react-native-safe-area-context, NOT React Native's own SafeAreaView, which
+// this file used to use. RN's version is a no-op on Android — it renders a
+// plain View — so the header sat under the Android status bar, and it exposes
+// no inset VALUES, which meant the tab bar's bottom padding and the floating
+// button's `bottom: 92` were both hardcoded guesses that could not account for
+// a home indicator or gesture bar.
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LanguageProvider, useLanguage } from "./context/LanguageContext";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { Archivo_600SemiBold, Archivo_700Bold } from "@expo-google-fonts/archivo";
@@ -24,7 +32,22 @@ import {
     PublicSans_600SemiBold,
     PublicSans_700Bold,
 } from "@expo-google-fonts/public-sans";
-import { radius, space, shadow, type, MIN_TOUCH, motion } from "./theme";
+import {
+    radius,
+    space,
+    shadow,
+    type,
+    MIN_TOUCH,
+    TEXT_COL_MIN,
+    motion,
+    HEADER_TITLE_MAX,
+    HEADER_TITLE_MIN,
+    HEADER_COLLAPSE,
+} from "./theme";
+import ActionSheet from "./components/ui/ActionSheet";
+import AnchoredMenu, { AnchoredMenuItem, AnchoredMenuFooter } from "./components/ui/AnchoredMenu";
+import Gradient from "./components/ui/Gradient";
+import { ScrollContext, useScrollController } from "./context/ScrollContext";
 
 // Guarded expo-haptics, same pattern as ui/Toast.js — a no-op if the module
 // isn't available rather than a crash.
@@ -46,7 +69,9 @@ try {
 }
 // Guarded expo-splash-screen — keeps the native splash (app.json) on screen
 // until fonts are loaded and the saved session is restored, so nothing ever
-// flashes blank/white before AppLoadingScreen can paint.
+// flashes blank/white before components/Splash.js can paint. That screen
+// deliberately matches this one's background and logo size, so the handoff
+// between them is invisible — see the note at the top of Splash.js.
 let SplashScreen = null;
 try {
     // eslint-disable-next-line global-require
@@ -56,6 +81,7 @@ try {
     SplashScreen = null;
 }
 import ThemeProvider, { useTheme } from "./context/ThemeContext";
+import { fitsColumns } from "./utils/responsive";
 import { storage } from "./utils/storageAdapter";
 import { seen, markSeen } from "./utils/firstRun";
 
@@ -74,7 +100,6 @@ if (Platform.OS === "web" && typeof document !== "undefined") {
 
 // Import Screen Components
 import Auth from "./components/Auth";
-import Landing from "./components/Landing";
 import Dashboard from "./components/Dashboard";
 import Health from "./components/Health";
 import Growth from "./components/Growth";
@@ -89,9 +114,8 @@ import SideMenu, { MENU_TITLES } from "./components/SideMenu";
 import CalendarView from "./components/CalendarView";
 import AllActivity from "./components/AllActivity";
 import Search from "./components/Search";
-import AllMemories from "./components/AllMemories";
 import OfflineSummaryView from "./components/OfflineSummaryView";
-import AppLoadingScreen from "./components/AppLoadingScreen";
+import Splash from "./components/Splash";
 import { DateField, TimeField } from "./components/ui/DateField";
 import KeyboardAvoider from "./components/ui/KeyboardAvoider";
 import ViewProfile from "./components/settings/ViewProfile";
@@ -104,16 +128,42 @@ import AboutApp from "./components/settings/AboutApp";
 import ChangePassword from "./components/settings/ChangePassword";
 import PrivacySettings from "./components/settings/PrivacySettings";
 import { api, getToken, setToken, clearToken } from "./utils/api";
-import { scheduleReminder, morningOf } from "./utils/notifications";
+import { scheduleReminder, morningOf, cancelRemindersOfKind } from "./utils/notifications";
 import { childToProfile, profileFormToChild } from "./utils/adapters";
+import { todayLocal } from "./utils/dates";
 import { pickImage, pickerAvailable } from "./utils/imagePicker";
 
 // Header title shown ("← <title>") whenever currentView is a side-menu
-// destination or Share Records — reuses SideMenu's own labels so they can't
-// drift apart. Screens absent here (the 5 bottom tabs, allActivity,
-// allMemories — the latter two already draw their own back header) keep
-// showing the baby's name instead.
-const SCREEN_TITLES = { ...MENU_TITLES, share: "Share Records", offlineSummary: "Offline Summary" };
+// destination or one of the sub-screens below — reuses SideMenu's own labels so
+// they can't drift apart. Only the 5 bottom tabs are absent here; those keep
+// showing the baby's name, which is also the child switcher.
+//
+// EVERY sub-screen belongs in this map. Search and Recent Activity used to draw
+// their own back headers instead, which worked while the app header sat above
+// the page — but the header is position:absolute now (see styles.header), so a
+// screen's own bar renders at y=0 UNDERNEATH it and the two titles overlap.
+// A new sub-screen gets an entry here; it does not get its own header.
+const SCREEN_TITLES = {
+    ...MENU_TITLES,
+    share: "Share Records",
+    offlineSummary: "Offline Summary",
+    search: "Search",
+    allActivity: "Recent Activity",
+};
+
+// The short form of a child's name, for the header title only.
+//
+// A large title only works with a short string. "Maria Auxiliadora
+// Bituin-Villanueva" at 30px leaves room for about eight characters once the
+// chevron, the alert dot and three 44pt buttons have taken their share — so the
+// LARGE state would truncate harder than the small one, which reads as a bug.
+// The switcher menu still lists full names, so nothing is lost.
+//
+// Same nickname-or-first-name rule the old Dashboard switcher pills used.
+export function headerName(profile) {
+    if (!profile) return "";
+    return profile.nickname || String(profile.name || "").split(" ")[0] || profile.name || "";
+}
 
 function MainAppShell({
     onThemeGenderChange,
@@ -125,9 +175,31 @@ function MainAppShell({
     const { language, t } = useLanguage();
     const { colors, scheme } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const insets = useSafeAreaInsets();
+    // The tab bar is MEASURED rather than assumed. Its height moves with the
+    // OS font scale (it contains a text label) and with the bottom inset, so
+    // the floating button's old hardcoded `bottom: 92` was only ever correct
+    // on one device at one font size.
+    const [tabBarHeight, setTabBarHeight] = useState(0);
+    // The header floats OVER the page now, so it reserves no layout space and
+    // every scrolling screen has to pad for it. Measured, never hardcoded: it
+    // moves with the safe-area inset and grows with the OS font scale.
+    const [headerHeight, setHeaderHeight] = useState(0);
+    const scroll = useScrollController(headerHeight);
+
+    // Room inside the child-profile sheet, so its paired fields (birth weight /
+    // birth height) can drop to one per line rather than squeezing to ~130pt
+    // each on a small phone. Derived from the sheet's own geometry — screen,
+    // less the backdrop padding, capped at maxWidth, less the card padding.
+    const { width: windowWidth } = useWindowDimensions();
+    const modalTwoCol = fitsColumns(
+        Math.min(windowWidth - space.xl * 2, 440) - space.xl * 2,
+        2,
+        space.sm,
+    );
 
     // Preload the icon fonts (@expo/vector-icons) so buttons/icons never render
-    // blank. The app shows AppLoadingScreen until these are ready.
+    // blank. The app shows components/Splash.js until these are ready.
     const [fontsReady, setFontsReady] = useState(false);
     useEffect(() => {
         let active = true;
@@ -149,7 +221,7 @@ function MainAppShell({
                 console.log("font preload:", e.message);
             } finally {
                 if (active) setFontsReady(true);
-                // Hand off from the native splash to AppLoadingScreen only once
+                // Hand off from the native splash to Splash.js only once
                 // fonts are ready, so there's no blank/white frame between them.
                 if (SplashScreen) SplashScreen.hideAsync().catch(() => {});
             }
@@ -160,8 +232,8 @@ function MainAppShell({
     }, []);
 
     // Welcome carousel — shown once, on the very first launch ever, ahead of
-    // Landing.js. null = still checking storage (folds into the AppLoadingScreen
-    // gate below so nothing flashes before the check resolves).
+    // null = still checking storage (folds into the splash gate below, so
+    // nothing flashes before the check resolves).
     const [onboarded, setOnboarded] = useState(null);
     useEffect(() => {
         seen("onboarding").then(setOnboarded);
@@ -169,16 +241,27 @@ function MainAppShell({
 
     // Authentication State
     const [isAuthenticated, setIsAuthenticated] = useState(false);
-    // Pre-login landing page; its CTAs pick which Auth scene opens.
-    const [showLanding, setShowLanding] = useState(true);
+    // The splash owns its own timing (minimum visible duration + fade); this
+    // only records that it has finished, so it never returns mid-session.
+    const [splashDone, setSplashDone] = useState(false);
     const [authScene, setAuthScene] = useState("login");
     // Healthcare Professional mode (separate actor, no parent account)
     const [professionalMode, setProfessionalMode] = useState(false);
-    const [parentName, setParentName] = useState("Sarah");
-    const [parentGender, setParentGender] = useState("Female");
-    const [parentAvatar, setParentAvatar] = useState(
-        "https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop",
-    );
+    // All three start EMPTY, and that is the point. parentName defaulted to
+    // the literal string "Sarah" and parentAvatar to a stock photograph of a
+    // stranger, so before the session was restored the app addressed every
+    // parent by a name that was not theirs, beside a face that was not theirs.
+    // Same family as the invented "Dr. Sarah Chen" removed from the Care Team
+    // card. applyUser() fills these from the server; until it does, the header
+    // shows nothing rather than showing a fiction, and ui/Avatar.js falls back
+    // to the parent's own initials.
+    const [parentName, setParentName] = useState("");
+    // Who the account holder is to the child ("mother" | "father" |
+    // "grandparent" | "guardian" | "other"). Replaced parentGender, which the
+    // registration form asked for as Female/Male and nothing ever used except
+    // to print it back. See utils/relationship.js.
+    const [parentRelationship, setParentRelationship] = useState("");
+    const [parentAvatar, setParentAvatar] = useState("");
 
     // Main navigation view
     const [currentView, setCurrentView] = useState("dashboard");
@@ -224,15 +307,36 @@ function MainAppShell({
             }
             return view;
         });
-        if (tab) {
-            setNavTab(tab);
-            setNavKey((k) => k + 1);
-        }
+        // Always write the deep-link target, INCLUDING when it is null.
+        //
+        // This used to be `if (tab) { ... }`, which left the previous value in
+        // place forever on a plain tab tap. Screens here are rendered
+        // conditionally, so Health/Growth/Nutrition UNMOUNT when you navigate
+        // away and their `useEffect(..., [navKey])` runs again on the next
+        // mount regardless of whether navKey changed. So: use the "+" button
+        // to add a vaccine, close it, go to the Dashboard, then tap the Health
+        // tab — Health mounted fresh, read the stale "vaccine", and popped the
+        // Add Vaccine form on its own. Same for Log Growth, Add Memory and
+        // Log Milk on their tabs.
+        setNavTab(tab);
+        setNavKey((k) => k + 1);
+        // The incoming screen mounts at offset 0. Without this the shared value
+        // still holds the OUTGOING screen's offset and the header opens stuck
+        // collapsed and white — the same stale-across-unmount trap as navTab
+        // above, one layer up.
+        scroll.resetScroll();
     };
     const goBack = () => {
         const prev = historyRef.current[historyRef.current.length - 1];
         historyRef.current = historyRef.current.slice(0, -1);
         setCurrentView(prev || "dashboard");
+        // Back navigation bypasses changeView, so it has to clear the deep-link
+        // target itself or it leaks the same stale alias.
+        setNavTab(null);
+        setNavKey((k) => k + 1);
+        // goBack bypasses changeView, so it clears the scroll offset itself for
+        // the same reason it clears navTab itself.
+        scroll.resetScroll();
     };
 
     // Floating "log something" button (bottom-right, above the tab bar) and
@@ -243,17 +347,15 @@ function MainAppShell({
         setActionSheetVisible(false);
         changeView(view, tab);
     };
-    const ACTION_SHEET_ITEMS = [
-        { key: "milk", label: "Log Milk", icon: "water-outline", view: "nutrition", tab: "milk" },
-        { key: "food", label: "Log Food", icon: "restaurant-outline", view: "nutrition", tab: "solid" },
-        { key: "growth", label: "Log Growth", icon: "resize-outline", view: "growth", tab: "metrics" },
-        { key: "checkup", label: "Schedule Appointment", icon: "calendar-outline", view: "health", tab: "appointments" },
-        { key: "medication", label: "Add Medication", icon: "medical-outline", view: "health", tab: "medications" },
-        { key: "illness", label: "Add Illness", icon: "pulse-outline", view: "health", tab: "illness" },
-        { key: "vaccine", label: "Add Vaccine", icon: "medkit-outline", view: "health", tab: "vaccine" },
-        { key: "hospitalization", label: "Add Hospitalization", icon: "bandage-outline", view: "health", tab: "hospitalization" },
-        { key: "memory", label: "Add Memory", icon: "image-outline", view: "dashboard", tab: "memory" },
-    ];
+    // The nine actions themselves now live in ui/ActionSheet.js, alongside the
+    // usage counters that order its shortcut row.
+    //
+    // The "+" only appears on the five bottom-tab screens. It used to render
+    // everywhere, which put a "log something" affordance over Privacy
+    // Settings, Search, Share Records and — worst — Offline Summary, the
+    // read-only screen whose whole promise is that it works with no signal.
+    const FAB_VIEWS = ["dashboard", "health", "growth", "nutrition", "calendar"];
+    const showFab = FAB_VIEWS.includes(currentView);
 
     // Core records lists — children now load from the backend.
     const [profiles, setProfiles] = useState([]);
@@ -271,6 +373,30 @@ function MainAppShell({
     const [showEditProfileModal, setShowEditProfileModal] = useState(false);
     // Slide-in side menu (opened from the header avatar).
     const [menuOpen, setMenuOpen] = useState(false);
+    // Baby switcher, opened from the child's name in the header. It used to be
+    // a row of pills pinned to the top of the Dashboard, which meant it cost a
+    // row of vertical space on the busiest screen AND existed on only that one
+    // screen — a parent on Health or Calendar had to go home to switch child.
+    //
+    // The menu hangs off the name rather than sliding up from the bottom, so it
+    // needs the name's position in window coordinates. Measured at press time
+    // rather than on layout: the name moves as the header collapses, and a
+    // stale measurement would drop the menu in the wrong place.
+    const [switcherOpen, setSwitcherOpen] = useState(false);
+    const [switcherAnchor, setSwitcherAnchor] = useState(null);
+    const nameRef = useRef(null);
+
+    const openSwitcher = () => {
+        if (nameRef.current && nameRef.current.measureInWindow) {
+            nameRef.current.measureInWindow((x, y, width, height) => {
+                setSwitcherAnchor({ x, y, width, height });
+                setSwitcherOpen(true);
+            });
+            return;
+        }
+        setSwitcherAnchor(null);
+        setSwitcherOpen(true);
+    };
     // Annual data-retention re-consent (Data Privacy Act of 2012).
     const [consentDue, setConsentDue] = useState(false);
     const [withdrawConfirm, setWithdrawConfirm] = useState(false);
@@ -295,6 +421,85 @@ function MainAppShell({
 
     const activeProfile =
         profiles.find((p) => p.id === selectedProfileId) || profiles[0];
+
+    // Alert dots for the baby switcher. Without this a parent with two children
+    // has to switch back and forth to find out whether the other one has
+    // anything overdue, since Needs Attention is per-child.
+    //
+    // Lifted here from Dashboard.js when the switcher moved into the header:
+    // the header is on all five tab screens, so the verdict has to be available
+    // whether or not the Dashboard ever mounted. It therefore fetches for EVERY
+    // child including the selected one, where the Dashboard's version could
+    // lean on its own record bundle for that one.
+    //
+    // Kept as cheap as the signal allows: nothing at all on a single-child
+    // account (there is no switcher to dot), only the two record types that can
+    // raise a dot, one fetch per child per session, and a silent failure — a
+    // dot that can't load simply doesn't appear rather than showing an error
+    // for a child you aren't even looking at. This is a real cost on a slow
+    // connection (PRODUCT.md Principle 3), so it stays strictly additive and
+    // never blocks the header.
+    // ponytail: 2 requests per child. If a parent ever has enough children for
+    // that to bite, replace with one /children/alerts endpoint.
+    //
+    // requestedAlertsRef, not childAlerts, is what gates a fetch. Keying off
+    // the map alone re-ran the effect while a child's request was still in
+    // flight and fetched that child a second time.
+    const [childAlerts, setChildAlerts] = useState({});
+    // Avatars whose URL 404s. Uploads are ephemeral on the free Render tier, so
+    // a stored URL can outlive its file; without this the switcher rows render
+    // an empty grey square instead of the person glyph. Same fallback the
+    // Dashboard uses, for the same reason.
+    const [brokenAvatars, setBrokenAvatars] = useState(new Set());
+    const requestedAlertsRef = useRef(new Set());
+    const profileIdKey = profiles.map((p) => p.id).join(",");
+    useEffect(() => {
+        if (profiles.length < 2) return;
+        const unknown = profiles.filter((p) => !requestedAlertsRef.current.has(p.id));
+        if (!unknown.length) return;
+        for (const p of unknown) requestedAlertsRef.current.add(p.id);
+        let active = true;
+        const todayStr = todayLocal();
+        Promise.all(
+            unknown.map(async (p) => {
+                try {
+                    const [vax, med] = await Promise.all([
+                        api.listRecords(p.id, "vaccinations"),
+                        api.listRecords(p.id, "medical-history"),
+                    ]);
+                    const overdue = (vax || []).some(
+                        (v) => v.status !== "completed" && v.due_date && v.due_date < todayStr,
+                    );
+                    const ongoing = (med || []).some(
+                        (m) =>
+                            (m.category === "Illness" || m.category === "Hospitalization") &&
+                            !m.resolved,
+                    );
+                    return [p.id, overdue || ongoing];
+                } catch {
+                    return null;
+                }
+            }),
+        ).then((results) => {
+            if (!active) return;
+            const next = {};
+            for (const r of results) if (r) next[r[0]] = r[1];
+            // Only set when something actually resolved, or this re-runs
+            // forever on a child whose fetch keeps failing.
+            if (Object.keys(next).length) setChildAlerts((prev) => ({ ...prev, ...next }));
+        });
+        return () => {
+            active = false;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [profileIdKey]);
+
+    // True when some child OTHER than the one on screen needs attention — the
+    // whole point of the dot on the header. The active child's own problems are
+    // already stated, loudly, by the Needs Attention card.
+    const otherChildNeedsAttention = profiles.some(
+        (p) => p.id !== (activeProfile && activeProfile.id) && childAlerts[p.id],
+    );
 
     // Unseen QR-access-log notifications: poll while the app is open (no
     // server push exists yet — see CLAUDE.md 4.5, deferred). Toast + badge
@@ -347,8 +552,11 @@ function MainAppShell({
     const applyUser = (user) => {
         if (!user) return;
         setParentName(user.fullName || user.full_name || "Parent");
-        if (user.gender) setParentGender(user.gender);
-        if (user.avatarUrl) setParentAvatar(user.avatarUrl);
+        // Assigned unconditionally, not behind an `if`: a field the parent has
+        // just CLEARED has to clear here too, and the old guarded form left the
+        // previous value on screen after a successful save.
+        setParentRelationship(user.relationship || "");
+        setParentAvatar(user.avatarUrl || "");
         setConsentDue(!!user.consentReviewDue);
     };
 
@@ -393,9 +601,15 @@ function MainAppShell({
                     r.reminder_date &&
                     r.reminder_date <= cutoffStr,
             );
+            // Withdraw the previous set first. This runs on every launch, and
+            // scheduleNotificationAsync mints a NEW id each time — so without
+            // this line ten launches queued ten identical notifications for
+            // the same dose, and the iOS 64-pending cap this function exists to
+            // respect was being burned by the function itself.
+            await cancelRemindersOfKind("vaccination");
             for (const r of upcoming) {
                 const when = morningOf(r.reminder_date);
-                if (when) scheduleReminder("Vaccination reminder", `${r.title} due`, when);
+                if (when) scheduleReminder("Vaccination reminder", `${r.title} due`, when, "vaccination");
             }
         } catch (e) {
             console.log("scheduleUpcomingVaccineReminders:", e.message);
@@ -434,23 +648,35 @@ function MainAppShell({
         })();
     }, []);
 
+    // ORDER MATTERS. loadChildren() runs BEFORE setIsAuthenticated(true).
+    //
+    // Flipping isAuthenticated first triggers a render while profiles is still
+    // [], and the render path below falls straight through to the
+    // "profiles.length === 0" branch — which is EmptyChild, a full add-a-child
+    // form. So every successful login flashed a blank "add your first child"
+    // form for the length of one network request before the Dashboard appeared.
+    //
+    // The launch path (the restored-session effect above) never had this bug
+    // because it holds `bootstrapping` true until after loadChildren, and the
+    // splash gate covers that window. This path had no such guard.
     const handleLoginSuccess = async (user, token) => {
         try {
             await setToken(token);
         } catch (e) {
             console.log(e);
         }
-        setIsAuthenticated(true);
         applyUser(user);
         await loadChildren();
+        setIsAuthenticated(true);
     };
 
     const handleLogOut = async () => {
         setIsAuthenticated(false);
-        setShowLanding(true); // back to the landing page, not straight to login
+        setAuthScene("login");
         setProfiles([]);
         setSelectedProfileId(null);
         setCurrentView("dashboard");
+        setNavTab(null); // nor let it carry the old session's pending deep link
         historyRef.current = []; // don't let a new session's back arrow reach the old one
         try {
             await clearToken();
@@ -639,8 +865,12 @@ function MainAppShell({
     // Show the branded loading screen until icon fonts are ready, the saved
     // session has been restored, and the one-time onboarding check resolves —
     // so no screen ever renders with blank icons or a flash of the carousel.
-    if (!fontsReady || bootstrapping || onboarded === null) {
-        return <AppLoadingScreen />;
+    // The splash stays up until fonts, the restored session and the first-run
+    // check have all resolved — and for its own minimum duration on top of
+    // that, so a warm start shows a moment of brand instead of a flicker.
+    const ready = fontsReady && !bootstrapping && onboarded !== null;
+    if (!splashDone) {
+        return <Splash appReady={ready} onFinished={() => setSplashDone(true)} />;
     }
 
     if (professionalMode) {
@@ -648,9 +878,9 @@ function MainAppShell({
     }
 
     if (!isAuthenticated) {
-        // Welcome carousel — first launch ever, ahead of Landing.js. Both its
-        // CTAs mark the flag so it never reappears, whichever one is used;
-        // logging out later does NOT reset this (see handleLogOut).
+        // Welcome carousel — first launch ever. Both its CTAs mark the flag so
+        // it never reappears, whichever one is used; logging out later does NOT
+        // reset this (see handleLogOut).
         if (!onboarded) {
             return (
                 <Onboarding
@@ -658,38 +888,22 @@ function MainAppShell({
                         markSeen("onboarding");
                         setOnboarded(true);
                         setAuthScene("register");
-                        setShowLanding(false);
                     }}
                     onLogin={() => {
                         markSeen("onboarding");
                         setOnboarded(true);
                         setAuthScene("login");
-                        setShowLanding(false);
                     }}
                 />
             );
         }
-        // Landing page first; its CTAs decide which Auth scene opens.
-        if (showLanding) {
-            return (
-                <Landing
-                    onGetStarted={() => {
-                        setAuthScene("register");
-                        setShowLanding(false);
-                    }}
-                    onLogin={() => {
-                        setAuthScene("login");
-                        setShowLanding(false);
-                    }}
-                    onProfessional={() => setProfessionalMode(true)}
-                />
-            );
-        }
+        // No onBack: it used to return to the landing page, which no longer
+        // exists. Auth.js renders its back control only when the prop is
+        // passed, so it correctly disappears.
         return (
             <Auth
                 onLoginSuccess={handleLoginSuccess}
                 onProfessional={() => setProfessionalMode(true)}
-                onBack={() => setShowLanding(true)}
                 initialScene={authScene}
             />
         );
@@ -707,11 +921,62 @@ function MainAppShell({
     }
 
     return (
-        <SafeAreaView style={styles.container}>
-            <StatusBar barStyle={scheme === "dark" ? "light-content" : "dark-content"} backgroundColor={colors.background} />
+        // The page background is a gradient, not a flat fill, and its stops
+        // come from the active palette — so it switches with the child the same
+        // way every accent already does. The final stop IS colors.background,
+        // because every status and record-type colour in theme.js was
+        // contrast-verified against that flat value. See theme.js pageGradient.
+        //
+        // The middle stop is at 0.5, not 0.3. This app puts a card about 14%
+        // down every screen, so a fade that finished at 30% was almost entirely
+        // hidden behind it — the only tinted area left was two 16px strips
+        // beside the header, which is why the gradient read as "barely there".
+        // Carrying colour to mid-page keeps it in the side margins and the gaps
+        // between cards, which is where a page background is actually seen.
+        <ScrollContext.Provider value={scroll}>
+        <Gradient
+            colors={colors.pageGradient}
+            locations={[0, 0.5, 1]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={[
+                styles.container,
+                // NO paddingTop here any more: the header is absolutely
+                // positioned over the page, so it carries the top inset itself.
+                // The bottom inset belongs to the tab bar, which must paint its
+                // own background all the way down behind the home indicator
+                // rather than leaving a bare strip.
+                { paddingLeft: insets.left, paddingRight: insets.right },
+            ]}
+        >
+            <StatusBar barStyle={scheme === "dark" ? "light-content" : "dark-content"} backgroundColor={colors.pageGradient[0]} />
 
-            {/* Dynamic Header */}
-            <View style={styles.header}>
+            {/* Dynamic Header — rendered AFTER the content below so it paints
+                on top of it. It floats over the page rather than sitting above
+                it, which is what lets content scroll beneath the bar and makes
+                its white background mean something. */}
+            <Animated.View
+                style={[styles.header, { paddingTop: insets.top }]}
+                onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
+            >
+                {/* The white ground, as an OVERLAY with animated opacity rather
+                    than an animated backgroundColor — colour is not
+                    native-driver-safe, opacity is, and it composites over the
+                    gradient correctly. The hairline fades in with it. */}
+                <Animated.View
+                    pointerEvents="none"
+                    style={[
+                        styles.headerBg,
+                        {
+                            opacity: scroll.scrollY.interpolate({
+                                inputRange: [0, HEADER_COLLAPSE],
+                                outputRange: [0, 1],
+                                extrapolate: "clamp",
+                            }),
+                        },
+                    ]}
+                />
+                <View style={styles.headerRow}>
                 <View style={styles.headerLeft}>
                     {SCREEN_TITLES[currentView] ? (
                         <>
@@ -728,7 +993,82 @@ function MainAppShell({
                             </Text>
                         </>
                     ) : (
-                        <Text style={styles.babyName}>{activeProfile.name}</Text>
+                        // The child's name IS the switcher. The chevron shows
+                        // even with a single child, because the sheet also
+                        // holds "Add another child" — the affordance that used
+                        // to sit under the Dashboard's switcher row.
+                        <Pressable
+                            ref={nameRef}
+                            onPress={openSwitcher}
+                            style={({ pressed, hovered }) => [
+                                styles.babyNameBtn,
+                                { opacity: hovered ? 0.8 : pressed ? 0.7 : 1 },
+                            ]}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${activeProfile.name}${
+                                otherChildNeedsAttention
+                                    ? ". Another child needs attention"
+                                    : ""
+                            }`}
+                            accessibilityHint="Switches between your children"
+                        >
+                            {/* The name, alert dot and chevron scale as ONE
+                                group, so the chevron shrinks with the title
+                                instead of stranding a gap beside it.
+
+                                The Pressable stays OUTSIDE this view, so the
+                                touch target keeps its full 44pt at every scroll
+                                position — scaling the tappable area down to
+                                0.667 would leave a ~29pt target when collapsed.
+
+                                Scale, not fontSize: animating fontSize re-lays
+                                out the text every scroll frame and forces the
+                                whole animation off the native driver.
+                                transformOrigin keeps it pinned left (RN 0.74+;
+                                this project is on 0.85). */}
+                            <Animated.View
+                                style={[
+                                    styles.babyNameScale,
+                                    {
+                                        transform: [
+                                            {
+                                                scale: scroll.scrollY.interpolate({
+                                                    inputRange: [0, HEADER_COLLAPSE],
+                                                    outputRange: [1, HEADER_TITLE_MIN / HEADER_TITLE_MAX],
+                                                    extrapolate: "clamp",
+                                                }),
+                                            },
+                                        ],
+                                    },
+                                ]}
+                            >
+                                {/* numberOfLines is load-bearing: headerLeft
+                                    and headerRight were both unbounded in a
+                                    space-between row, so a long child name grew
+                                    the left side until it pushed the search /
+                                    QR / menu buttons off-screen. More so at
+                                    30px. The name shown here is the SHORT form
+                                    — see headerName() — because a full Filipino
+                                    name at this size truncates to about eight
+                                    characters, and the large state would then
+                                    truncate harder than the small one. */}
+                                <Text style={styles.babyName} numberOfLines={1} ellipsizeMode="tail">
+                                    {headerName(activeProfile)}
+                                </Text>
+                                {/* Coral dot = some OTHER child needs attention.
+                                    The active child's own problems are already
+                                    stated by the Needs Attention card. */}
+                                {otherChildNeedsAttention ? (
+                                    <View style={styles.babyNameDot} />
+                                ) : null}
+                                <Ionicons
+                                    name={switcherOpen ? "chevron-up" : "chevron-down"}
+                                    size={20}
+                                    color={colors.textMuted}
+                                    style={styles.babyNameChevron}
+                                />
+                            </Animated.View>
+                        </Pressable>
                     )}
                 </View>
                 <View style={styles.headerRight}>
@@ -746,6 +1086,8 @@ function MainAppShell({
                             changeView("share");
                         }}
                         style={styles.headerQrBtn}
+                        accessibilityRole="button"
+                        accessibilityLabel="Share records by QR code"
                     >
                         <Ionicons name="qr-code" size={20} color={colors.primary} />
                         {unseenCount > 0 && (
@@ -765,7 +1107,8 @@ function MainAppShell({
                         <Ionicons name="menu-outline" size={22} color={colors.primary} />
                     </TouchableOpacity>
                 </View>
-            </View>
+                </View>
+            </Animated.View>
 
             {/* Main Container View content */}
             <Animated.View
@@ -777,10 +1120,7 @@ function MainAppShell({
                 {currentView === "dashboard" && (
                     <Dashboard
                         profile={activeProfile}
-                        profiles={profiles}
                         parentName={parentName}
-                        onSelectProfile={setSelectedProfileId}
-                        onOpenAddModal={openAddModal}
                         onOpenEditModal={openEditModal}
                         onUpdateProfile={(updated) =>
                             setProfiles((prev) =>
@@ -790,8 +1130,6 @@ function MainAppShell({
                             )
                         }
                         onChangeView={changeView}
-                        initialAction={navTab}
-                        navKey={navKey}
                     />
                 )}
                 {currentView === "health" && (
@@ -828,19 +1166,14 @@ function MainAppShell({
                 )}
                 {currentView === "nutrition" && (
                     <NutritionTracker
-                        childId={activeProfile.id}
+                        profile={activeProfile}
                         initialAction={navTab}
                         navKey={navKey}
                     />
                 )}
                 {currentView === "services" && <Services />}
                 {currentView === "calendar" && <CalendarView profile={activeProfile} />}
-                {currentView === "allActivity" && (
-                    <AllActivity profile={activeProfile} onClose={goBack} />
-                )}
-                {currentView === "allMemories" && (
-                    <AllMemories profile={activeProfile} onClose={goBack} />
-                )}
+                {currentView === "allActivity" && <AllActivity profile={activeProfile} />}
                 {currentView === "search" && (
                     <Search profile={activeProfile} onClose={goBack} onNavigate={changeView} />
                 )}
@@ -858,7 +1191,7 @@ function MainAppShell({
                     <ViewProfile
                         parentName={parentName}
                         parentAvatar={parentAvatar}
-                        parentGender={parentGender}
+                        parentRelationship={parentRelationship}
                         onEdit={() => changeView("editProfile")}
                     />
                 )}
@@ -867,8 +1200,8 @@ function MainAppShell({
                         parentName={parentName}
                         onUpdateParentName={setParentName}
                         parentAvatar={parentAvatar}
-                        onUpdateParentAvatar={setParentAvatar}
-                        parentGender={parentGender}
+                        parentRelationship={parentRelationship}
+                        onUpdateParentRelationship={setParentRelationship}
                     />
                 )}
                 {currentView === "generalSettings" && <GeneralSettings />}
@@ -891,7 +1224,10 @@ function MainAppShell({
             </Animated.View>
 
             {/* Modern bottom navigation tabs */}
-            <View style={styles.tabBar}>
+            <View
+                style={[styles.tabBar, { paddingBottom: space.md + insets.bottom }]}
+                onLayout={(e) => setTabBarHeight(e.nativeEvent.layout.height)}
+            >
                 {[
                     { key: "dashboard", icon: "home", label: t("navDashboard") },
                     { key: "health", icon: "shield-checkmark", label: t("navHealth") },
@@ -932,59 +1268,31 @@ function MainAppShell({
                 })}
             </View>
 
-            {/* Floating "log something" button, sits above the tab bar and stays
-                reachable from every screen — Calendar keeps its own tab, this is
-                purely additive. */}
-            <TouchableOpacity
-                onPress={() => setActionSheetVisible(true)}
-                style={styles.fab}
-                accessibilityRole="button"
-                accessibilityLabel="Log something"
-            >
-                <Ionicons name="add" size={28} color={colors.onAccent} />
-            </TouchableOpacity>
+            {/* Floating add button, above the tab bar on the five record
+                screens. See FAB_VIEWS above for why it is no longer global. */}
+            {showFab ? (
+                <TouchableOpacity
+                    onPress={() => setActionSheetVisible(true)}
+                    style={[
+                        styles.fab,
+                        // Sits a fixed gap above the MEASURED tab bar, so it
+                        // stays clear of it at any font scale and above any
+                        // home indicator. The 72 fallback matches the bar's
+                        // natural height for the first frame before onLayout.
+                        { bottom: (tabBarHeight || 72 + insets.bottom) + space.md },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add a record"
+                >
+                    <Ionicons name="add" size={28} color={colors.onPrimary} />
+                </TouchableOpacity>
+            ) : null}
 
-            <Modal
+            <ActionSheet
                 visible={actionSheetVisible}
-                transparent
-                animationType="fade"
-                onRequestClose={() => setActionSheetVisible(false)}
-            >
-                <View style={styles.actionSheetRoot}>
-                    <TouchableOpacity
-                        style={StyleSheet.absoluteFill}
-                        activeOpacity={1}
-                        onPress={() => setActionSheetVisible(false)}
-                        accessibilityRole="button"
-                        accessibilityLabel="Close"
-                    />
-                    <View style={styles.actionSheetCard}>
-                        <Text style={styles.actionSheetTitle}>Log something</Text>
-                        <ScrollView style={styles.actionSheetScroll} showsVerticalScrollIndicator={false}>
-                            {ACTION_SHEET_ITEMS.map((opt) => (
-                                <TouchableOpacity
-                                    key={opt.key}
-                                    style={styles.actionSheetItem}
-                                    onPress={() => runAction(opt.view, opt.tab)}
-                                    accessibilityRole="button"
-                                    accessibilityLabel={opt.label}
-                                >
-                                    <Ionicons name={opt.icon} size={20} color={colors.primary} />
-                                    <Text style={styles.actionSheetItemText}>{opt.label}</Text>
-                                </TouchableOpacity>
-                            ))}
-                        </ScrollView>
-                        <TouchableOpacity
-                            style={styles.actionSheetCancel}
-                            onPress={() => setActionSheetVisible(false)}
-                            accessibilityRole="button"
-                            accessibilityLabel="Cancel"
-                        >
-                            <Text style={styles.actionSheetCancelText}>Cancel</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </Modal>
+                onClose={() => setActionSheetVisible(false)}
+                onSelect={runAction}
+            />
 
             {/* Modal: ADD BABY PROFILE */}
             <Modal
@@ -994,7 +1302,7 @@ function MainAppShell({
             >
                 <KeyboardAvoider>
                 <View style={styles.modalBg}>
-                    <ScrollView contentContainerStyle={styles.modalScroll}>
+                    <ScrollView contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled">
                         <View style={styles.modalCard}>
                             <Text style={styles.modalTitle}>
                                 {t("profileAddTitle")}
@@ -1071,8 +1379,8 @@ function MainAppShell({
                                 </TouchableOpacity>
                             </View>
 
-                            <View style={{ flexDirection: "row", gap: 8 }}>
-                                <View style={{ flex: 1 }}>
+                            <View style={modalTwoCol ? styles.formRow : styles.formStack}>
+                                <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
                                     <Text style={styles.modalLabel}>
                                         Birth Weight (kg)
                                     </Text>
@@ -1083,7 +1391,7 @@ function MainAppShell({
                                         onChangeText={setFormWeight}
                                     />
                                 </View>
-                                <View style={{ flex: 1 }}>
+                                <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
                                     <Text style={styles.modalLabel}>
                                         Birth Height (cm)
                                     </Text>
@@ -1182,7 +1490,7 @@ function MainAppShell({
             >
                 <KeyboardAvoider>
                 <View style={styles.modalBg}>
-                    <ScrollView contentContainerStyle={styles.modalScroll}>
+                    <ScrollView contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled">
                         <View style={styles.modalCard}>
                             <Text style={styles.modalTitle}>
                                 {t("profileEditTitle")}
@@ -1257,8 +1565,8 @@ function MainAppShell({
                                 </TouchableOpacity>
                             </View>
 
-                            <View style={{ flexDirection: "row", gap: 8 }}>
-                                <View style={{ flex: 1 }}>
+                            <View style={modalTwoCol ? styles.formRow : styles.formStack}>
+                                <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
                                     <Text style={styles.modalLabel}>
                                         Current Weight (kg)
                                     </Text>
@@ -1269,7 +1577,7 @@ function MainAppShell({
                                         onChangeText={setFormWeight}
                                     />
                                 </View>
-                                <View style={{ flex: 1 }}>
+                                <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
                                     <Text style={styles.modalLabel}>
                                         Current Height (cm)
                                     </Text>
@@ -1420,7 +1728,57 @@ function MainAppShell({
                     handleLogOut();
                 }}
             />
-        </SafeAreaView>
+
+            {/* Baby switcher. An anchored menu, not a bottom sheet: it belongs
+                to the name that opened it and reads as an extension of it.
+                Rows show the FULL name even though the header shows only the
+                short form — this is the screen where a parent tells two
+                siblings apart, so it is the one place the whole name belongs. */}
+            <AnchoredMenu
+                visible={switcherOpen}
+                anchor={switcherAnchor}
+                onClose={() => setSwitcherOpen(false)}
+            >
+                {profiles.map((p) => (
+                    <AnchoredMenuItem
+                        key={p.id}
+                        label={p.name}
+                        note={childAlerts[p.id] ? "Needs attention" : undefined}
+                        selected={p.id === activeProfile.id}
+                        onPress={() => {
+                            setSelectedProfileId(p.id);
+                            setSwitcherOpen(false);
+                        }}
+                        leading={
+                            p.avatarUrl && !brokenAvatars.has(p.id) ? (
+                                <Image
+                                    source={{ uri: p.avatarUrl }}
+                                    style={styles.switcherAvatar}
+                                    onError={() =>
+                                        setBrokenAvatars((prev) => new Set(prev).add(p.id))
+                                    }
+                                />
+                            ) : (
+                                <View style={[styles.switcherAvatar, styles.switcherAvatarFallback]}>
+                                    <Ionicons name="person" size={16} color={colors.primary} />
+                                </View>
+                            )
+                        }
+                    />
+                ))}
+                {/* Not decoration: the Add affordance used to live in the
+                    Dashboard switcher's single-child branch, so without it a
+                    one-child account has no way to add a second. */}
+                <AnchoredMenuFooter
+                    label="Add another child"
+                    onPress={() => {
+                        setSwitcherOpen(false);
+                        openAddModal();
+                    }}
+                />
+            </AnchoredMenu>
+        </Gradient>
+        </ScrollContext.Provider>
     );
 }
 
@@ -1429,10 +1787,15 @@ export default function App() {
     // ("auto" | "girl" | "boy") can force it. Default is "auto".
     const [themeGender, setThemeGender] = useState(undefined);
     const [themeOverride, setThemeOverride] = useState("auto");
-    // Independent light/dark axis — "system" follows the OS setting, or a
-    // manual "light"/"dark" override. Combines with themeOverride above
+    // Independent light/dark axis — a manual "light"/"dark" choice, or
+    // "system" to follow the OS setting. Combines with themeOverride above
     // (e.g. "girl" + "dark" = dark pink theme).
-    const [schemeOverride, setSchemeOverride] = useState("system");
+    //
+    // Starts at "light", which is also what an absent bb_dark_mode key means:
+    // the app opens light for everyone until a parent picks otherwise. The
+    // effect below still restores a saved choice, so anyone who has already
+    // chosen "system" or "dark" keeps it.
+    const [schemeOverride, setSchemeOverride] = useState("light");
 
     useEffect(() => {
         (async () => {
@@ -1466,46 +1829,76 @@ export default function App() {
     };
 
     return (
-        <LanguageProvider>
-            <ThemeProvider gender={themeGender} override={themeOverride} schemeOverride={schemeOverride}>
-                <ToastProvider>
-                    <MainAppShell
-                        onThemeGenderChange={setThemeGender}
-                        themeOverride={themeOverride}
-                        onThemeOverrideChange={changeThemeOverride}
-                        schemeOverride={schemeOverride}
-                        onSchemeOverrideChange={changeSchemeOverride}
-                    />
-                </ToastProvider>
-            </ThemeProvider>
-        </LanguageProvider>
+        <SafeAreaProvider>
+            <LanguageProvider>
+                <ThemeProvider gender={themeGender} override={themeOverride} schemeOverride={schemeOverride}>
+                    <ToastProvider>
+                        <MainAppShell
+                            onThemeGenderChange={setThemeGender}
+                            themeOverride={themeOverride}
+                            onThemeOverrideChange={changeThemeOverride}
+                            schemeOverride={schemeOverride}
+                            onSchemeOverrideChange={changeSchemeOverride}
+                        />
+                    </ToastProvider>
+                </ThemeProvider>
+            </LanguageProvider>
+        </SafeAreaProvider>
     );
 }
 
 const makeStyles = (colors) => StyleSheet.create({
+    // No backgroundColor on either of these: the root is a Gradient and the
+    // header sits ON it, so the tint runs unbroken from under the status bar
+    // down through the header into the page.
     container: {
         flex: 1,
-        backgroundColor: colors.background,
     },
+    // Absolute, so the page scrolls UNDERNEATH it. That is the whole reason the
+    // white background exists — with the header in flow there would be nothing
+    // for it to cover. zIndex rather than moving 200 lines of JSX below the
+    // content: an absolutely-positioned sibling with a zIndex paints above
+    // in-flow siblings on both native and web.
     header: {
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 10,
+    },
+    headerRow: {
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
         paddingHorizontal: space.lg,
         paddingVertical: space.md,
-        backgroundColor: colors.background,
     },
+    // The white ground that fades in on scroll. Absolute-fill inside the header
+    // so it also covers the status-bar inset, which is part of the bar.
+    headerBg: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: colors.surface,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.hairline,
+    },
+    // The left side takes the slack and shrinks; the right side (three fixed
+    // 42pt buttons) never does. Previously both were unbounded, so whichever
+    // had more content won and the other overflowed the screen edge.
     headerLeft: {
         flexDirection: "row",
         alignItems: "center",
+        flex: 1,
+        minWidth: 0,
+        marginRight: space.sm,
     },
     headerRight: {
         flexDirection: "row",
         alignItems: "center",
+        flexShrink: 0,
     },
     headerQrBtn: {
-        width: 42,
-        height: 42,
+        width: MIN_TOUCH,
+        height: MIN_TOUCH,
         borderRadius: radius.lg,
         borderCurve: "continuous",
         backgroundColor: colors.softGreen,
@@ -1527,12 +1920,63 @@ const makeStyles = (colors) => StyleSheet.create({
         borderWidth: 2,
         borderColor: colors.surface,
     },
-    headerBadgeText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
+    headerBadgeText: { color: "#FFFFFF", fontSize: 11, fontWeight: "800" },
+    babyNameBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        minHeight: MIN_TOUCH,
+        flexShrink: 1,
+        minWidth: 0,
+        // Pulls the text back to the screen's left margin — the row's own
+        // padding already provides it, and the touch target extends past it.
+        marginLeft: -space.xs,
+        paddingLeft: space.xs,
+    },
+    // The group that scales with scroll. transformOrigin pins it to the left so
+    // the title shrinks toward the margin instead of toward its own centre,
+    // which is what would happen with RN's default centre origin.
+    babyNameScale: {
+        flexDirection: "row",
+        alignItems: "center",
+        flexShrink: 1,
+        minWidth: 0,
+        transformOrigin: "left center",
+    },
+    // Ink, not brand colour. The page gradient behind this now carries the
+    // girl/boy read; a coloured name would state the same thing twice.
+    //
+    // Laid out at HEADER_TITLE_MAX and scaled DOWN from there — never scaled
+    // up, which would soften the glyphs.
     babyName: {
-        fontSize: 16,
-        fontWeight: "800",
-        color: colors.primary,
-        letterSpacing: -0.2,
+        ...type.title,
+        fontSize: HEADER_TITLE_MAX,
+        lineHeight: Math.round(HEADER_TITLE_MAX * 1.2),
+        color: colors.text,
+        flexShrink: 1,
+        minWidth: 0,
+    },
+    // Coral = overdue, the same tone the Needs Attention card uses.
+    babyNameDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        borderCurve: "continuous",
+        backgroundColor: colors.danger,
+        marginLeft: space.xs,
+        flexShrink: 0,
+    },
+    babyNameChevron: { marginLeft: space.xs, flexShrink: 0 },
+    switcherAvatar: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        borderCurve: "continuous",
+        flexShrink: 0,
+    },
+    switcherAvatarFallback: {
+        backgroundColor: colors.primarySoft,
+        alignItems: "center",
+        justifyContent: "center",
     },
     backBtn: {
         width: MIN_TOUCH,
@@ -1543,8 +1987,8 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     screenTitle: { ...type.heading, color: colors.text, flexShrink: 1 },
     menuBtn: {
-        width: 42,
-        height: 42,
+        width: MIN_TOUCH,
+        height: MIN_TOUCH,
         borderRadius: radius.lg,
         borderCurve: "continuous",
         backgroundColor: colors.softGreen,
@@ -1562,16 +2006,22 @@ const makeStyles = (colors) => StyleSheet.create({
         alignItems: "flex-start",
         justifyContent: "space-around",
         paddingTop: space.sm,
-        paddingBottom: space.md,
+        // paddingBottom is applied inline as space.md + insets.bottom, so the
+        // bar paints its own background behind the home indicator instead of
+        // ending above it.
     },
     tabItem: {
         alignItems: "center",
         justifyContent: "center",
         flex: 1,
+        minWidth: 0,
+        minHeight: MIN_TOUCH,
+        paddingHorizontal: 2,
         gap: 3,
     },
     tabPill: {
-        width: 56,
+        width: "100%",
+        maxWidth: 56,
         height: 32,
         borderRadius: radius.pill,
         alignItems: "center",
@@ -1581,9 +2031,10 @@ const makeStyles = (colors) => StyleSheet.create({
         backgroundColor: colors.primarySoft,
     },
     tabLabel: {
-        fontSize: 11,
+        ...type.caption,
         fontWeight: "600",
         color: colors.textMuted,
+        textAlign: "center",
     },
     tabLabelActive: {
         color: colors.accentStrong,
@@ -1592,60 +2043,17 @@ const makeStyles = (colors) => StyleSheet.create({
     fab: {
         position: "absolute",
         right: space.lg,
-        bottom: 92,
+        // `bottom` is applied inline from the measured tab-bar height — it was
+        // a hardcoded 92 that only cleared the bar at one font scale.
         width: 56,
         height: 56,
         borderRadius: 28,
-        backgroundColor: colors.accentStrong,
+        borderCurve: "continuous",
+        backgroundColor: colors.primary,
         alignItems: "center",
         justifyContent: "center",
         ...shadow.accent,
     },
-    actionSheetRoot: {
-        flex: 1,
-        justifyContent: "flex-end",
-        backgroundColor: "rgba(28,25,23,0.45)",
-    },
-    actionSheetCard: {
-        backgroundColor: colors.background,
-        borderTopLeftRadius: radius.xl,
-        borderTopRightRadius: radius.xl,
-        borderCurve: "continuous",
-        padding: space.lg,
-        paddingBottom: space.xl,
-        ...shadow.raised,
-    },
-    actionSheetTitle: {
-        fontSize: 16,
-        fontWeight: "800",
-        color: colors.text,
-        marginBottom: space.md,
-        textAlign: "center",
-    },
-    actionSheetScroll: {
-        maxHeight: 420,
-    },
-    actionSheetItem: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: space.md,
-        minHeight: 48,
-        paddingHorizontal: space.md,
-        borderRadius: radius.md,
-        borderCurve: "continuous",
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.hairline,
-        marginBottom: space.sm,
-    },
-    actionSheetItemText: { fontSize: 14, fontWeight: "700", color: colors.text },
-    actionSheetCancel: {
-        marginTop: space.xs,
-        minHeight: 48,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    actionSheetCancelText: { fontSize: 14, fontWeight: "700", color: colors.textSecondary },
     modalBg: {
         flex: 1,
         backgroundColor: "rgba(28,25,23,0.55)",
@@ -1693,7 +2101,7 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     avatarHint: {
         marginTop: space.sm,
-        fontSize: 12,
+        ...type.caption,
         fontWeight: "600",
         color: colors.textMuted,
     },
@@ -1703,7 +2111,9 @@ const makeStyles = (colors) => StyleSheet.create({
         borderCurve: "continuous",
         padding: space.xl,
         width: "100%",
-        maxWidth: 360,
+        // 440, not 360: at 360 the sheet stayed narrower than the phone it was
+        // sitting on once the screen reached 390 or 430pt.
+        maxWidth: 440,
         borderWidth: 1,
         borderColor: colors.hairline,
         ...shadow.raised,
@@ -1716,7 +2126,7 @@ const makeStyles = (colors) => StyleSheet.create({
         marginBottom: space.lg,
     },
     modalLabel: {
-        fontSize: 13,
+        ...type.caption,
         fontWeight: "700",
         color: colors.textSecondary,
         marginBottom: 6,
@@ -1733,9 +2143,17 @@ const makeStyles = (colors) => StyleSheet.create({
         color: colors.text,
         marginBottom: space.lg,
     },
+    // Paired form fields. `formStack` is the same two fields one per line, used
+    // whenever a column would fall below TEXT_COL_MIN — at which point a label
+    // like "Current Weight (kg)" no longer fits on one line beside its twin.
+    formRow: { flexDirection: "row", gap: space.sm },
+    formStack: { flexDirection: "column" },
+    formCell: { flex: 1, minWidth: 0 },
+    formCellFull: { width: "100%" },
     modalButtons: {
         flexDirection: "row",
         justifyContent: "flex-end",
+        flexWrap: "wrap",
         gap: space.md,
     },
     modalCancelBtn: {
@@ -1785,7 +2203,7 @@ const makeStyles = (colors) => StyleSheet.create({
         ...shadow.card,
     },
     genderButtonText: {
-        fontSize: 12,
+        ...type.caption,
         fontWeight: "600",
         color: colors.textMuted,
     },

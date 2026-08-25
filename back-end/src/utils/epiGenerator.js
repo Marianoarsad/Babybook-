@@ -56,6 +56,9 @@ function generateEpiSchedule(dateOfBirth) {
                 date_given: null,
                 notes: e.notes || null,
                 source: "epi",
+                // Also carried in its own column now, so "is dose 2 done?" is a
+                // real question rather than a string match on the name.
+                dose_number: e.doseNumber || null,
             },
             // Only schedule a reminder for doses still ahead — a past-dated
             // reminder is harmless but pointless to write.
@@ -64,6 +67,20 @@ function generateEpiSchedule(dateOfBirth) {
     });
 
     return { entries, scheduleVersion: SCHEDULE_VERSION };
+}
+
+// Identity of a scheduled dose, for deciding whether it already exists.
+//
+// Compares the vaccine name WITHOUT its trailing dose number. The 2026
+// verification gave IPV a dose number for the first time, which renames a
+// stored "IPV" to "IPV 1"; a raw name+visit key would read that as a new dose
+// and insert a duplicate into every child whose schedule predates the change.
+// Stripping the trailing digit makes "IPV" and "IPV 1" the same dose at the
+// same visit, while "IPV 2 | 9 Months" stays genuinely new — doses are told
+// apart by visit_name, which is what actually differs between them.
+function epiDedupeKey(name, visit) {
+    const base = String(name || "").replace(/\s+\d+$/, "").trim();
+    return `${base}|${visit || ""}`;
 }
 
 function buildInsert(table, cols, rows) {
@@ -104,15 +121,15 @@ async function insertEpiSchedule(childId, dateOfBirth, mode = "all") {
                 [childId]
             );
             const existingKeys = new Set(
-                existing.map((r) => `${decrypt(r.vaccine_name)}|${decrypt(r.visit_name) || ""}`)
+                existing.map((r) => epiDedupeKey(decrypt(r.vaccine_name), decrypt(r.visit_name)))
             );
             toInsert = entries.filter(
-                (e) => !existingKeys.has(`${e.vaccination.vaccine_name}|${e.vaccination.visit_name || ""}`)
+                (e) => !existingKeys.has(epiDedupeKey(e.vaccination.vaccine_name, e.vaccination.visit_name))
             );
         }
         if (toInsert.length === 0) return { inserted: 0 };
 
-        const vaxCols = ["child_id", "vaccine_name", "visit_name", "due_date", "status", "date_given", "notes", "source"];
+        const vaxCols = ["child_id", "vaccine_name", "visit_name", "due_date", "status", "date_given", "notes", "source", "dose_number"];
         const vaxRows = toInsert.map((e) => ({
             child_id: childId,
             ...encryptFields(e.vaccination, VACCINATION_ENCRYPTED),
@@ -143,4 +160,4 @@ async function insertEpiSchedule(childId, dateOfBirth, mode = "all") {
     });
 }
 
-module.exports = { generateEpiSchedule, insertEpiSchedule, SCHEDULE_VERSION };
+module.exports = { generateEpiSchedule, insertEpiSchedule, epiDedupeKey, SCHEDULE_VERSION };

@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, Image, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { radius, space } from "../../theme";
+import { radius, space, type } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
 import { pickImage, pickerAvailable } from "../../utils/imagePicker";
 
@@ -19,7 +19,7 @@ export default function PhotoAttach({
     const preview = uri || "";
     return (
         <View style={{ marginBottom: space.md }}>
-            <Text style={{ fontSize: 13, fontWeight: "700", color: colors.textSecondary, marginBottom: 6 }}>
+            <Text style={{ ...type.caption, fontWeight: "700", color: colors.textSecondary, marginBottom: 6 }}>
                 {label}
                 {required ? <Text style={{ color: colors.danger }}> *</Text> : null}
             </Text>
@@ -52,8 +52,8 @@ export default function PhotoAttach({
                         <Ionicons name="camera-outline" size={24} color={colors.textMuted} />
                     )}
                 </TouchableOpacity>
-                <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 12, color: colors.textMuted }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={{ ...type.caption, color: colors.textMuted }}>
                         {uri ? "Photo selected ✓" : pickerAvailable() ? "Tap the box to choose a photo." : helper}
                     </Text>
                 </View>

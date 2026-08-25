@@ -11,32 +11,14 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
-import { radius, space, shadow } from "../theme";
+import { radius, space, shadow, type } from "../theme";
+import { ageAtDate, shortDate } from "../utils/dates";
 
-// Compute a friendly age at the memory's date, given the child's DOB.
-// Both inputs are "YYYY-MM-DD" strings. Returns e.g. "14 months" / "1 yr 2 mo".
-function ageAt(dob, date) {
-    if (!dob || !date) return "";
-    const b = new Date(dob);
-    const d = new Date(date);
-    if (isNaN(b) || isNaN(d) || d < b) return "";
-    let months =
-        (d.getFullYear() - b.getFullYear()) * 12 + (d.getMonth() - b.getMonth());
-    if (d.getDate() < b.getDate()) months -= 1;
-    if (months < 0) months = 0;
-    if (months < 24) return `${months} month${months === 1 ? "" : "s"}`;
-    const yrs = Math.floor(months / 12);
-    const mo = months % 12;
-    return mo ? `${yrs} yr ${mo} mo` : `${yrs} yr`;
-}
-
-// Format "YYYY-MM-DD" -> "DD MMM YYYY" (falls back to the raw value).
-function prettyDate(date) {
-    if (!date) return "";
-    const d = new Date(date);
-    if (isNaN(d)) return date;
-    return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-}
+// The private ageAt() and prettyDate() that used to live here are now
+// utils/dates.js's ageAtDate() and shortDate(). The age one had to move: a
+// saved milestone stores the same answer in `age_achieved`, which is what the
+// QR snapshot ships to a healthcare professional, so the screen and the record
+// must not compute it two different ways.
 
 // A single labelled metadata chip (icon + label + value).
 function Chip({ icon, label, value, colors, styles, accent }) {
@@ -62,7 +44,7 @@ export default function MemoryDetail({ visible, memory, dob, typeLabel, onClose 
     const styles = useMemo(() => makeStyles(colors), [colors]);
 
     if (!memory) return null;
-    const age = ageAt(dob, memory.date);
+    const age = ageAtDate(dob, memory.date);
 
     return (
         <Modal
@@ -83,7 +65,12 @@ export default function MemoryDetail({ visible, memory, dob, typeLabel, onClose 
                     >
                         <Ionicons name="arrow-back" size={22} color={colors.text} />
                     </TouchableOpacity>
-                    <Text style={styles.headerTitle}>Memory Detail</Text>
+                    {/* Follows the entry — this screen opens milestones too,
+                        and calling one of those "Memory Detail" is the same
+                        borrowed wording that made the two look identical. */}
+                    <Text style={styles.headerTitle}>
+                        {typeLabel ? `${typeLabel} Detail` : "Memory Detail"}
+                    </Text>
                     <View style={styles.headerBtn} />
                 </View>
 
@@ -109,7 +96,7 @@ export default function MemoryDetail({ visible, memory, dob, typeLabel, onClose 
                             <Chip
                                 icon="calendar-outline"
                                 label="DATE"
-                                value={prettyDate(memory.date)}
+                                value={shortDate(memory.date)}
                                 colors={colors}
                                 styles={styles}
                             />
@@ -137,14 +124,14 @@ export default function MemoryDetail({ visible, memory, dob, typeLabel, onClose 
 
                     {/* Title + notes */}
                     <View style={styles.notesCard}>
-                        <Text style={styles.memoryTitle}>{memory.title || "Untitled Memory"}</Text>
+                        <Text style={styles.memoryTitle}>{memory.title || "Untitled"}</Text>
                         <View style={styles.accentBar} />
                         <Text style={styles.notesHeading}>Notes</Text>
                         {memory.description ? (
                             <Text style={styles.notesBody}>{memory.description}</Text>
                         ) : (
                             <Text style={styles.notesEmpty}>
-                                No notes were added for this memory.
+                                No notes were added.
                             </Text>
                         )}
                     </View>
@@ -156,7 +143,9 @@ export default function MemoryDetail({ visible, memory, dob, typeLabel, onClose 
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        root: { flex: 1, backgroundColor: colors.background },
+        // transparent, not colors.background: App.js paints the page gradient.
+
+        root: { flex: 1, backgroundColor: "transparent" },
         header: {
             flexDirection: "row",
             alignItems: "center",
@@ -189,7 +178,7 @@ const makeStyles = (colors) =>
             justifyContent: "center",
             backgroundColor: colors.softGreen,
         },
-        photoPlaceholderText: { marginTop: space.sm, fontSize: 12, color: colors.textMuted, fontWeight: "600" },
+        photoPlaceholderText: { marginTop: space.sm, ...type.caption, color: colors.textMuted, fontWeight: "600" },
 
         chipGrid: {
             flexDirection: "row",
@@ -211,7 +200,7 @@ const makeStyles = (colors) =>
         },
         chipLabelRow: { flexDirection: "row", alignItems: "center", gap: 6 },
         chipLabel: {
-            fontSize: 11,
+            ...type.caption,
             fontWeight: "700",
             color: colors.textMuted,
             letterSpacing: 0.6,

@@ -8,6 +8,7 @@ const { requireAuth, requireChildOwnership } = require("../middleware/auth");
 const { upload, extOf } = require("../middleware/upload");
 const { encryptFields, decryptRow } = require("../utils/crypto");
 const { insertEpiSchedule } = require("../utils/epiGenerator");
+const { EPI_SCHEDULE, SCHEDULE_VERSION } = require("../data/epiSchedule");
 const storage = require("../utils/storage");
 
 // Sensitive child identity/medical text columns encrypted at rest.
@@ -114,6 +115,31 @@ router.post(
         const mode = req.body.mode || "fill-gaps";
         const result = await insertEpiSchedule(req.child.id, req.child.date_of_birth, mode);
         res.json({ status: "ok", ...result });
+    })
+);
+
+// GET /api/children/vaccine-catalogue
+//
+// The vaccine names and dose counts the DOH schedule contains, so the Add
+// Vaccination form can offer a list instead of an empty text box. Served from
+// data/epiSchedule.js rather than duplicated in the app: a second hand-typed
+// copy would drift from the schedule the reminders and due dates come from,
+// and the whole point of the picker is that the two agree.
+//
+// Not child-scoped — the catalogue is the same for everyone — but kept behind
+// auth since it sits under /api/children. Declared BEFORE "/:childId" so
+// Express does not read "vaccine-catalogue" as a child id.
+router.get(
+    "/vaccine-catalogue",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+        const byName = new Map();
+        for (const e of EPI_SCHEDULE) {
+            const prev = byName.get(e.vaccineName) || { name: e.vaccineName, doses: 0 };
+            prev.doses = Math.max(prev.doses, e.doseNumber || 1);
+            byName.set(e.vaccineName, prev);
+        }
+        res.json({ scheduleVersion: SCHEDULE_VERSION, vaccines: [...byName.values()] });
     })
 );
 

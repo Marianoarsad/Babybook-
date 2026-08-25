@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
 import { radius, space, shadow, type } from "../theme";
+import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
+import { useScroll } from "../context/ScrollContext";
 import { getSummary } from "../utils/offlineSummary";
 import { ageText } from "./Dashboard";
 
@@ -17,6 +19,10 @@ import { ageText } from "./Dashboard";
 export default function OfflineSummaryView({ profile }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
+
+    const { scrollProps } = useScroll();
     const [summary, setSummary] = useState(undefined); // undefined = loading, null = none cached
 
     useEffect(() => {
@@ -32,7 +38,10 @@ export default function OfflineSummaryView({ profile }) {
     if (summary === undefined) return null;
 
     return (
-        <ScrollView contentContainerStyle={styles.scroll}>
+        <Animated.ScrollView
+            contentContainerStyle={[styles.scroll, { paddingTop: padTop, paddingBottom: padBottom }]}
+            {...scrollProps}
+        >
             {!summary ? (
                 <View style={styles.emptyCard}>
                     <Ionicons name="cloud-offline-outline" size={32} color={colors.textMuted} />
@@ -127,7 +136,7 @@ export default function OfflineSummaryView({ profile }) {
                     </View>
                 </>
             )}
-        </ScrollView>
+        </Animated.ScrollView>
     );
 }
 
@@ -169,7 +178,9 @@ function Section({ icon, title, colors, styles, children }) {
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        scroll: { padding: 16, paddingBottom: 40 },
+        // paddingTop/paddingBottom come from the screen-padding hooks inline —
+        // this screen had neither, so its first card sat under the floating header.
+        scroll: { padding: 16 },
         emptyCard: {
             alignItems: "center",
             backgroundColor: colors.surface,
@@ -191,7 +202,7 @@ const makeStyles = (colors) =>
             paddingVertical: 9,
             marginBottom: 14,
         },
-        bannerText: { color: "#FFFFFF", fontWeight: "800", fontSize: 12, letterSpacing: 1 },
+        bannerText: { color: "#FFFFFF", fontWeight: "800", ...type.caption, letterSpacing: 1 },
         childName: { fontSize: 24, fontWeight: "900", color: colors.text },
         asOfRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4, marginBottom: 14 },
         asOfText: { ...type.caption, color: colors.textMuted },
@@ -212,13 +223,13 @@ const makeStyles = (colors) =>
             borderTopWidth: 1,
             borderTopColor: colors.hairline,
         },
-        dataLabel: { fontSize: 12.5, color: colors.textMuted, flex: 1 },
-        dataValue: { fontSize: 12.5, color: colors.text, fontWeight: "700", flex: 1, textAlign: "right" },
+        dataLabel: { ...type.caption, color: colors.textMuted, flex: 1, minWidth: 0 },
+        dataValue: { ...type.caption, color: colors.text, fontWeight: "700", flex: 1, textAlign: "right" },
         listItem: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 7 },
         dot: { width: 9, height: 9, borderRadius: 5 },
         itemTitle: { fontSize: 13, fontWeight: "700", color: colors.text },
-        itemSub: { fontSize: 11, color: colors.textMuted, marginTop: 1 },
-        empty: { fontSize: 12, color: colors.textMuted, fontStyle: "italic" },
+        itemSub: { ...type.caption, color: colors.textMuted, marginTop: 1 },
+        empty: { ...type.caption, color: colors.textMuted, fontStyle: "italic" },
         readOnlyNote: {
             flexDirection: "row",
             gap: 8,
@@ -228,5 +239,5 @@ const makeStyles = (colors) =>
             padding: 12,
             marginTop: 4,
         },
-        readOnlyText: { flex: 1, fontSize: 11, color: colors.textMuted, lineHeight: 15 },
+        readOnlyText: { flex: 1, ...type.caption, color: colors.textMuted, lineHeight: 15 },
     });

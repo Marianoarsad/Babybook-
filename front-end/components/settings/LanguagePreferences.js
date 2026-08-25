@@ -1,8 +1,10 @@
 import React, { useMemo } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Animated } from "react-native";
 import { SectionContainerCard } from "../common/Cards";
 import { useLanguage } from "../../context/LanguageContext";
 import { useTheme } from "../../context/ThemeContext";
+import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
+import { useScroll } from "../../context/ScrollContext";
 import { space, radius, type } from "../../theme";
 
 const LANGUAGES = [
@@ -15,9 +17,18 @@ export default function LanguagePreferences() {
     const { language, setLanguage, t } = useLanguage();
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
+
+    const { scrollProps } = useScroll();
 
     return (
-        <ScrollView style={styles.container}>
+        <Animated.ScrollView
+            style={styles.container}
+            contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
+            keyboardShouldPersistTaps="handled"
+            {...scrollProps}
+        >
             <SectionContainerCard title={t("settingsLanguageLabel")} subtitle={t("settingsLanguageHelp")}>
                 <View style={styles.langGrid}>
                     {LANGUAGES.map((l) => {
@@ -37,13 +48,17 @@ export default function LanguagePreferences() {
                     })}
                 </View>
             </SectionContainerCard>
-        </ScrollView>
+        </Animated.ScrollView>
     );
 }
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
+        // transparent, not colors.background: App.js paints the page gradient.
+
+        container: { flex: 1, backgroundColor: "transparent" },
+        // Padding on the content so the bottom clearance scrolls with it.
+        content: { padding: space.lg },
         langGrid: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
         langCard: {
             flexBasis: "31%",

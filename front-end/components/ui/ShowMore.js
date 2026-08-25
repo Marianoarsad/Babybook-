@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { TouchableOpacity, Text, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { radius, space } from "../../theme";
+import { radius, space, type, MIN_TOUCH } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
 
 // Shared "show 10 more" button for every capped record list in the app
@@ -37,6 +37,7 @@ const makeStyles = (colors) =>
             justifyContent: "center",
             gap: 6,
             marginTop: space.sm,
+            minHeight: MIN_TOUCH,
             paddingVertical: 12,
             borderRadius: radius.md,
             borderCurve: "continuous",
@@ -44,5 +45,5 @@ const makeStyles = (colors) =>
             borderColor: colors.border,
             backgroundColor: colors.softGreen,
         },
-        loadMoreText: { fontSize: 13, fontWeight: "700", color: colors.primaryDark },
+        loadMoreText: { ...type.caption, fontWeight: "700", color: colors.primaryDark },
     });

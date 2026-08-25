@@ -32,6 +32,15 @@ export default function PercentileChart({
     dateOfBirth,
     rows,
     compact = false,
+    // The child's first name, for the legend. "This child" is the fallback and
+    // is what the healthcare professional's copy still reads.
+    name,
+    // Parent-facing: draw ONE reference band instead of two. The chart used to
+    // put a +/-2 band and a +/-3 band on top of each other at different
+    // opacities while the legend named only one of them, so a reader with no
+    // statistics background met an unexplained second shape. The clinician's
+    // copy keeps both -- see the `plain` gate in GrowthChart.js.
+    simple = false,
 }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -41,9 +50,17 @@ export default function PercentileChart({
     // bands are simply omitted rather than guessed.
     const sexKey = useMemo(() => normalizeSex(sex), [sex]);
 
-    const chartHeight = compact ? 150 : 236;
-    const padTop = 10;
-    const padBottom = compact ? 16 : 22;
+    const chartHeight = compact ? 184 : 252;
+    // 26, not 10: the unit label sits above the topmost y tick, and both are
+    // 13px right-aligned to the same edge. At 18 the two glyphs touched --
+    // "kg" sat directly on top of "14.4". 26 leaves 18px between the two
+    // baselines. chartHeight grew by the same 16, so the plot area is
+    // unchanged from the original 136.
+    const padTop = 26;
+    // Compact used to be 16, which left no room for the x axis and was the
+    // reason compact had no time reference at all. A curve without an age axis
+    // can't be read: three months of growth and three years look identical.
+    const padBottom = 22;
     // Widened from 30/26 to fit the 13px tick labels (DESIGN.md's 13px text
     // floor) without clipping — narrower and "14.5"/"med" started running off
     // the left/right edge of the compact chart.
@@ -158,10 +175,15 @@ export default function PercentileChart({
                     <Svg width={width} height={chartHeight}>
                         {bands ? (
                             <>
-                                {/* Reference envelope, widest first. */}
-                                <Path d={geo.areaFor(bands[3], bands[-3])} fill={colors.text} fillOpacity={0.035} />
+                                {/* Reference envelope, widest first. The outer
+                                    one is dropped in simple mode: two nested
+                                    greys read as one vague smudge, and only the
+                                    inner band was ever named in the legend. */}
+                                {!simple ? (
+                                    <Path d={geo.areaFor(bands[3], bands[-3])} fill={colors.text} fillOpacity={0.035} />
+                                ) : null}
                                 <Path d={geo.areaFor(bands[2], bands[-2])} fill={colors.text} fillOpacity={0.05} />
-                                {Z_LINES.map((z) => (
+                                {(simple ? [-2, 0, 2] : Z_LINES).map((z) => (
                                     <Path
                                         key={z}
                                         d={geo.lineFor(bands[z])}
@@ -203,6 +225,21 @@ export default function PercentileChart({
                             strokeWidth={1}
                         />
 
+                        {/* The unit, on the axis with the numbers it belongs
+                            to. It used to appear only inside the legend phrase
+                            "This child (kg)", which is nowhere near the figures
+                            a reader is trying to interpret. */}
+                        <SvgText
+                            x={gutter - 6}
+                            y={11}
+                            fontSize={13}
+                            fontWeight="700"
+                            fill={colors.textMuted}
+                            textAnchor="end"
+                        >
+                            {unit}
+                        </SvgText>
+
                         {/* Y scale */}
                         {yRange
                             ? [yRange.max, (yRange.max + yRange.min) / 2, yRange.min].map((v, i) => (
@@ -238,38 +275,47 @@ export default function PercentileChart({
                               ))
                             : null}
 
-                        {/* X scale */}
-                        {!compact
-                            ? xTicks.map((t, i) => (
-                                  <SvgText
-                                      key={`x${i}`}
-                                      x={geo.xFor(t.day)}
-                                      y={chartHeight - 5}
-                                      fontSize={13}
-                                      fontWeight="600"
-                                      fill={colors.textMuted}
-                                      textAnchor={i === 0 ? "start" : "middle"}
-                                  >
-                                      {t.label}
-                                  </SvgText>
-                              ))
-                            : null}
+                        {/* X scale — drawn in both sizes now. */}
+                        {xTicks.map((t, i) => (
+                            <SvgText
+                                key={`x${i}`}
+                                x={geo.xFor(t.day)}
+                                y={chartHeight - 5}
+                                fontSize={13}
+                                fontWeight="600"
+                                fill={colors.textMuted}
+                                textAnchor={i === 0 ? "start" : "middle"}
+                            >
+                                {t.label}
+                            </SvgText>
+                        ))}
                     </Svg>
                 ) : null}
             </View>
 
-            {!compact ? (
-                <View style={styles.legendRow}>
-                    <View style={styles.legendItem}>
-                        <View style={[styles.legendLine, { backgroundColor: colors.primary }]} />
-                        <Text style={styles.legendText}>This child ({unit})</Text>
-                    </View>
-                    <View style={styles.legendItem}>
-                        <View style={styles.legendBand} />
-                        <Text style={styles.legendText}>WHO typical range</Text>
-                    </View>
+            {/* One entry per mark the chart draws, and no mark without an
+                entry. The dashed line was previously drawn and never named
+                anywhere in compact mode, because its own label is suppressed
+                there. Labels are kept short deliberately; the unit moved to the
+                axis so this row does not have to carry it. */}
+            <View style={styles.legendRow}>
+                <View style={styles.legendItem}>
+                    <View style={[styles.legendLine, { backgroundColor: colors.primary }]} />
+                    <Text style={styles.legendText}>{name || "This child"}</Text>
                 </View>
-            ) : null}
+                <View style={styles.legendItem}>
+                    <View style={styles.legendBand} />
+                    <Text style={styles.legendText}>Most children this age</Text>
+                </View>
+                <View style={styles.legendItem}>
+                    <View style={styles.legendDash}>
+                        <View style={styles.legendDashSeg} />
+                        <View style={styles.legendDashSeg} />
+                        <View style={styles.legendDashSeg} />
+                    </View>
+                    <Text style={styles.legendText}>Average</Text>
+                </View>
+            </View>
 
             {!sexKey ? (
                 <Text style={styles.note}>
@@ -298,6 +344,15 @@ const makeStyles = (colors) =>
         legendRow: { flexDirection: "row", flexWrap: "wrap", gap: space.lg, marginTop: space.sm },
         legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
         legendLine: { width: 16, height: 3, borderRadius: 2, borderCurve: "continuous" },
+        // Matches the median stroke: same colour, same 0.6 opacity, broken into
+        // segments. A solid swatch standing for a dashed line is not a key.
+        legendDash: { width: 16, flexDirection: "row", alignItems: "center", gap: 2 },
+        legendDashSeg: {
+            flex: 1,
+            height: 2,
+            backgroundColor: colors.textMuted,
+            opacity: 0.6,
+        },
         legendBand: {
             width: 16,
             height: 10,

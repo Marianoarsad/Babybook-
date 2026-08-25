@@ -1,9 +1,11 @@
 import React, { useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator, Animated } from "react-native";
 import { SectionContainerCard } from "../common/Cards";
 import { api } from "../../utils/api";
 import { useToast } from "../ui/Toast";
 import { useTheme } from "../../context/ThemeContext";
+import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
+import { useScroll } from "../../context/ScrollContext";
 import { space, radius, type } from "../../theme";
 import KeyboardAvoider from "../ui/KeyboardAvoider";
 
@@ -23,6 +25,10 @@ function passwordStrength(pw) {
 export default function ChangePassword() {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const padBottom = useScreenPadBottom();
+    const padTop = useScreenPadTop();
+
+    const { scrollProps } = useScroll();
     const toast = useToast();
 
     const [currentPassword, setCurrentPassword] = useState("");
@@ -66,7 +72,12 @@ export default function ChangePassword() {
 
     return (
         <KeyboardAvoider>
-        <ScrollView style={styles.container}>
+        <Animated.ScrollView
+            style={styles.container}
+            contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
+            keyboardShouldPersistTaps="handled"
+            {...scrollProps}
+        >
             <SectionContainerCard title="Change Password" subtitle="Use your current password to set a new one">
                 <View style={styles.formGroup}>
                     <Text style={styles.label}>Current Password</Text>
@@ -122,14 +133,18 @@ export default function ChangePassword() {
                     )}
                 </TouchableOpacity>
             </SectionContainerCard>
-        </ScrollView>
+        </Animated.ScrollView>
         </KeyboardAvoider>
     );
 }
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background, padding: space.lg },
+        // transparent, not colors.background: App.js paints the page gradient.
+
+        container: { flex: 1, backgroundColor: "transparent" },
+        // Padding on the content so the bottom clearance scrolls with it.
+        content: { padding: space.lg },
         formGroup: { marginBottom: space.md },
         label: { ...type.subheading, color: colors.textMuted, marginBottom: space.xs },
         meterRow: { flexDirection: "row", alignItems: "center", marginTop: space.sm },

@@ -152,7 +152,9 @@ Because the success bar is real adoption, these are product deficiencies rather 
 - `Documents/BabyBook+_DPA_RA10173_Compliance.md` — Philippine Data Privacy Act compliance write-up.
 - `Documents/BabyBook+_Critical_Evaluation_2026-08.docx` — security and quality findings.
 - `Documents/BabyBook+_Proposal_Form.docx` / `.pdf` — approved project proposal.
-- `Documents/plans/` — implementation and evaluation plans.
+- `Documents/BabyBook+_ROADMAP.md` — current progress and the plan to launch.
+- `Documents/BabyBook+_Feature_Gap_Analysis.md` — what is missing versus comparable 2026 apps.
+- `Documents/archive/` — completed implementation and evaluation plans, kept for the reasoning behind past decisions.
 - `PROJECT_HISTORY_SUMMARY.md`, `BabyBook+_App_Overview.md`, `DEPLOYMENT.md`.
 - A seeded demo account with a year of realistic records (`npm run db:seed:demo`).
 - Prior-art research (`Documents/Notes.txt`): DigiVacc, Rourke Baby Record, CDC Milestone Tracker,

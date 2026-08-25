@@ -131,6 +131,9 @@ export const api = {
     updateMe: (b) => request("PUT", "/api/auth/me", b),
     renewConsent: () => request("POST", "/api/auth/consent/renew"),
     changePassword: (b) => request("POST", "/api/auth/change-password", b),
+    // Separate from updateMe: email is the login identity, so the server
+    // requires the current password. See auth.routes.js POST /change-email.
+    changeEmail: (b) => request("POST", "/api/auth/change-email", b),
     deleteAccount: () => request("DELETE", "/api/auth/me"),
     forgotPassword: (b) => request("POST", "/api/auth/forgot-password", b, { auth: false }),
     resetPassword: (b) => request("POST", "/api/auth/reset-password", b, { auth: false }),
@@ -163,6 +166,12 @@ export const api = {
     },
     deleteAttachment: (childId, id) => request("DELETE", `/api/children/${childId}/attachments/${id}`),
 
+    // The vaccine names + dose counts the DOH schedule contains, so the Add
+    // Vaccination form can offer a list instead of an empty box. Served from
+    // the same data the due dates and reminders come from, so the picker and
+    // the schedule cannot drift apart.
+    vaccineCatalogue: () => request("GET", `/api/children/vaccine-catalogue`),
+
     // --- generic child records (vaccinations, growth, milestones, etc.) ---
     listRecords: (childId, resource) => request("GET", `/api/children/${childId}/${resource}`),
     createRecord: (childId, resource, b) => request("POST", `/api/children/${childId}/${resource}`, b),
@@ -179,6 +188,25 @@ export const api = {
         if (notes) form.append("notes", notes);
         if (date_recorded) form.append("date_recorded", date_recorded);
         return request("POST", `/api/children/${childId}/memories`, form, { isForm: true });
+    },
+
+    // --- a milestone with a device photo (multipart upload) ---
+    //
+    // Goes to the SAME generic /milestones endpoint createRecord uses — the
+    // resource router accepts either JSON or multipart (photoColumn in
+    // back-end/src/utils/resource.js). Only the encoding differs, so there is
+    // one create path and one set of validation rules.
+    //
+    // Blank fields are omitted rather than sent empty: over multipart every
+    // value is a string, and an empty `date_recorded` would reach Postgres as
+    // "" and fail to parse as a date.
+    createMilestoneWithPhoto: async (childId, fields, photoUri) => {
+        const form = new FormData();
+        if (photoUri) await appendPhoto(form, "photo", photoUri, "milestone.jpg");
+        for (const [k, v] of Object.entries(fields)) {
+            if (v !== undefined && v !== null && v !== "") form.append(k, String(v));
+        }
+        return request("POST", `/api/children/${childId}/milestones`, form, { isForm: true });
     },
 
     // --- QR consultation shares (parent) ---

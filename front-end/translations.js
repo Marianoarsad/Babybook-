@@ -48,9 +48,6 @@ export const translations = {
         dashDiagTitle: "Health Diagnostics Summary",
         dashDiagSub:
             "Active health warnings, temperature tracking, and vaccinations status",
-        dashMemoriesTitle: "Milestone Memories Gallery",
-        dashMemoriesSub:
-            "Your baby's precious achievements captured with pictures and stories",
         dashEmptyMemories:
             "No precious milestone photos uploaded yet. Record one in the Growth section!",
         dashViewDiag: "Click to view full health diagnostic summary",
@@ -64,12 +61,17 @@ export const translations = {
             "List of complete and pending pediatric vaccine doses",
         healthVaccineNCRStock: "NCR Vaccine Stocks Bulletin",
         healthVaccineNCRStockSub:
-            "Real-time updates of local health center stocks",
+            "Example of how local health centre stock notices would appear",
         healthCheckupReminders: "Pediatric Checkup Reminders",
         healthCheckupRemindersSub: "Upcoming schedules and clinic guidelines",
-        healthMedicationReminders: "Medication Reminders",
+        // Was "Medication Reminders" / "Prescribed drugs schedules and
+        // instructions" for a year while the app scheduled no reminder of any
+        // kind and the reminders table did not even permit the type. It sends
+        // them now, but the tab holds records first and the title should say
+        // what is in it rather than name one feature of it.
+        healthMedicationReminders: "Taking now",
         healthMedicationRemindersSub:
-            "Prescribed drugs schedules and instructions",
+            "Tick off each dose as you give it",
         healthLogConsultation: "Log Clinical Consultations",
         healthLogConsultationSub: "Save remarks from pediatric checkups",
         healthVaxCompleted: "Completed Dose",
@@ -89,10 +91,7 @@ export const translations = {
         growthHeadCirc: "Head Circ.",
         growthMilestonesTitle: "Development Milestone Tracker",
         growthMilestonesSub:
-            "Check age-appropriate physical, social, and language targets",
-        growthCreateMemoryTitle: "Document a Milestone Memory",
-        growthCreateMemorySub:
-            "Create a lovely log with custom titles, stories, and photos",
+            "What most children can do by this age — tick what you have seen",
         growthMemoryFormTitle: "Milestone Memory Title",
         growthMemoryFormDesc: "Write a short happy story...",
         growthMemoryFormDate: "Date Observed",
@@ -207,9 +206,6 @@ export const translations = {
         dashDiagTitle: "Buod ng Kalusugan",
         dashDiagSub:
             "Mga aktibong babala sa kalusugan, temperatura, at katayuan ng mga bakuna",
-        dashMemoriesTitle: "Galerya ng mga Mahahalagang Alaala",
-        dashMemoriesSub:
-            "Ang mga mahahalagang nakamit ng iyong sanggol na may kasamang larawan at kwento",
         dashEmptyMemories:
             "Wala pang nakalagay na larawan ng milestones. Magdagdag sa Paglaki at Milestones section!",
         dashViewDiag: "Pindutin para makita ang buong buod ng kalusugan",
@@ -223,13 +219,13 @@ export const translations = {
             "Listahan ng mga nakumpleto at darating na bakuna ng sanggol",
         healthVaccineNCRStock: "Balita sa Stock ng Bakuna sa NCR",
         healthVaccineNCRStockSub:
-            "Kasalukuyang ulat ng mga stock sa lokal na health center",
+            "Halimbawa kung paano lalabas ang mga ulat ng stock sa health center",
         healthCheckupReminders: "Paalala sa Checkup ni Baby",
         healthCheckupRemindersSub:
             "Mga darating na iskedyul at gabay mula sa klinika",
-        healthMedicationReminders: "Paalala sa Gamot",
+        healthMedicationReminders: "Iniinom ngayon",
         healthMedicationRemindersSub:
-            "Mga oras at tagubilin para sa mga iniresetang gamot",
+            "Markahan ang bawat dose habang ibinibigay mo",
         healthLogConsultation: "Itala ang Konsultasyon sa Klinika",
         healthLogConsultationSub:
             "I-save ang mga payo mula sa doktor ng iyong anak",
@@ -250,10 +246,7 @@ export const translations = {
         growthHeadCirc: "Sukat ng Ulo",
         growthMilestonesTitle: "Gabay sa Pag-unlad ni Baby",
         growthMilestonesSub:
-            "Suriin ang mga angkop na kakayahan sa pisikal, sosyal, at pagsasalita",
-        growthCreateMemoryTitle: "Itala ang Isang Mahalagang Alaala",
-        growthCreateMemorySub:
-            "Gumawa ng magandang tala na may sariling pamagat, kwento, at larawan",
+            "Karaniwang kayang gawin ng mga bata sa edad na ito — markahan ang nakita mo",
         growthMemoryFormTitle: "Pamagat ng Alaala",
         growthMemoryFormDesc: "Isulat ang masayang kwento ni baby...",
         growthMemoryFormDate: "Petsa ng Pagkaganap",
@@ -371,8 +364,6 @@ export const translations = {
         dashDiagTitle: "Health Diagnostics Summary",
         dashDiagSub:
             "Active health warnings, temperature logs, at vaccine status",
-        dashMemoriesTitle: "Milestone Memories Gallery",
-        dashMemoriesSub: "Precious memories at kwento ng inyong cute baby",
         dashEmptyMemories:
             "Wala pang picture si baby! Mag-upload sa Growth & Milestones section, dali!",
         dashViewDiag: "Click dito para makita ang full diagnostics summary",
@@ -385,13 +376,13 @@ export const translations = {
         healthVaccinesSub: "List ng complete at pending vaccine doses ni baby",
         healthVaccineNCRStock: "NCR Vaccine Stock Alerts",
         healthVaccineNCRStockSub:
-            "Real-time updates sa mga local health centers",
+            "Halimbawa ng stock notice mula sa local health center",
         healthCheckupReminders: "Checkup Reminders",
         healthCheckupRemindersSub:
             "Upcoming schedules at guidelines sa klinika",
-        healthMedicationReminders: "Medication Reminders",
+        healthMedicationReminders: "Iniinom ngayon",
         healthMedicationRemindersSub:
-            "Schedule ng reresetang gamot para kay baby",
+            "I-check ang bawat dose na naibigay mo",
         healthLogConsultation: "I-log ang Clinical Consult",
         healthLogConsultationSub: "Save natin ang payo ng pediatrician ni baby",
         healthVaxCompleted: "Completed Dose (Bakunado Na)",
@@ -409,10 +400,7 @@ export const translations = {
         growthHeadCirc: "Head Circ.",
         growthMilestonesTitle: "Development Milestones Tracker",
         growthMilestonesSub:
-            "Check natin ang physical, social, at language targets",
-        growthCreateMemoryTitle: "Document a Milestone Memory",
-        growthCreateMemorySub:
-            "I-save ang precious baby memories, pictures, at stories",
+            "Karaniwang kaya ng mga bata sa edad na ito — i-check ang nakita mo",
         growthMemoryFormTitle: "Milestone Memory Title",
         growthMemoryFormDesc: "Ikwento ang masayang milestone ni baby...",
         growthMemoryFormDate: "Petsa ng Milestone",
