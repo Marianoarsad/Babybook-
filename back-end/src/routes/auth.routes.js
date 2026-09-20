@@ -3,8 +3,9 @@ const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const { body } = require("express-validator");
 
-const { query } = require("../db/pool");
-const { signToken } = require("../utils/jwt");
+const { query, withTransaction } = require("../db/pool");
+const { signToken, signSocialToken, verifySocialToken } = require("../utils/jwt");
+const { verifySocialCredential } = require("../utils/socialAuth");
 const { ApiError, asyncHandler } = require("../middleware/error");
 const { handleValidation } = require("../middleware/validate");
 const { requireAuth } = require("../middleware/auth");
@@ -33,6 +34,7 @@ const publicUser = (u) => ({
     relationship: u.relationship,
     city: decrypt(u.city),
     avatarUrl: u.avatar_url,
+    createdAt: u.created_at,
     consentAccepted: u.consent_accepted,
     consentDate: u.consent_date,
     retentionUntil: u.retention_until,
@@ -105,6 +107,140 @@ router.post(
         if (!match) throw new ApiError(401, "Invalid email or password");
         const token = signToken({ sub: user.id, email: user.email });
         res.json({ token, user: publicUser(user) });
+    })
+);
+
+// POST /api/auth/social — verify a provider credential, then either sign in,
+// ask for account completion, or require the existing account password before
+// linking. Provider access tokens are verified in memory and never persisted.
+router.post(
+    "/social",
+    [
+        body("provider").isIn(["google", "facebook"]),
+        body("credential").isString().notEmpty(),
+    ],
+    handleValidation,
+    asyncHandler(async (req, res) => {
+        let profile;
+        try {
+            profile = await verifySocialCredential(req.body.provider, req.body.credential);
+        } catch (error) {
+            const unavailable = /not configured/.test(error.message);
+            throw new ApiError(unavailable ? 503 : 401, unavailable ? error.message : "Social sign-in could not be verified");
+        }
+
+        const identity = await query(
+            `SELECT u.* FROM user_auth_identities i
+             JOIN users u ON u.id = i.user_id
+             WHERE i.provider = $1 AND i.provider_subject = $2`,
+            [profile.provider, profile.subject]
+        );
+        if (identity.rows[0]) {
+            const user = identity.rows[0];
+            return res.json({
+                status: "authenticated",
+                token: signToken({ sub: user.id, email: user.email }),
+                user: publicUser(user),
+            });
+        }
+
+        const existing = await query("SELECT id FROM users WHERE email = $1", [profile.email]);
+        const action = existing.rows[0] ? "link_required" : "registration_required";
+        res.json({
+            status: action,
+            socialToken: signSocialToken({ ...profile, action }),
+            profile: { provider: profile.provider, email: profile.email, name: profile.name },
+        });
+    })
+);
+
+// POST /api/auth/social/register — first-time social users still create a
+// backup password so they are never locked out if a provider is unavailable.
+router.post(
+    "/social/register",
+    [
+        body("socialToken").isString().notEmpty(),
+        body("fullName").trim().notEmpty().withMessage("Full name is required"),
+        body("password").isLength({ min: 8 }).withMessage("Password must be at least 8 characters"),
+        body("relationship").isIn(RELATIONSHIPS),
+    ],
+    handleValidation,
+    asyncHandler(async (req, res) => {
+        if (req.body.consentAccepted !== true) {
+            throw new ApiError(400, "You must accept the data-retention and privacy agreement to create an account.");
+        }
+        let social;
+        try {
+            social = verifySocialToken(req.body.socialToken);
+        } catch (_error) {
+            throw new ApiError(401, "This social sign-in has expired. Please try again.");
+        }
+        if (social.action !== "registration_required") throw new ApiError(400, "Invalid registration request");
+
+        const hash = await bcrypt.hash(req.body.password, 10);
+        let user;
+        try {
+            user = await withTransaction(async (client) => {
+                const inserted = await client.query(
+                    `INSERT INTO users
+                        (full_name, email, password_hash, relationship,
+                         consent_accepted, consent_date, consent_reviewed_at, retention_until)
+                     VALUES ($1, $2, $3, $4, TRUE, now(), now(), (CURRENT_DATE + INTERVAL '6 years'))
+                     RETURNING *`,
+                    [encrypt(req.body.fullName), social.email, hash, req.body.relationship]
+                );
+                await client.query(
+                    `INSERT INTO user_auth_identities (user_id, provider, provider_subject)
+                     VALUES ($1, $2, $3)`,
+                    [inserted.rows[0].id, social.provider, social.subject]
+                );
+                return inserted.rows[0];
+            });
+        } catch (error) {
+            if (error.code === "23505") throw new ApiError(409, "That account or social sign-in is already registered");
+            throw error;
+        }
+        res.status(201).json({
+            token: signToken({ sub: user.id, email: user.email }),
+            user: publicUser(user),
+        });
+    })
+);
+
+// POST /api/auth/social/link — an email match is never auto-linked. The
+// account's password proves ownership before the provider identity is added.
+router.post(
+    "/social/link",
+    [body("socialToken").isString().notEmpty(), body("password").notEmpty()],
+    handleValidation,
+    asyncHandler(async (req, res) => {
+        let social;
+        try {
+            social = verifySocialToken(req.body.socialToken);
+        } catch (_error) {
+            throw new ApiError(401, "This social sign-in has expired. Please try again.");
+        }
+        if (social.action !== "link_required") throw new ApiError(400, "Invalid account-link request");
+
+        const found = await query("SELECT * FROM users WHERE email = $1", [social.email]);
+        const user = found.rows[0];
+        if (!user || !(await bcrypt.compare(req.body.password, user.password_hash))) {
+            throw new ApiError(401, "Password is incorrect");
+        }
+        try {
+            await query(
+                `INSERT INTO user_auth_identities (user_id, provider, provider_subject)
+                 VALUES ($1, $2, $3)`,
+                [user.id, social.provider, social.subject]
+            );
+        } catch (error) {
+            if (error.code !== "23505") throw error;
+            throw new ApiError(409, "This provider is already linked to an account");
+        }
+        res.json({
+            token: signToken({ sub: user.id, email: user.email }),
+            user: publicUser(user),
+        });
     })
 );
 

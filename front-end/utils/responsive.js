@@ -1,10 +1,18 @@
 import { useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { space, TEXT_COL_MIN, SCREEN_PAD_BOTTOM } from "../theme";
+import { space, type, MIN_TOUCH, TEXT_COL_MIN, SCREEN_PAD_BOTTOM } from "../theme";
 import { useScroll } from "../context/ScrollContext";
 
 // Breakpoints (dp width). Phone < md <= tablet < lg <= laptop < xl <= large.
 export const breakpoints = { md: 600, lg: 900, xl: 1200 };
+
+// The add-record menu's 55% list allowance plus its grabber, title and footer.
+// Both sheets use this size, even when a form opens without visiting the menu.
+export function recordSheetHeight(height, fontScale = 1, topInset = 0, bottomInset = 0) {
+    const chrome = space.sm + 4 + space.md + type.heading.lineHeight * fontScale + space.sm
+        + space.md + Math.max(MIN_TOUCH, type.label.lineHeight * fontScale) + Math.max(space.xl, bottomInset);
+    return Math.max(0, Math.min(height - Math.max(topInset, space.md), height * 0.55 + chrome));
+}
 
 // Can `available` px hold `columns` side-by-side without squeezing any of them
 // below a readable width? Answer no and the caller stacks to a column instead.
@@ -24,7 +32,8 @@ export function fitsColumns(available, columns = 2, gap = space.md) {
 // last card underneath both.
 export function useScreenPadBottom() {
     const insets = useSafeAreaInsets();
-    return SCREEN_PAD_BOTTOM + insets.bottom;
+    const { tabBarHeight = 0 } = useScroll();
+    return Math.max(SCREEN_PAD_BOTTOM + insets.bottom, tabBarHeight + 56 + space.md + space.lg);
 }
 
 // Top padding for a screen's scroll content: the mirror of useScreenPadBottom.

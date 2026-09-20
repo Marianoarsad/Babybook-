@@ -1,13 +1,15 @@
 import React from "react";
-import { Modal, View, Image, TouchableOpacity, Text } from "react-native";
+import { View, Image, TouchableOpacity, Text } from "react-native";
+import Modal from "./AppModal";
 import { Ionicons } from "@expo/vector-icons";
 import { space, radius } from "../../theme";
 
 // Full-screen image viewer for "View Full Image" on a record attachment.
 // Optional onReplace / onDelete render action buttons (used for saved records).
-export default function ImageViewer({ visible, uri, onClose, onReplace, onDelete }) {
+export default function ImageViewer({ visible, uri, onClose, onReplace, onDelete, busyAction = null }) {
+    const busy = !!busyAction;
     return (
-        <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+        <Modal visible={visible} transparent animationType="fade" onRequestClose={busy ? undefined : onClose}>
             <View
                 style={{
                     flex: 1,
@@ -19,6 +21,7 @@ export default function ImageViewer({ visible, uri, onClose, onReplace, onDelete
             >
                 <TouchableOpacity
                     onPress={onClose}
+                    disabled={busy}
                     style={{
                         position: "absolute",
                         top: 48,
@@ -32,6 +35,7 @@ export default function ImageViewer({ visible, uri, onClose, onReplace, onDelete
                     }}
                     accessibilityRole="button"
                     accessibilityLabel="Close image"
+                    accessibilityState={{ disabled: busy }}
                 >
                     <Ionicons name="close" size={24} color="#FFFFFF" />
                 </TouchableOpacity>
@@ -46,6 +50,7 @@ export default function ImageViewer({ visible, uri, onClose, onReplace, onDelete
                         {onReplace ? (
                             <TouchableOpacity
                                 onPress={onReplace}
+                                disabled={busy}
                                 style={{
                                     flexDirection: "row",
                                     alignItems: "center",
@@ -57,14 +62,16 @@ export default function ImageViewer({ visible, uri, onClose, onReplace, onDelete
                                 }}
                                 accessibilityRole="button"
                                 accessibilityLabel="Replace photo"
+                                accessibilityState={{ disabled: busy, busy: busyAction === "replace" }}
                             >
-                                <Ionicons name="sync-outline" size={16} color="#FFFFFF" />
+                                {(<Ionicons name="sync-outline" size={16} color="#FFFFFF" />)}
                                 <Text style={{ color: "#FFFFFF", fontWeight: "700" }}>Replace</Text>
                             </TouchableOpacity>
                         ) : null}
                         {onDelete ? (
                             <TouchableOpacity
                                 onPress={onDelete}
+                                disabled={busy}
                                 style={{
                                     flexDirection: "row",
                                     alignItems: "center",
@@ -76,8 +83,9 @@ export default function ImageViewer({ visible, uri, onClose, onReplace, onDelete
                                 }}
                                 accessibilityRole="button"
                                 accessibilityLabel="Delete photo"
+                                accessibilityState={{ disabled: busy, busy: busyAction === "delete" }}
                             >
-                                <Ionicons name="trash-outline" size={16} color="#FFFFFF" />
+                                {(<Ionicons name="trash-outline" size={16} color="#FFFFFF" />)}
                                 <Text style={{ color: "#FFFFFF", fontWeight: "700" }}>Delete</Text>
                             </TouchableOpacity>
                         ) : null}

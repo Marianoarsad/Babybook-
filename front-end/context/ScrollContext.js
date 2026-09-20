@@ -24,6 +24,7 @@ import { Animated } from "react-native";
 const defaultValue = {
     scrollY: new Animated.Value(0),
     headerHeight: 0,
+    tabBarHeight: 0,
     scrollProps: {},
     resetScroll: () => {},
 };
@@ -33,7 +34,7 @@ export const ScrollContext = createContext(defaultValue);
 // Builds the context value. Lives as a hook rather than a <Provider> component
 // because App.js's own header has to read `scrollY` too, and a component that
 // created the value internally would put it out of the header's reach.
-export function useScrollController(headerHeight = 0) {
+export function useScrollController(headerHeight = 0, tabBarHeight = 0) {
     const scrollY = useRef(new Animated.Value(0)).current;
 
     // useNativeDriver stays TRUE: everything downstream of this value is either
@@ -62,10 +63,11 @@ export function useScrollController(headerHeight = 0) {
         () => ({
             scrollY,
             headerHeight,
+            tabBarHeight,
             resetScroll,
             scrollProps: { onScroll, scrollEventThrottle: 16 },
         }),
-        [scrollY, headerHeight, resetScroll, onScroll],
+        [scrollY, headerHeight, tabBarHeight, resetScroll, onScroll],
     );
 }
 

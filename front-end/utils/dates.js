@@ -4,7 +4,7 @@
 // "Due: 2025-07-19", "2026-04-19 | Resolved", and on the Health screen's
 // checkups, "2027-02-06 @ 09:00:00", seconds and all. PRODUCT.md's audience is
 // explicitly non-technical, and near-identical formatters had already been
-// copied into MemoryDetail, OfflineSummaryView, ProfessionalView and Dashboard.
+// copied into MemoryDetail, ProfessionalView and Dashboard.
 // One home for them, so a date looks the same wherever it appears.
 
 // Today's date in the DEVICE's timezone, as YYYY-MM-DD.
@@ -39,6 +39,146 @@ export function shortDate(value) {
     const d = new Date(`${String(value).slice(0, 10)}T00:00:00`);
     if (isNaN(d.getTime())) return "";
     return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+// Move a plain local calendar date by whole months without JavaScript's
+// end-of-month rollover (31 January + 1 month must be 28/29 February, not
+// March). CalendarView uses this for both the three-month strip and swipes.
+export function shiftMonthClamped(value, months) {
+    const source = new Date(`${String(value || "").slice(0, 10)}T00:00:00`);
+    if (isNaN(source.getTime()) || !Number.isInteger(months)) return "";
+    const day = source.getDate();
+    const target = new Date(source.getFullYear(), source.getMonth() + months, 1);
+    const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+    target.setDate(Math.min(day, lastDay));
+    return toLocalISO(target);
+}
+
+// Compact labels for chart axes and range controls.
+export function compactDate(value, includeYear = false) {
+    if (!value) return "";
+    const d = new Date(`${String(value).slice(0, 10)}T00:00:00`);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleDateString("en-GB", {
+        day: "numeric",
+        month: "short",
+        ...(includeYear ? { year: "numeric" } : {}),
+    });
+}
+
+// Fixed chart slots across an inclusive date range. Short ranges may repeat a
+// date; the chart keeps the slot but suppresses the repeated caption.
+export function evenDateSlots(from, to, count = 7) {
+    const start = new Date(`${String(from || "").slice(0, 10)}T00:00:00`);
+    const end = new Date(`${String(to || "").slice(0, 10)}T00:00:00`);
+    if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start || !Number.isInteger(count) || count < 2) return [];
+    const days = Math.round((end - start) / 86400000);
+    return Array.from({ length: count }, (_, index) => {
+        const date = new Date(start);
+        date.setDate(date.getDate() + Math.round((days * index) / (count - 1)));
+        return toLocalISO(date);
+    });
+}
+
+export function evenYearSlots(from, to, count = 7) {
+    const first = Number(from);
+    const last = Number(to);
+    if (!Number.isInteger(first) || !Number.isInteger(last) || last < first || !Number.isInteger(count) || count < 2) return [];
+    const slots = Math.min(count, last - first + 1);
+    if (slots === 1) return [first];
+    return Array.from({ length: slots }, (_, index) =>
+        first + Math.round(((last - first) * index) / (slots - 1))
+    );
+}
+
+export function shortDateRange(from, to) {
+    if (!from || !to) return "";
+    const start = new Date(`${String(from).slice(0, 10)}T00:00:00`);
+    const end = new Date(`${String(to).slice(0, 10)}T00:00:00`);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return "";
+    if (from === to) return compactDate(from, start.getFullYear() !== new Date().getFullYear());
+    const sameYear = start.getFullYear() === end.getFullYear();
+    const sameMonth = sameYear && start.getMonth() === end.getMonth();
+    if (sameMonth) return `${start.getDate()}–${compactDate(to, end.getFullYear() !== new Date().getFullYear())}`;
+    return `${compactDate(from, !sameYear)}–${compactDate(to, true)}`;
+}
+
+export function numericDateRange(from, to) {
+    const format = (value) => {
+        const iso = String(value || "").slice(0, 10);
+        return /^\d{4}-\d{2}-\d{2}$/.test(iso)
+            ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
+            : "";
+    };
+    const start = format(from);
+    const end = format(to);
+    return start && end ? `${start} - ${end}` : "";
+}
+
+// Update one endpoint while keeping an existing date range valid. The other
+// endpoint moves only when the newly chosen date would otherwise invert it.
+export function setRangeEndpoint(range, endpoint, value) {
+    const next = { from: range?.from || null, to: range?.to || null };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value || "") || !["from", "to"].includes(endpoint)) return next;
+    next[endpoint] = value;
+    if (endpoint === "from" && next.to && value > next.to) next.to = value;
+    if (endpoint === "to" && next.from && value < next.from) next.from = value;
+    return next;
+}
+
+export function dateEndpointBounds(range, endpoint, minDate, maxDate) {
+    let min = minDate || null;
+    let max = maxDate || null;
+    if (endpoint === "to" && range?.from && (!min || range.from > min)) min = range.from;
+    if (endpoint === "from" && range?.to && (!max || range.to < max)) max = range.to;
+    return { min, max };
+}
+
+export function weekOfMonth(value) {
+    const day = Number(String(value || "").slice(8, 10));
+    if (!Number.isInteger(day) || day < 1 || day > 31) return null;
+    return Math.min(4, Math.ceil(day / 7));
+}
+
+export function weekRangeFromSelection(month, fromWeek, toWeek, minDate = null, maxDate = null) {
+    if (!/^\d{4}-\d{2}$/.test(month || "") || ![1, 2, 3, 4].includes(fromWeek)
+        || ![1, 2, 3, 4].includes(toWeek) || fromWeek > toWeek) return null;
+    const [year, monthNumber] = month.split("-").map(Number);
+    const lastDay = new Date(year, monthNumber, 0).getDate();
+    let from = `${month}-${String((fromWeek - 1) * 7 + 1).padStart(2, "0")}`;
+    let to = `${month}-${String(toWeek === 4 ? lastDay : toWeek * 7).padStart(2, "0")}`;
+    if (minDate && from < minDate) from = minDate;
+    if (maxDate && to > maxDate) to = maxDate;
+    return from <= to ? { from, to } : null;
+}
+
+export function monthRangeFromSelection(range, minDate = null, maxDate = null) {
+    const fromMonth = range?.from;
+    const toMonth = range?.to;
+    if (!/^\d{4}-\d{2}$/.test(fromMonth || "") || !/^\d{4}-\d{2}$/.test(toMonth || "")
+        || fromMonth > toMonth) return null;
+    const [year, monthNumber] = toMonth.split("-").map(Number);
+    let from = `${fromMonth}-01`;
+    let to = `${toMonth}-${String(new Date(year, monthNumber, 0).getDate()).padStart(2, "0")}`;
+    if (minDate && from < minDate) from = minDate;
+    if (maxDate && to > maxDate) to = maxDate;
+    return from <= to ? { from, to } : null;
+}
+
+// Inclusive Growth-chart shortcuts, calculated in local calendar time.
+export function dateRangePreset(preset, dateOfBirth, referenceDate = todayLocal()) {
+    const end = String(referenceDate || "").slice(0, 10);
+    const date = new Date(`${end}T00:00:00`);
+    if (isNaN(date.getTime()) || !["today", "week", "month", "year"].includes(preset)) return null;
+
+    if (preset === "week") date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+    if (preset === "month") date.setDate(1);
+    if (preset === "year") date.setMonth(0, 1);
+
+    let from = preset === "today" ? end : toLocalISO(date);
+    const dob = dateOfBirth ? String(dateOfBirth).slice(0, 10) : "";
+    if (dob > from && dob <= end) from = dob;
+    return { from, to: end };
 }
 
 // "August 2026" — group header for the Gallery's month buckets.

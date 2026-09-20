@@ -31,12 +31,12 @@ export function pdfExportAvailable() {
 // if it ever needs the raw html (e.g. a preview).
 export async function buildChildRecordsHtml(profile, scope) {
     const [vaccinations, checkups, growth, milestones, nutrition, medHistory] = await Promise.all([
-        api.listRecords(profile.id, "vaccinations").catch(() => []),
-        api.listRecords(profile.id, "checkups").catch(() => []),
-        api.listRecords(profile.id, "growth").catch(() => []),
-        api.listRecords(profile.id, "milestones").catch(() => []),
-        api.listRecords(profile.id, "nutrition").catch(() => []),
-        api.listRecords(profile.id, "medical-history").catch(() => []),
+        api.listRecords(profile.id, "vaccinations", { confirmedOnly: true }),
+        api.listRecords(profile.id, "checkups", { confirmedOnly: true }),
+        api.listRecords(profile.id, "growth", { confirmedOnly: true }),
+        api.listRecords(profile.id, "milestones", { confirmedOnly: true }),
+        api.listRecords(profile.id, "nutrition", { confirmedOnly: true }),
+        api.listRecords(profile.id, "medical-history", { confirmedOnly: true }),
     ]);
     return buildRecordHtml(
         profile,

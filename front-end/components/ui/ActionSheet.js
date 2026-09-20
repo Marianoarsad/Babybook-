@@ -1,14 +1,20 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+    AccessibilityInfo,
+    Animated,
+    Easing,
+    PanResponder,
     View,
     Text,
     StyleSheet,
-    Modal,
     ScrollView,
     TouchableOpacity,
     useWindowDimensions,
 } from "react-native";
+import Modal from "./AppModal";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { recordSheetHeight } from "../../utils/responsive";
 import { radius, space, shadow, type, MIN_TOUCH } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
 import { storage } from "../../utils/storageAdapter";
@@ -56,9 +62,114 @@ const DEFAULT_ORDER = ["milk", "food", "growth", "vaccine", "checkup", "medicati
 const USAGE_KEY = "bb_action_usage";
 const SHORTCUTS = 3;
 
+function useActionSheetMotion(visible, height, onClose) {
+    const [presented, setPresented] = useState(false);
+    const [reduceMotion, setReduceMotion] = useState(null);
+    const offset = useRef(new Animated.Value(height)).current;
+    const shade = useRef(new Animated.Value(0)).current;
+    const phase = useRef("hidden");
+    const generation = useRef(0);
+    const animation = useRef(null);
+    const pending = useRef(null);
+    const wasVisible = useRef(false);
+    const closeRef = useRef(onClose);
+    closeRef.current = onClose;
+
+    useEffect(() => {
+        let active = true;
+        AccessibilityInfo.isReduceMotionEnabled().then((value) => active && setReduceMotion(value))
+            .catch(() => active && setReduceMotion(false));
+        const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
+        return () => { active = false; subscription.remove(); };
+    }, []);
+    useEffect(() => () => {
+        generation.current++;
+        animation.current?.stop();
+        pending.current = null;
+    }, []);
+
+    const animate = useCallback((target, duration, complete) => {
+        const token = ++generation.current;
+        animation.current?.stop();
+        if (reduceMotion) {
+            offset.setValue(target);
+            shade.setValue(target === 0 ? 1 : 0);
+            complete();
+            return;
+        }
+        animation.current = Animated.parallel([
+            Animated.timing(offset, { toValue: target, duration, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+            Animated.timing(shade, { toValue: target === 0 ? 1 : 0, duration, useNativeDriver: true }),
+        ]);
+        animation.current.start(({ finished }) => {
+            if (finished && generation.current === token) complete();
+        });
+    }, [offset, shade, reduceMotion]);
+    const finishClose = useCallback(() => {
+        const callback = pending.current;
+        pending.current = null;
+        phase.current = "hidden";
+        setPresented(false);
+        callback?.();
+    }, []);
+    const dismiss = useCallback((afterClose) => {
+        if (phase.current === "hidden" || phase.current === "closing") return;
+        pending.current = afterClose || (() => closeRef.current());
+        phase.current = "closing";
+        animate(height, 220, finishClose);
+    }, [animate, height, finishClose]);
+
+    useEffect(() => {
+        if (reduceMotion === null) return;
+        const opening = visible && !wasVisible.current;
+        wasVisible.current = visible;
+        if (visible) {
+            if (phase.current === "closing" && !opening) {
+                animate(height, 220, finishClose);
+                return;
+            }
+            if (phase.current === "hidden" || opening) offset.setValue(height);
+            pending.current = null;
+            phase.current = "opening";
+            setPresented(true);
+            animate(0, 280, () => { phase.current = "open"; });
+        } else if (phase.current !== "hidden") {
+            pending.current = null;
+            phase.current = "closing";
+            animate(height, 220, finishClose);
+        }
+    }, [visible, height, reduceMotion, animate, finishClose, offset]);
+
+    const recover = useCallback(() => {
+        if (phase.current !== "dragging") return;
+        phase.current = "settling";
+        animate(0, 160, () => { phase.current = "open"; });
+    }, [animate]);
+    const pan = useMemo(() => PanResponder.create({
+        onMoveShouldSetPanResponder: (_event, gesture) => phase.current === "open"
+            && gesture.dy > 12 && gesture.dy > Math.abs(gesture.dx) * 1.25,
+        onPanResponderGrant: () => { if (phase.current === "open") phase.current = "dragging"; },
+        onPanResponderMove: (_event, gesture) => {
+            if (phase.current !== "dragging") return;
+            const distance = Math.max(0, Math.min(height, gesture.dy));
+            offset.setValue(distance);
+            shade.setValue(1 - distance / Math.max(1, height));
+        },
+        onPanResponderRelease: (_event, gesture) => {
+            if (phase.current !== "dragging") return;
+            if (gesture.dy >= 64) dismiss(); else recover();
+        },
+        onPanResponderTerminate: recover,
+    }), [dismiss, height, offset, recover, shade]);
+    return { presented, offset, shade, pan, dismiss };
+}
+
 export default function ActionSheet({ visible, onClose, onSelect }) {
     const { colors } = useTheme();
-    const { height: windowHeight } = useWindowDimensions();
+    const { height: windowHeight, fontScale } = useWindowDimensions();
+    const insets = useSafeAreaInsets();
+    const sheetHeight = recordSheetHeight(windowHeight, fontScale, insets.top, insets.bottom);
+    const motion = useActionSheetMotion(visible, sheetHeight, onClose);
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const [usage, setUsage] = useState({});
 
@@ -86,32 +197,38 @@ export default function ActionSheet({ visible, onClose, onSelect }) {
 
     const choose = useCallback(
         (key) => {
-            const next = { ...usage, [key]: (usage[key] || 0) + 1 };
-            setUsage(next);
-            storage.setItem(USAGE_KEY, JSON.stringify(next)).catch(() => {});
-            const a = ACTIONS[key];
-            onSelect(a.view, a.tab);
+            motion.dismiss(() => {
+                const next = { ...usage, [key]: (usage[key] || 0) + 1 };
+                setUsage(next);
+                storage.setItem(USAGE_KEY, JSON.stringify(next)).catch(() => {});
+                const a = ACTIONS[key];
+                onSelect(a.view, a.tab);
+            });
         },
-        [usage, onSelect],
+        [usage, onSelect, motion.dismiss],
     );
 
     return (
-        <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-            <View style={styles.root}>
+        <Modal visible={motion.presented} transparent animationType="none" onRequestClose={() => motion.dismiss()}>
+            <View style={[styles.root, { paddingTop: Math.max(insets.top, space.md) }]}>
+                <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.text + "66", opacity: motion.shade }]} />
                 <TouchableOpacity
                     style={StyleSheet.absoluteFill}
                     activeOpacity={1}
-                    onPress={onClose}
+                    onPress={() => motion.dismiss()}
                     accessibilityRole="button"
                     accessibilityLabel="Close"
                 />
-                <View style={styles.card} accessibilityViewIsModal>
-                    <View style={styles.grabber} />
-                    <Text style={styles.title} accessibilityRole="header">
-                        Add a record
-                    </Text>
+                <Animated.View style={[styles.card, { height: sheetHeight, paddingBottom: Math.max(space.xl, insets.bottom), transform: [{ translateY: motion.offset }] }]}
+                    accessibilityViewIsModal onAccessibilityEscape={() => motion.dismiss()}>
+                    <View {...motion.pan.panHandlers} style={{ touchAction: "none" }}>
+                        <View style={styles.grabber} />
+                        <Text style={styles.title} accessibilityRole="header">
+                            Add a record
+                        </Text>
+                    </View>
 
-                    <ScrollView style={[styles.scroll, { maxHeight: windowHeight * 0.55 }]} showsVerticalScrollIndicator={false}>
+                    <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
                         <Text style={styles.groupTitle} accessibilityRole="header">
                             Most used
                         </Text>
@@ -172,13 +289,13 @@ export default function ActionSheet({ visible, onClose, onSelect }) {
 
                     <TouchableOpacity
                         style={styles.cancel}
-                        onPress={onClose}
+                        onPress={() => motion.dismiss()}
                         accessibilityRole="button"
                         accessibilityLabel="Cancel"
                     >
                         <Text style={styles.cancelText}>Cancel</Text>
                     </TouchableOpacity>
-                </View>
+                </Animated.View>
             </View>
         </Modal>
     );
@@ -186,8 +303,12 @@ export default function ActionSheet({ visible, onClose, onSelect }) {
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        root: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(28,25,23,0.45)" },
+        root: { flex: 1, justifyContent: "flex-end" },
         card: {
+            width: "100%",
+            maxHeight: "100%",
+            flexShrink: 1,
+            minHeight: 0,
             backgroundColor: colors.background,
             borderTopLeftRadius: radius.xl,
             borderTopRightRadius: radius.xl,
@@ -206,10 +327,7 @@ const makeStyles = (colors) =>
             marginBottom: space.md,
         },
         title: { ...type.heading, color: colors.text, textAlign: "center", marginBottom: space.sm },
-        // maxHeight is applied inline as a fraction of the window — a fixed
-        // 460 was taller than the room a short phone actually has once the
-        // grabber, title, cancel row and safe-area inset are accounted for.
-        scroll: {},
+        scroll: { flex: 1, minHeight: 0 },
         groupTitle: {
             ...type.subheading,
             color: colors.textMuted,

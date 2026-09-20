@@ -19,6 +19,9 @@
 // not yet migrated to useTheme() still renders with a valid, consistent theme.
 
 // --- tokens shared by every palette ---
+// The database spinner keeps these exact Boy/Girl shades in every scheme.
+export const databaseLoaderColors = Object.freeze({ boy: "#5B9DFF", girl: "#FF7EB3" });
+
 const SHARED = {
     onPrimary: "#FFFFFF",
     onAccent: "#FFFFFF",
@@ -88,6 +91,14 @@ const SHARED = {
     recNutrition: { on: "#38702F", bg: "#E2EEDD" },
     recMemory: { on: "#963A66", bg: "#F4E2EA" },
     recHospitalization: { on: "#94293A", bg: "#F4E0E3" },
+
+    // Physical-growth series. These identify measurements; they are not
+    // success/warning/danger states and must stay stable across child themes.
+    growthMetric: {
+        weight: "#5A4FB8",
+        height: "#0E6E7C",
+        head: "#A8412A",
+    },
 
     // Calendar event categories — the colour of a dot on a day cell.
     //
@@ -255,6 +266,12 @@ const SHARED_DARK = {
     recMemory: { on: "#E895C0", bg: "#3A1F2C" },
     recHospitalization: { on: "#F0839A", bg: "#3A1620" },
 
+    growthMetric: {
+        weight: "#B0A8F0",
+        height: "#4FD6E8",
+        head: "#F0977D",
+    },
+
     // Dark-mode variants of the calendar category colours. Same constraints,
     // measured against the dark surface (#1A1E24).
     eventCategory: {
@@ -322,14 +339,18 @@ export const DARK_PALETTES = {
 // Resolve a palette from a child's gender + optional manual override, plus
 // an optional color scheme ("light" | "dark", default "light" — every
 // existing call site that omits it keeps working unchanged).
+export function themeKeyFor(gender, override) {
+    const forced = String(override || "").trim().toLowerCase();
+    if (forced === "boy" || forced === "girl" || forced === "neutral") return forced;
+    const value = String(gender || "").trim().toLowerCase();
+    if (value === "boy" || value === "male") return "boy";
+    if (value === "girl" || value === "female") return "girl";
+    return "neutral";
+}
+
 export function paletteFor(gender, override, scheme) {
     const palettes = scheme === "dark" ? DARK_PALETTES : PALETTES;
-    if (override === "boy" || override === "girl" || override === "neutral") {
-        return palettes[override];
-    }
-    if (gender === "boy" || gender === "Male") return palettes.boy;
-    if (gender === "girl" || gender === "Female") return palettes.girl;
-    return palettes.neutral;
+    return palettes[themeKeyFor(gender, override)];
 }
 
 // Default (girl) palette — used by screens not yet migrated to useTheme().
@@ -439,6 +460,11 @@ export const motion = {
     micro: { duration: 120, bezier: [0, 0, 0.2, 1] },
     standard: { duration: 220, bezier: [0.4, 0, 0.2, 1] },
     entrance: { duration: 320, bezier: [0, 0, 0.2, 1] },
+    // The onboarding carousel's settle. Slightly overshooting, so a card
+    // arrives with a little weight instead of stopping dead — it is the only
+    // full-screen transition in the app, and the one place that reads as
+    // ceremony without being one. components/Onboarding.js is the only consumer.
+    carousel: { duration: 520, bezier: [0.34, 1.28, 0.5, 1] },
     pulse: { duration: 400, cycles: 2, scale: 1.04, bezier: [0.4, 0, 0.6, 1] },
 };
 

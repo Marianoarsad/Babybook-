@@ -263,7 +263,7 @@ createdb babybook           # or: psql -c "CREATE DATABASE babybook;"
 
 npm run db:migrate          # apply schema.sql
 npm run db:seed             # optional demo data
-npm run db:seed:demo        # optional — a full year of realistic demo records
+npm run db:seed:demo        # optional — a two-child 2020–2029 demo timeline
 
 npm run dev                 # start with auto-reload (or: npm start)
 ```
@@ -329,7 +329,7 @@ Then open the app and sign in with the demo account:
 | Email | `demo.parent@babybookplus.app` |
 | Password | `Demo1234!` |
 
-> Available after running `npm run db:seed:demo`. These credentials are for the **development and demo environment only** — never reuse them for anything real.
+> Available after running `npm run db:seed:demo`. The deterministic fixture opens on Sofia (female, born 2020) and includes Elias (male, born 2025), with records spanning 2020–2029. These credentials are for the **development and demo environment only** — never reuse them for anything real. A non-local reseed also requires the one-command confirmation `ALLOW_DEMO_RESEED=demo.parent@babybookplus.app`.
 
 ---
 

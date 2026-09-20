@@ -1,8 +1,9 @@
 import React from "react";
-import { Text, Pressable, ActivityIndicator, View } from "react-native";
+import { Text, Pressable, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { radius, space, shadow, type, MIN_TOUCH } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
+import PulseLoader from "./PulseLoader";
 
 // Optional haptics (guarded so it's a no-op if expo-haptics isn't installed).
 let Haptics = null;
@@ -28,6 +29,7 @@ export default function Button({
     variant = "primary",
     icon,
     loading = false,
+    loadingIndicator = true,
     disabled = false,
     fullWidth = true,
     style,
@@ -72,8 +74,8 @@ export default function Button({
                 style,
             ]}
         >
-            {loading ? (
-                <ActivityIndicator color={v.fg} size="small" />
+            {loading && loadingIndicator ? (
+                <PulseLoader color={v.fg} size={22} />
             ) : (
                 <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
                     {icon ? <Ionicons name={icon} size={18} color={v.fg} /> : null}

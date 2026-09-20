@@ -1,9 +1,10 @@
 const express = require("express");
-const { query } = require("../db/pool");
+const { query, withTransaction } = require("../db/pool");
 const { ApiError, asyncHandler } = require("../middleware/error");
 const { upload, extOf } = require("../middleware/upload");
 const { encryptFields, decryptRow } = require("./crypto");
 const storage = require("./storage");
+const { createOnce, receiptRecord } = require("./mutationReceipts");
 
 // Builds a child-scoped CRUD router for a simple record table.
 //   table:       DB table name
@@ -18,6 +19,8 @@ const storage = require("./storage");
 //                Without it a stored "sb://<key>" would reach the app raw and
 //                render as a broken tile.
 //   photoField:  multipart field name carrying that photo (default "photo")
+//   attachmentTypes / planSourceType / reminderForeignKey: linked rows to
+//                remove transactionally with the source record
 //
 // The returned router (mergeParams) expects req.child to be set by
 // requireChildOwnership at mount time. All queries are parameterized and
@@ -31,6 +34,9 @@ function createResourceRouter({
     json = [],
     photoColumn = null,
     photoField = "photo",
+    attachmentTypes = [],
+    planSourceType = null,
+    reminderForeignKey = null,
 }) {
     const router = express.Router({ mergeParams: true });
 
@@ -68,8 +74,10 @@ function createResourceRouter({
         "/",
         asyncHandler(async (req, res) => {
             const { rows } = await query(
-                `SELECT * FROM ${table} WHERE child_id = $1 ORDER BY ${orderBy}`,
-                [req.child.id]
+                `SELECT *${["milestones", "medication_doses", "calendar_plan_statuses"].includes(table)
+                    ? `, (SELECT operation_key FROM mutation_receipts WHERE user_id=$2 AND child_id=$1 AND resource='${table}' AND record_id=${table}.id LIMIT 1) AS _operation_key` : ""}
+                 FROM ${table} WHERE child_id = $1 ORDER BY ${orderBy}`,
+                ["milestones", "medication_doses", "calendar_plan_statuses"].includes(table) ? [req.child.id, req.user.id] : [req.child.id]
             );
             res.json(await present(rows));
         })
@@ -97,13 +105,21 @@ function createResourceRouter({
             const allCols = ["child_id", ...cols];
             const params = [req.child.id, ...values];
             const placeholders = allCols.map((_, i) => `$${i + 1}`).join(", ");
-            const { rows } = await query(
-                `INSERT INTO ${table} (${allCols.join(", ")}) VALUES (${placeholders}) RETURNING *`,
-                params
-            );
-            res.status(201).json(await presentOne(rows[0]));
+            const record = await createOnce(req, table, table, data, async (client) => {
+                const { rows } = await client.query(
+                    `INSERT INTO ${table} (${allCols.join(", ")}) VALUES (${placeholders}) RETURNING *`, params
+                );
+                return rows[0];
+            });
+            res.status(201).json(await presentOne(record));
         })
     );
+
+    router.get("/operations/:key", asyncHandler(async (req, res) => {
+        if (!/^[A-Za-z0-9_-]{1,64}$/.test(req.params.key)) throw new ApiError(400, "Invalid operation key");
+        const { record } = await receiptRecord(req, table, table, req.params.key);
+        res.json(await presentOne(record));
+    }));
 
     // READ ONE
     router.get(
@@ -142,14 +158,40 @@ function createResourceRouter({
     router.delete(
         "/:id",
         asyncHandler(async (req, res) => {
-            const { rows } = await query(
-                `DELETE FROM ${table} WHERE id = $1 AND child_id = $2 RETURNING *`,
-                [req.params.id, req.child.id]
-            );
-            if (!rows[0]) throw new ApiError(404, "Record not found");
+            const { record, fileRefs } = await withTransaction(async (client) => {
+                if (reminderForeignKey) {
+                    await client.query(
+                        `DELETE FROM reminders WHERE child_id = $1 AND ${reminderForeignKey} = $2`,
+                        [req.child.id, req.params.id]
+                    );
+                }
+                if (planSourceType) {
+                    await client.query(
+                        "DELETE FROM calendar_plan_statuses WHERE child_id = $1 AND source_type = $2 AND source_id = $3",
+                        [req.child.id, planSourceType, req.params.id]
+                    );
+                }
+                let refs = [];
+                if (attachmentTypes.length) {
+                    const deletedAttachments = await client.query(
+                        "DELETE FROM record_attachments WHERE child_id = $1 AND record_id = $2 AND record_type = ANY($3::text[]) RETURNING file_url",
+                        [req.child.id, req.params.id, attachmentTypes]
+                    );
+                    refs = deletedAttachments.rows.map((row) => row.file_url);
+                }
+                const deleted = await client.query(
+                    `DELETE FROM ${table} WHERE id = $1 AND child_id = $2 RETURNING *`,
+                    [req.params.id, req.child.id]
+                );
+                if (!deleted.rows[0]) throw new ApiError(404, "Record not found");
+                return { record: deleted.rows[0], fileRefs: refs };
+            });
             // Best-effort, like memories.routes.js — a failed file delete must
             // not fail a request whose row is already gone.
-            if (photoColumn) await storage.deleteFile(rows[0][photoColumn]);
+            await Promise.all([
+                ...fileRefs.map((ref) => storage.deleteFile(ref)),
+                ...(photoColumn ? [storage.deleteFile(record[photoColumn])] : []),
+            ]);
             res.status(204).end();
         })
     );

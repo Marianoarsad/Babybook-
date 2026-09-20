@@ -13,8 +13,7 @@ import { RELATIONSHIPS, relationshipLabel } from "../../utils/relationship";
 import { space, radius, type, MIN_TOUCH } from "../../theme";
 
 // Guardian account fields (name, contact, relationship, city, avatar).
-// Language/theme moved to their own menu destinations; logout lives in the side
-// menu.
+// Language/theme and logout live in the Profile hub.
 //
 // Two things this screen used to get wrong, both fixed here:
 //
@@ -50,6 +49,8 @@ export default function EditProfile({
 
     const [email, setEmail] = useState("");
     const [phone, setPhone] = useState("");
+    const [nameDraft, setNameDraft] = useState(parentName || "");
+    const [relationshipDraft, setRelationshipDraft] = useState(parentRelationship || "");
     const [city, setCity] = useState("");
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -79,7 +80,8 @@ export default function EditProfile({
     }, []);
 
     const handleSaveInfo = async () => {
-        if (!parentName.trim()) {
+        if (saving) return;
+        if (!nameDraft.trim()) {
             toast.error("Name cannot be empty.");
             return;
         }
@@ -89,15 +91,16 @@ export default function EditProfile({
             // version also passed a city that went nowhere and an email the
             // endpoint ignored, then reported success for both.
             const { user } = await api.updateMe({
-                fullName: parentName,
+                fullName: nameDraft.trim(),
                 phoneNumber: phone,
-                relationship: parentRelationship || "",
+                relationship: relationshipDraft,
                 city,
             });
             // Read the saved row back instead of trusting local state, so a
             // field the server rejected or normalised shows what was actually
             // stored.
             if (user) {
+                onUpdateParentName?.(user.fullName || nameDraft.trim());
                 setPhone(user.phoneNumber || "");
                 setCity(user.city || "");
                 if (onUpdateParentRelationship) onUpdateParentRelationship(user.relationship || "");
@@ -164,8 +167,8 @@ export default function EditProfile({
                             <Text style={styles.label}>Full Name</Text>
                             <TextInput
                                 style={styles.input}
-                                value={parentName}
-                                onChangeText={onUpdateParentName}
+                                value={nameDraft}
+                                onChangeText={setNameDraft}
                                 accessibilityLabel="Full Name"
                                 autoComplete="name"
                                 textContentType="name"
@@ -179,12 +182,12 @@ export default function EditProfile({
                             <Text style={styles.label}>I am the child's…</Text>
                             <View style={styles.chipWrap}>
                                 {RELATIONSHIPS.map((opt) => {
-                                    const on = parentRelationship === opt.key;
+                                    const on = relationshipDraft === opt.key;
                                     return (
                                         <TouchableOpacity
                                             key={opt.key}
                                             onPress={() =>
-                                                onUpdateParentRelationship && onUpdateParentRelationship(opt.key)
+                                                setRelationshipDraft(opt.key)
                                             }
                                             accessibilityRole="button"
                                             accessibilityState={{ selected: on }}
@@ -233,7 +236,7 @@ export default function EditProfile({
                             accessibilityState={{ disabled: saving }}
                             accessibilityLabel="Save Changes"
                         >
-                            <Text style={styles.saveBtnText}>{saving ? "Saving…" : "Save Changes"}</Text>
+                            {(<Text style={styles.saveBtnText}>Save Changes</Text>)}
                         </TouchableOpacity>
                     </>
                 )}
@@ -301,9 +304,7 @@ export default function EditProfile({
                             accessibilityState={{ disabled: emailSaving }}
                             accessibilityLabel="Change sign-in email"
                         >
-                            <Text style={styles.secondaryBtnText}>
-                                {emailSaving ? "Changing…" : "Change Email"}
-                            </Text>
+                            {(<Text style={styles.secondaryBtnText}>Change Email</Text>)}
                         </TouchableOpacity>
                     </>
                 )}

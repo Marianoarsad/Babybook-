@@ -6,7 +6,9 @@
 -- Safe to re-run: drops and recreates everything.
 
 DROP TABLE IF EXISTS access_logs CASCADE;
+DROP TABLE IF EXISTS mutation_receipts CASCADE;
 DROP TABLE IF EXISTS shared_records CASCADE;
+DROP TABLE IF EXISTS calendar_plan_statuses CASCADE;
 DROP TABLE IF EXISTS calendar_events CASCADE;
 DROP TABLE IF EXISTS reminders CASCADE;
 DROP TABLE IF EXISTS record_attachments CASCADE;
@@ -20,6 +22,7 @@ DROP TABLE IF EXISTS checkups CASCADE;
 DROP TABLE IF EXISTS vaccinations CASCADE;
 DROP TABLE IF EXISTS children CASCADE;
 DROP TABLE IF EXISTS password_resets CASCADE;
+DROP TABLE IF EXISTS user_auth_identities CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
 
 -- Auto-update updated_at on row changes.
@@ -57,6 +60,17 @@ CREATE TABLE users (
 );
 CREATE TRIGGER trg_users_updated BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TABLE user_auth_identities (
+    id               SERIAL PRIMARY KEY,
+    user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider         VARCHAR(20) NOT NULL CHECK (provider IN ('google', 'facebook')),
+    provider_subject TEXT NOT NULL,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (provider, provider_subject),
+    UNIQUE (user_id, provider)
+);
+CREATE INDEX idx_user_auth_identities_user ON user_auth_identities(user_id);
 
 CREATE TABLE password_resets (
     id         SERIAL PRIMARY KEY,
@@ -270,7 +284,23 @@ CREATE TABLE nutrition_records (
     -- pattern unrecordable. NULL means a pre-migration row.
     feed_method     VARCHAR(10) CHECK (feed_method IN ('breast', 'bottle')),
     formula_brand   TEXT,          -- encrypted at rest
-    quantity        DECIMAL(7,2),  -- bottle feeds only
+    formula_scoops  NUMERIC(5,2)
+                    CHECK (
+                        formula_scoops IS NULL OR (
+                            formula_scoops > 0
+                            AND entry_type = 'milk'
+                            AND milk_type IN ('Formula', 'Mixed')
+                        )
+                    ),
+    quantity        DECIMAL(7,2),  -- formula portion for Mixed; otherwise bottle amount
+    breastmilk_quantity NUMERIC(7,2)
+                    CHECK (
+                        breastmilk_quantity IS NULL OR (
+                            breastmilk_quantity > 0
+                            AND entry_type = 'milk'
+                            AND milk_type = 'Mixed'
+                        )
+                    ),
     unit            VARCHAR(5) CHECK (unit IN ('oz', 'mL', 'L')),
     -- Breastfeeds only, and optional: a parent logging a night feed hours
     -- later does not know the minutes, and requiring them would only swap an
@@ -354,6 +384,27 @@ CREATE INDEX idx_calendar_events_child ON calendar_events(child_id);
 CREATE TRIGGER trg_calendar_events_updated BEFORE UPDATE ON calendar_events
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- A parent's calendar checklist is deliberately separate from clinical
+-- completion. Checking a plan must never mark a vaccine as administered,
+-- resolve an illness, or record a medication dose.
+CREATE TABLE calendar_plan_statuses (
+    id              SERIAL PRIMARY KEY,
+    child_id        INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    source_type     VARCHAR(30) NOT NULL
+                    CHECK (source_type IN ('vaccination', 'checkup', 'medical-history', 'calendar-event')),
+    source_id       INTEGER NOT NULL CHECK (source_id > 0),
+    occurrence_date DATE NOT NULL,
+    completed       BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (child_id, source_type, source_id, occurrence_date)
+);
+CREATE INDEX idx_calendar_plan_statuses_child_date
+    ON calendar_plan_statuses(child_id, occurrence_date DESC, id DESC);
+CREATE TRIGGER trg_calendar_plan_statuses_updated BEFORE UPDATE ON calendar_plan_statuses
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+ALTER TABLE calendar_plan_statuses ENABLE ROW LEVEL SECURITY;
+
 -- =========================================================
 -- SHARED RECORDS (QR consultation access)
 -- =========================================================
@@ -408,3 +459,27 @@ CREATE TABLE record_attachments (
 );
 CREATE INDEX idx_attach_record ON record_attachments(record_type, record_id);
 CREATE INDEX idx_attach_child ON record_attachments(child_id);
+
+-- Retry receipts contain identifiers/digests only, never record contents.
+CREATE TABLE IF NOT EXISTS mutation_receipts (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    child_id INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    resource TEXT NOT NULL,
+    operation_key VARCHAR(64) NOT NULL,
+    payload_hash CHAR(64) NOT NULL,
+    record_id INTEGER,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, child_id, resource, operation_key)
+);
+CREATE INDEX IF NOT EXISTS idx_mutation_receipts_child ON mutation_receipts(child_id);
+CREATE INDEX IF NOT EXISTS idx_mutation_receipts_record ON mutation_receipts(user_id, child_id, resource, record_id);
+ALTER TABLE mutation_receipts ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON mutation_receipts FROM PUBLIC;
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+        REVOKE ALL ON mutation_receipts FROM anon;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+        REVOKE ALL ON mutation_receipts FROM authenticated;
+    END IF;
+END $$;

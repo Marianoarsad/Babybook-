@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import {
     View,
     Text,
@@ -6,10 +6,9 @@ import {
     TouchableOpacity,
     Pressable,
     StatusBar,
-    Modal,
     TextInput,
     Image,
-    ScrollView,
+
     Platform,
     AppState,
     Animated,
@@ -23,7 +22,10 @@ import {
 // button's `bottom: 92` were both hardcoded guesses that could not account for
 // a home indicator or gesture bar.
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
+import { Asset } from "expo-asset";
 import { LanguageProvider, useLanguage } from "./context/LanguageContext";
+import DatabaseLoadingProvider, { useDatabaseLoading } from "./context/DatabaseLoadingContext";
+import Modal from "./components/ui/AppModal";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { Archivo_600SemiBold, Archivo_700Bold } from "@expo-google-fonts/archivo";
 import {
@@ -45,6 +47,7 @@ import {
     HEADER_COLLAPSE,
 } from "./theme";
 import ActionSheet from "./components/ui/ActionSheet";
+import TabBar, { TAB_BAR_BASE_HEIGHT } from "./components/ui/TabBar";
 import AnchoredMenu, { AnchoredMenuItem, AnchoredMenuFooter } from "./components/ui/AnchoredMenu";
 import Gradient from "./components/ui/Gradient";
 import { ScrollContext, useScrollController } from "./context/ScrollContext";
@@ -67,11 +70,9 @@ try {
 } catch (e) {
     ExpoFont = null;
 }
-// Guarded expo-splash-screen — keeps the native splash (app.json) on screen
-// until fonts are loaded and the saved session is restored, so nothing ever
-// flashes blank/white before components/Splash.js can paint. That screen
-// deliberately matches this one's background and logo size, so the handoff
-// between them is invisible — see the note at the top of Splash.js.
+// Keep the native splash (app.json) visible until startup resources,
+// preferences, onboarding state, and the saved session are ready. Web uses
+// the matching React fallback in components/Splash.js.
 let SplashScreen = null;
 try {
     // eslint-disable-next-line global-require
@@ -82,7 +83,7 @@ try {
 }
 import ThemeProvider, { useTheme } from "./context/ThemeContext";
 import { fitsColumns } from "./utils/responsive";
-import { storage } from "./utils/storageAdapter";
+import { storage, removeLegacyOfflineSummaries } from "./utils/storageAdapter";
 import { seen, markSeen } from "./utils/firstRun";
 
 // Web only: one consistent muted-gray placeholder across every input, so raw
@@ -110,15 +111,17 @@ import ProfessionalView from "./components/ProfessionalView";
 import EmptyChild from "./components/EmptyChild";
 import Onboarding from "./components/Onboarding";
 import ToastProvider, { useToast } from "./components/ui/Toast";
-import SideMenu, { MENU_TITLES } from "./components/SideMenu";
+import MutationFeedback from "./components/ui/MutationFeedback";
+import { useRecords, useSessionEpoch } from "./utils/useRecords";
 import CalendarView from "./components/CalendarView";
 import AllActivity from "./components/AllActivity";
 import Search from "./components/Search";
-import OfflineSummaryView from "./components/OfflineSummaryView";
 import Splash from "./components/Splash";
 import { DateField, TimeField } from "./components/ui/DateField";
-import KeyboardAvoider from "./components/ui/KeyboardAvoider";
-import ViewProfile from "./components/settings/ViewProfile";
+
+import RecordFormSheet, { RecordFormGroup, RecordFormRow } from "./components/ui/RecordFormSheet";
+import ViewProfile, { PROFILE_TITLES } from "./components/settings/ViewProfile";
+import Avatar from "./components/ui/Avatar";
 import EditProfile from "./components/settings/EditProfile";
 import GeneralSettings from "./components/settings/GeneralSettings";
 import ThemePreferences from "./components/settings/ThemePreferences";
@@ -133,9 +136,9 @@ import { childToProfile, profileFormToChild } from "./utils/adapters";
 import { todayLocal } from "./utils/dates";
 import { pickImage, pickerAvailable } from "./utils/imagePicker";
 
-// Header title shown ("← <title>") whenever currentView is a side-menu
-// destination or one of the sub-screens below — reuses SideMenu's own labels so
-// they can't drift apart. Only the 5 bottom tabs are absent here; those keep
+// Header title shown ("← <title>") whenever currentView is a Profile-hub
+// destination or one of the sub-screens below. The Profile hub owns the shared
+// destination labels so the header and rows cannot drift apart. The 5 bottom tabs keep
 // showing the baby's name, which is also the child switcher.
 //
 // EVERY sub-screen belongs in this map. Search and Recent Activity used to draw
@@ -144,9 +147,8 @@ import { pickImage, pickerAvailable } from "./utils/imagePicker";
 // screen's own bar renders at y=0 UNDERNEATH it and the two titles overlap.
 // A new sub-screen gets an entry here; it does not get its own header.
 const SCREEN_TITLES = {
-    ...MENU_TITLES,
-    share: "Share Records",
-    offlineSummary: "Offline Summary",
+    viewProfile: "Profile",
+    ...PROFILE_TITLES,
     search: "Search",
     allActivity: "Recent Activity",
 };
@@ -171,11 +173,14 @@ function MainAppShell({
     onThemeOverrideChange,
     schemeOverride,
     onSchemeOverrideChange,
+    preferencesReady,
 }) {
-    const { language, t } = useLanguage();
+    const { language, t, ready: languageReady } = useLanguage();
+    const { setReady: setLoadingReady } = useDatabaseLoading();
     const { colors, scheme } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const insets = useSafeAreaInsets();
+    const sessionEpoch = useSessionEpoch();
     // The tab bar is MEASURED rather than assumed. Its height moves with the
     // OS font scale (it contains a text label) and with the bottom inset, so
     // the floating button's old hardcoded `bottom: 92` was only ever correct
@@ -185,7 +190,7 @@ function MainAppShell({
     // every scrolling screen has to pad for it. Measured, never hardcoded: it
     // moves with the safe-area inset and grows with the OS font scale.
     const [headerHeight, setHeaderHeight] = useState(0);
-    const scroll = useScrollController(headerHeight);
+    const scroll = useScrollController(headerHeight, tabBarHeight);
 
     // Room inside the child-profile sheet, so its paired fields (birth weight /
     // birth height) can drop to one per line rather than squeezing to ~130pt
@@ -198,8 +203,7 @@ function MainAppShell({
         space.sm,
     );
 
-    // Preload the icon fonts (@expo/vector-icons) so buttons/icons never render
-    // blank. The app shows components/Splash.js until these are ready.
+    // Preload the icon and text fonts so buttons and copy never render blank.
     const [fontsReady, setFontsReady] = useState(false);
     useEffect(() => {
         let active = true;
@@ -221,9 +225,6 @@ function MainAppShell({
                 console.log("font preload:", e.message);
             } finally {
                 if (active) setFontsReady(true);
-                // Hand off from the native splash to Splash.js only once
-                // fonts are ready, so there's no blank/white frame between them.
-                if (SplashScreen) SplashScreen.hideAsync().catch(() => {});
             }
         })();
         return () => {
@@ -241,9 +242,9 @@ function MainAppShell({
 
     // Authentication State
     const [isAuthenticated, setIsAuthenticated] = useState(false);
-    // The splash owns its own timing (minimum visible duration + fade); this
-    // only records that it has finished, so it never returns mid-session.
-    const [splashDone, setSplashDone] = useState(false);
+    // Browsers have no native splash, so only the web fallback owns a timed
+    // fade. Native stays on app.json's splash until the whole gate is ready.
+    const [webSplashDone, setWebSplashDone] = useState(false);
     const [authScene, setAuthScene] = useState("login");
     // Healthcare Professional mode (separate actor, no parent account)
     const [professionalMode, setProfessionalMode] = useState(false);
@@ -265,10 +266,14 @@ function MainAppShell({
 
     // Main navigation view
     const [currentView, setCurrentView] = useState("dashboard");
+    // Growth unmounts when another screen is shown, so keep only its applied
+    // date view here for the lifetime of the signed-in session. Each child
+    // gets an independent view; drafts remain local to Growth.
+    const growthDateViewsRef = useRef({});
+    const nutritionDateViewsRef = useRef({});
     // Enter-only screen transition (fade + rise) — the outgoing screen is
     // swapped synchronously by React, only the incoming one animates in.
-    // useNativeDriver follows the house style already used in Skeleton.js/
-    // SideMenu.js: off on web, since RNW's transform driver doesn't support it.
+    // Keep the native transform driver off on web, where RNW does not support it.
     const contentOpacity = useRef(new Animated.Value(1)).current;
     const contentTranslateY = useRef(new Animated.Value(0)).current;
     useEffect(() => {
@@ -293,6 +298,7 @@ function MainAppShell({
     // Optional deep-link sub-tab for Health/Growth (set by Dashboard quick actions).
     // navKey bumps on every request so repeated taps re-apply the tab.
     const [navTab, setNavTab] = useState(null);
+    const [navPayload, setNavPayload] = useState(null);
     const [navKey, setNavKey] = useState(0);
     // Back-button history for the global header — every navigation that goes
     // through changeView() pushes the screen it left, so goBack() can return
@@ -300,7 +306,7 @@ function MainAppShell({
     // -> back lands on View Profile, not Home). Capped so a long tab-hopping
     // session can't grow this unbounded; back only ever needs to pop one level.
     const historyRef = useRef([]);
-    const changeView = (view, tab = null) => {
+    const changeView = (view, tab = null, payload = null) => {
         setCurrentView((prevView) => {
             if (view !== prevView) {
                 historyRef.current = [...historyRef.current, prevView].slice(-10);
@@ -319,6 +325,7 @@ function MainAppShell({
         // Add Vaccine form on its own. Same for Log Growth, Add Memory and
         // Log Milk on their tabs.
         setNavTab(tab);
+        setNavPayload(payload);
         setNavKey((k) => k + 1);
         // The incoming screen mounts at offset 0. Without this the shared value
         // still holds the OUTGOING screen's offset and the header opens stuck
@@ -333,6 +340,7 @@ function MainAppShell({
         // Back navigation bypasses changeView, so it has to clear the deep-link
         // target itself or it leaks the same stale alias.
         setNavTab(null);
+        setNavPayload(null);
         setNavKey((k) => k + 1);
         // goBack bypasses changeView, so it clears the scroll offset itself for
         // the same reason it clears navTab itself.
@@ -352,8 +360,7 @@ function MainAppShell({
     //
     // The "+" only appears on the five bottom-tab screens. It used to render
     // everywhere, which put a "log something" affordance over Privacy
-    // Settings, Search, Share Records and — worst — Offline Summary, the
-    // read-only screen whose whole promise is that it works with no signal.
+    // Settings, Search and Share Records.
     const FAB_VIEWS = ["dashboard", "health", "growth", "nutrition", "calendar"];
     const showFab = FAB_VIEWS.includes(currentView);
 
@@ -361,6 +368,8 @@ function MainAppShell({
     const [profiles, setProfiles] = useState([]);
     const [selectedProfileId, setSelectedProfileId] = useState(null);
     const [bootstrapping, setBootstrapping] = useState(true);
+    const [assetsReady, setAssetsReady] = useState(false);
+    const startupAssetsStartedRef = useRef(false);
 
     // These props are retained for prop compatibility but screens now
     // self-load their records from the backend.
@@ -370,9 +379,10 @@ function MainAppShell({
 
     // Modal Control States
     const [showAddProfileModal, setShowAddProfileModal] = useState(false);
+    const addedProfileId = useRef(null);
+    useEffect(() => { if (showAddProfileModal) addedProfileId.current = null; }, [showAddProfileModal]);
     const [showEditProfileModal, setShowEditProfileModal] = useState(false);
-    // Slide-in side menu (opened from the header avatar).
-    const [menuOpen, setMenuOpen] = useState(false);
+    const [profileSaving, setProfileSaving] = useState(null);
     // Baby switcher, opened from the child's name in the header. It used to be
     // a row of pills pinned to the top of the Dashboard, which meant it cost a
     // row of vertical space on the busiest screen AND existed on only that one
@@ -400,6 +410,7 @@ function MainAppShell({
     // Annual data-retention re-consent (Data Privacy Act of 2012).
     const [consentDue, setConsentDue] = useState(false);
     const [withdrawConfirm, setWithdrawConfirm] = useState(false);
+    const [consentAction, setConsentAction] = useState(null);
 
     // Form states for profile adding/editing
     const [formName, setFormName] = useState("");
@@ -421,6 +432,20 @@ function MainAppShell({
 
     const activeProfile =
         profiles.find((p) => p.id === selectedProfileId) || profiles[0];
+    const sharedGrowth = useRecords(activeProfile?.id, "growth");
+    useEffect(() => {
+        if (!activeProfile) return;
+        const rows = [...sharedGrowth].sort((a, b) => String(b.date_recorded).localeCompare(String(a.date_recorded)) || Number(b.id) - Number(a.id));
+        const weight = rows.find((row) => row.weight != null)?.weight;
+        const height = rows.find((row) => row.height != null)?.height;
+        setProfiles((prev) => prev.map((profile) => profile.id === activeProfile.id ? { ...profile,
+            currentWeight: weight != null ? Number(weight) : profile.birthWeight,
+            currentHeight: height != null ? Number(height) : profile.birthHeight } : profile));
+    }, [activeProfile?.id, sharedGrowth]);
+    const selectProfile = (profile) => {
+        setSelectedProfileId(profile ? profile.id : null);
+        if (onThemeGenderChange) onThemeGenderChange(profile ? profile.gender : undefined);
+    };
 
     // Alert dots for the baby switcher. Without this a parent with two children
     // has to switch back and forth to find out whether the other one has
@@ -464,8 +489,8 @@ function MainAppShell({
             unknown.map(async (p) => {
                 try {
                     const [vax, med] = await Promise.all([
-                        api.listRecords(p.id, "vaccinations"),
-                        api.listRecords(p.id, "medical-history"),
+                        api.listRecords(p.id, "vaccinations", { background: true }),
+                        api.listRecords(p.id, "medical-history", { background: true }),
                     ]);
                     const overdue = (vax || []).some(
                         (v) => v.status !== "completed" && v.due_date && v.due_date < todayStr,
@@ -512,7 +537,7 @@ function MainAppShell({
     const checkUnseenAccess = async () => {
         if (!activeProfile) return;
         try {
-            const { count, rows } = await api.unseenAccessLog(activeProfile.id);
+            const { count, rows } = await api.unseenAccessLog(activeProfile.id, { background: true });
             setUnseenCount(count);
             const freshRows = (rows || []).filter((r) => !toastedIdsRef.current.has(r.id));
             if (seenFirstCheckRef.current && freshRows.length > 0) {
@@ -544,13 +569,14 @@ function MainAppShell({
     }, [activeProfile ? activeProfile.id : null]);
 
     // Drive the app theme from the selected child's gender (girl/boy).
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (onThemeGenderChange) onThemeGenderChange(activeProfile ? activeProfile.gender : undefined);
     }, [activeProfile ? activeProfile.gender : undefined]);
 
     // Apply a logged-in user's profile fields to local state.
     const applyUser = (user) => {
         if (!user) return;
+        api.seedAccount(user);
         setParentName(user.fullName || user.full_name || "Parent");
         // Assigned unconditionally, not behind an `if`: a field the parent has
         // just CLEARED has to clear here too, and the old guarded form left the
@@ -562,20 +588,28 @@ function MainAppShell({
 
     // Annual re-consent: keep the data for another year.
     const handleKeepData = async () => {
+        if (consentAction) return;
+        setConsentAction("renew");
         try {
             await api.renewConsent();
         } catch (e) {
             console.log("renew consent:", e.message);
+        } finally {
+            setConsentAction(null);
         }
         setConsentDue(false);
         setWithdrawConfirm(false);
     };
     // Withdraw consent: permanently delete the account and all data, then log out.
     const handleWithdrawData = async () => {
+        if (consentAction) return;
+        setConsentAction("delete");
         try {
             await api.deleteAccount();
         } catch (e) {
             console.log("delete account:", e.message);
+        } finally {
+            setConsentAction(null);
         }
         setConsentDue(false);
         setWithdrawConfirm(false);
@@ -590,7 +624,7 @@ function MainAppShell({
     // forward — a stopgap until server-side push exists (see CLAUDE.md 4.5).
     const scheduleUpcomingVaccineReminders = async (childId) => {
         try {
-            const rows = await api.listRecords(childId, "reminders");
+            const rows = await api.listRecords(childId, "reminders", { background: true });
             const cutoff = new Date();
             cutoff.setMonth(cutoff.getMonth() + 6);
             const cutoffStr = cutoff.toISOString().split("T")[0];
@@ -622,7 +656,7 @@ function MainAppShell({
             const rows = await api.listChildren();
             const mapped = rows.map(childToProfile);
             setProfiles(mapped);
-            setSelectedProfileId(mapped.length ? mapped[0].id : null);
+            selectProfile(mapped[0] || null);
             mapped.forEach((p) => scheduleUpcomingVaccineReminders(p.id));
         } catch (e) {
             console.log("loadChildren:", e.message);
@@ -647,6 +681,39 @@ function MainAppShell({
             }
         })();
     }, []);
+
+    // Preload only images that can appear immediately after startup. First
+    // launch also gets the Auth logo because both onboarding CTAs lead there.
+    useEffect(() => {
+        if (bootstrapping || onboarded === null || startupAssetsStartedRef.current) return undefined;
+        startupAssetsStartedRef.current = true;
+        let active = true;
+        setAssetsReady(false);
+        const sources = !onboarded
+            ? [
+                  require("./assets/onboarding-book-collage.png"),
+                  require("./assets/onboarding-qr-hand.png"),
+                  require("./assets/onboarding-care-circle.png"),
+                  require("./assets/splash-icon.png"),
+                  require("./assets/auth-login-hero.png"),
+                  require("./assets/auth-register-hero.png"),
+              ]
+            : !isAuthenticated
+              ? [
+                    require("./assets/splash-icon.png"),
+                    require("./assets/auth-login-hero.png"),
+                    require("./assets/auth-register-hero.png"),
+                ]
+              : [];
+        Asset.loadAsync(sources)
+            .catch((e) => console.log("startup asset preload:", e.message || e))
+            .finally(() => {
+                if (active) setAssetsReady(true);
+            });
+        return () => {
+            active = false;
+        };
+    }, [bootstrapping, onboarded, isAuthenticated]);
 
     // ORDER MATTERS. loadChildren() runs BEFORE setIsAuthenticated(true).
     //
@@ -674,9 +741,12 @@ function MainAppShell({
         setIsAuthenticated(false);
         setAuthScene("login");
         setProfiles([]);
-        setSelectedProfileId(null);
+        selectProfile(null);
+        growthDateViewsRef.current = {};
+        nutritionDateViewsRef.current = {};
         setCurrentView("dashboard");
         setNavTab(null); // nor let it carry the old session's pending deep link
+        setNavPayload(null);
         historyRef.current = []; // don't let a new session's back arrow reach the old one
         try {
             await clearToken();
@@ -690,7 +760,7 @@ function MainAppShell({
         const created = await api.createChild(profileFormToChild(form, { includeBirth: true }));
         const prof = childToProfile(created);
         setProfiles((prev) => [...prev, prof]);
-        setSelectedProfileId(prof.id);
+        selectProfile(prof);
         scheduleUpcomingVaccineReminders(prof.id);
     };
 
@@ -699,9 +769,10 @@ function MainAppShell({
             toast.error("Please enter baby name");
             return;
         }
+        if (profileSaving) return;
+        setProfileSaving("add");
         try {
-            const created = await api.createChild(
-                profileFormToChild(
+            const body = profileFormToChild(
                     {
                         name: formName,
                         nickname: formNickname,
@@ -719,19 +790,22 @@ function MainAppShell({
                         preferredHealthCenter: formHealthCenter,
                     },
                     { includeBirth: true },
-                ),
-            );
+                );
+            const created = addedProfileId.current
+                ? await api.updateChild(addedProfileId.current, body)
+                : await api.createChild(body);
+            addedProfileId.current = created.id;
             let prof = childToProfile(created);
             if (formAvatarUri) {
                 try {
                     const withAvatar = await api.uploadChildAvatar(created.id, formAvatarUri);
                     prof = childToProfile(withAvatar);
                 } catch (e) {
-                    console.log("avatar upload:", e.message);
+                    throw new Error(`Baby profile saved, but its photo could not be saved: ${e.message}. Retry to finish without creating another profile.`);
                 }
             }
-            setProfiles((prev) => [...prev, prof]);
-            setSelectedProfileId(prof.id);
+            setProfiles((prev) => [...prev.filter((p) => p.id !== prof.id), prof]);
+            selectProfile(prof);
             scheduleUpcomingVaccineReminders(prof.id);
             setShowAddProfileModal(false);
             setFormName("");
@@ -747,6 +821,8 @@ function MainAppShell({
             setFormAvatarUri("");
         } catch (e) {
             toast.error(e.message || "Could not add child");
+        } finally {
+            setProfileSaving(null);
         }
     };
 
@@ -755,6 +831,8 @@ function MainAppShell({
             toast.error("Please enter baby name");
             return;
         }
+        if (profileSaving) return;
+        setProfileSaving("edit");
         try {
             const updated = await api.updateChild(
                 activeProfile.id,
@@ -782,14 +860,16 @@ function MainAppShell({
                     const withAvatar = await api.uploadChildAvatar(activeProfile.id, formAvatarUri);
                     prof = childToProfile(withAvatar);
                 } catch (e) {
-                    console.log("avatar upload:", e.message);
+                    throw new Error(`Profile saved, but its photo could not be saved: ${e.message}. Retry to finish.`);
                 }
             }
-            setProfiles((prev) => prev.map((p) => (p.id === prof.id ? prof : p)));
+            setProfiles((prev) => prev.map((p) => (p.id === prof.id ? { ...prof, currentWeight: p.currentWeight, currentHeight: p.currentHeight } : p)));
             setShowEditProfileModal(false);
             setFormAvatarUri("");
         } catch (e) {
             toast.error(e.message || "Could not update child");
+        } finally {
+            setProfileSaving(null);
         }
     };
 
@@ -868,9 +948,27 @@ function MainAppShell({
     // The splash stays up until fonts, the restored session and the first-run
     // check have all resolved — and for its own minimum duration on top of
     // that, so a warm start shows a moment of brand instead of a flicker.
-    const ready = fontsReady && !bootstrapping && onboarded !== null;
-    if (!splashDone) {
-        return <Splash appReady={ready} onFinished={() => setSplashDone(true)} />;
+    const ready =
+        fontsReady &&
+        assetsReady &&
+        preferencesReady &&
+        languageReady &&
+        !bootstrapping &&
+        onboarded !== null;
+    useEffect(() => {
+        setLoadingReady(ready && (Platform.OS !== "web" || webSplashDone));
+    }, [ready, webSplashDone, setLoadingReady]);
+    useEffect(() => {
+        if (ready && Platform.OS !== "web" && SplashScreen) {
+            SplashScreen.hideAsync().catch(() => {});
+        }
+    }, [ready]);
+
+    if (!ready) {
+        return Platform.OS === "web" || !SplashScreen ? <Splash /> : null;
+    }
+    if (Platform.OS === "web" && !webSplashDone) {
+        return <Splash appReady onFinished={() => setWebSplashDone(true)} />;
     }
 
     if (professionalMode) {
@@ -950,6 +1048,7 @@ function MainAppShell({
             ]}
         >
             <StatusBar barStyle={scheme === "dark" ? "light-content" : "dark-content"} backgroundColor={colors.pageGradient[0]} />
+            <MutationFeedback profiles={profiles} top={headerHeight + space.xs} />
 
             {/* Dynamic Header — rendered AFTER the content below so it paints
                 on top of it. It floats over the page rather than sitting above
@@ -1099,12 +1198,13 @@ function MainAppShell({
                         )}
                     </TouchableOpacity>
                     <TouchableOpacity
-                        onPress={() => setMenuOpen(true)}
-                        style={styles.menuBtn}
+                        onPress={() => changeView("viewProfile")}
+                        style={styles.profileBtn}
                         accessibilityRole="button"
-                        accessibilityLabel="Open menu"
+                        accessibilityLabel="Open profile and settings"
+                        accessibilityState={{ selected: currentView === "viewProfile" }}
                     >
-                        <Ionicons name="menu-outline" size={22} color={colors.primary} />
+                        <Avatar uri={parentAvatar} name={parentName} size={36} borderWidth={2} />
                     </TouchableOpacity>
                 </View>
                 </View>
@@ -1125,7 +1225,7 @@ function MainAppShell({
                         onUpdateProfile={(updated) =>
                             setProfiles((prev) =>
                                 prev.map((p) =>
-                                    p.id === updated.id ? updated : p,
+                                    p.id === updated.id ? { ...p, ...updated } : p,
                                 ),
                             )
                         }
@@ -1138,23 +1238,28 @@ function MainAppShell({
                         onUpdateProfile={(updated) =>
                             setProfiles((prev) =>
                                 prev.map((p) =>
-                                    p.id === updated.id ? updated : p,
+                                    p.id === updated.id ? { ...p, ...updated } : p,
                                 ),
                             )
                         }
                         immunizations={immunizations}
                         setImmunizations={setImmunizations}
                         initialTab={navTab}
+                        initialRecord={navPayload}
                         navKey={navKey}
                     />
                 )}
                 {currentView === "growth" && (
                     <Growth
                         profile={activeProfile}
+                        savedDateView={growthDateViewsRef.current[activeProfile.id] || null}
+                        onDateViewChange={(view) => {
+                            growthDateViewsRef.current[activeProfile.id] = view;
+                        }}
                         onUpdateProfile={(updated) =>
                             setProfiles((prev) =>
                                 prev.map((p) =>
-                                    p.id === updated.id ? updated : p,
+                                    p.id === updated.id ? { ...p, ...updated } : p,
                                 ),
                             )
                         }
@@ -1167,18 +1272,23 @@ function MainAppShell({
                 {currentView === "nutrition" && (
                     <NutritionTracker
                         profile={activeProfile}
+                        savedDateView={nutritionDateViewsRef.current[activeProfile.id] || null}
+                        onDateViewChange={(view) => {
+                            nutritionDateViewsRef.current[activeProfile.id] = view;
+                        }}
                         initialAction={navTab}
                         navKey={navKey}
                     />
                 )}
                 {currentView === "services" && <Services />}
-                {currentView === "calendar" && <CalendarView profile={activeProfile} />}
+                {currentView === "calendar" && <CalendarView profile={activeProfile} onNavigate={changeView} />}
                 {currentView === "allActivity" && <AllActivity profile={activeProfile} />}
                 {currentView === "search" && (
-                    <Search profile={activeProfile} onClose={goBack} onNavigate={changeView} />
+                    <Search key={`${sessionEpoch}:${activeProfile.id}`} profile={activeProfile} onNavigate={changeView} />
                 )}
                 {currentView === "share" && (
                     <ShareRecords
+                        key={`${sessionEpoch}:${activeProfile.id}`}
                         profile={activeProfile}
                         immunizations={immunizations}
                         milestones={milestones}
@@ -1186,13 +1296,16 @@ function MainAppShell({
                         onClose={goBack}
                     />
                 )}
-                {currentView === "offlineSummary" && <OfflineSummaryView profile={activeProfile} />}
                 {currentView === "viewProfile" && (
                     <ViewProfile
+                        key={sessionEpoch}
                         parentName={parentName}
                         parentAvatar={parentAvatar}
                         parentRelationship={parentRelationship}
-                        onEdit={() => changeView("editProfile")}
+                        profiles={profiles}
+                        schemeOverride={schemeOverride}
+                        onNavigate={changeView}
+                        onLogout={handleLogOut}
                     />
                 )}
                 {currentView === "editProfile" && (
@@ -1223,50 +1336,13 @@ function MainAppShell({
                 )}
             </Animated.View>
 
-            {/* Modern bottom navigation tabs */}
-            <View
-                style={[styles.tabBar, { paddingBottom: space.md + insets.bottom }]}
-                onLayout={(e) => setTabBarHeight(e.nativeEvent.layout.height)}
-            >
-                {[
-                    { key: "dashboard", icon: "home", label: t("navDashboard") },
-                    { key: "health", icon: "shield-checkmark", label: t("navHealth") },
-                    { key: "growth", icon: "trending-up", label: t("navGrowth") },
-                    { key: "nutrition", icon: "restaurant", label: t("navNutrition") },
-                    { key: "calendar", icon: "calendar", label: t("navCalendar") },
-                ].map((tab) => {
-                    const active = currentView === tab.key;
-                    return (
-                        <TouchableOpacity
-                            key={tab.key}
-                            style={styles.tabItem}
-                            onPress={() => {
-                                if (Haptics && Haptics.selectionAsync) {
-                                    Haptics.selectionAsync().catch(() => {});
-                                }
-                                changeView(tab.key);
-                            }}
-                            accessibilityRole="button"
-                            accessibilityLabel={tab.label}
-                            accessibilityState={{ selected: active }}
-                        >
-                            <View style={[styles.tabPill, active && styles.tabPillActive]}>
-                                <Ionicons
-                                    name={active ? tab.icon : tab.icon + "-outline"}
-                                    size={21}
-                                    color={active ? colors.accentStrong : colors.textMuted}
-                                />
-                            </View>
-                            <Text
-                                numberOfLines={1}
-                                style={[styles.tabLabel, active && styles.tabLabelActive]}
-                            >
-                                {tab.label}
-                            </Text>
-                        </TouchableOpacity>
-                    );
-                })}
-            </View>
+            <TabBar activeView={currentView}
+                onLayout={(event) => setTabBarHeight(event.nativeEvent.layout.height)}
+                onSelect={(view) => {
+                    if (Haptics?.selectionAsync) Haptics.selectionAsync().catch(() => {});
+                    changeView(view);
+                }}
+            />
 
             {/* Floating add button, above the tab bar on the five record
                 screens. See FAB_VIEWS above for why it is no longer global. */}
@@ -1277,9 +1353,8 @@ function MainAppShell({
                         styles.fab,
                         // Sits a fixed gap above the MEASURED tab bar, so it
                         // stays clear of it at any font scale and above any
-                        // home indicator. The 72 fallback matches the bar's
-                        // natural height for the first frame before onLayout.
-                        { bottom: (tabBarHeight || 72 + insets.bottom) + space.md },
+                        // home indicator, including the first-frame fallback.
+                        { bottom: (tabBarHeight || TAB_BAR_BASE_HEIGHT + insets.bottom) + space.md },
                     ]}
                     accessibilityRole="button"
                     accessibilityLabel="Add a record"
@@ -1295,24 +1370,17 @@ function MainAppShell({
             />
 
             {/* Modal: ADD BABY PROFILE */}
-            <Modal
-                visible={showAddProfileModal}
-                transparent
-                animationType="slide"
-            >
-                <KeyboardAvoider>
-                <View style={styles.modalBg}>
-                    <ScrollView contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled">
-                        <View style={styles.modalCard}>
-                            <Text style={styles.modalTitle}>
-                                {t("profileAddTitle")}
-                            </Text>
+            <RecordFormSheet visible={showAddProfileModal} title={t("profileAddTitle")}
+                onClose={() => setShowAddProfileModal(false)} onSubmit={handleAddProfile} busy={profileSaving === "add"}
+                cancelLabel={t("cancel")} submitLabel={t("save")}>
+                <RecordFormGroup>
 
                             {renderAvatarPicker()}
 
-                            <Text style={styles.modalLabel}>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>
                                 {t("profileNameLabel")}
-                            </Text>
+                            </Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 placeholder="Baby Full Name"
@@ -1320,8 +1388,10 @@ function MainAppShell({
                                 value={formName}
                                 onChangeText={setFormName}
                             />
+                            </RecordFormRow>
 
-                            <Text style={styles.modalLabel}>Nickname</Text>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>Nickname</Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 placeholder="e.g. Baby E"
@@ -1329,12 +1399,13 @@ function MainAppShell({
                                 value={formNickname}
                                 onChangeText={setFormNickname}
                             />
+                            </RecordFormRow>
 
                             <DateField
                                 label={t("profileDobLabel")}
                                 value={formDob}
                                 onChange={setFormDob}
-                                maximumDate={new Date().toISOString().slice(0, 10)}
+                                maximumDate={todayLocal()}
                             />
 
                             <Text style={styles.modalLabel}>
@@ -1381,30 +1452,35 @@ function MainAppShell({
 
                             <View style={modalTwoCol ? styles.formRow : styles.formStack}>
                                 <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
-                                    <Text style={styles.modalLabel}>
+                                    <RecordFormRow label={<Text style={styles.modalLabel}>
                                         Birth Weight (kg)
-                                    </Text>
+                                    </Text>}>
+
                                     <TextInput
                                         keyboardType="numeric"
                                         style={styles.modalInput}
                                         value={formWeight}
                                         onChangeText={setFormWeight}
                                     />
+                                    </RecordFormRow>
                                 </View>
                                 <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
-                                    <Text style={styles.modalLabel}>
+                                    <RecordFormRow label={<Text style={styles.modalLabel}>
                                         Birth Height (cm)
-                                    </Text>
+                                    </Text>}>
+
                                     <TextInput
                                         keyboardType="numeric"
                                         style={styles.modalInput}
                                         value={formHeight}
                                         onChangeText={setFormHeight}
                                     />
+                                    </RecordFormRow>
                                 </View>
                             </View>
 
-                            <Text style={styles.modalLabel}>Blood Type</Text>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>Blood Type</Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 autoCapitalize="characters"
@@ -1413,101 +1489,86 @@ function MainAppShell({
                                 value={formBloodType}
                                 onChangeText={setFormBloodType}
                             />
-                            <Text style={styles.modalLabel}>Birth Hospital</Text>
+                            </RecordFormRow>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>Birth Hospital</Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 value={formHospital}
                                 onChangeText={setFormHospital}
                             />
-                            <Text style={styles.modalLabel}>Pediatrician</Text>
+                            </RecordFormRow>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>Pediatrician</Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 value={formPediatrician}
                                 onChangeText={setFormPediatrician}
                             />
-                            <Text style={styles.modalLabel}>OB-GYNE</Text>
+                            </RecordFormRow>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>OB-GYNE</Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 value={formObgyne}
                                 onChangeText={setFormObgyne}
                             />
-                            <Text style={styles.modalLabel}>Emergency Contact</Text>
+                            </RecordFormRow>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>Emergency Contact</Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 value={formEmergency}
                                 onChangeText={setFormEmergency}
                             />
+                            </RecordFormRow>
 
-                            <Text style={styles.modalLabel}>Place of Birth</Text>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>Place of Birth</Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 value={formPlaceOfBirth}
                                 onChangeText={setFormPlaceOfBirth}
                             />
+                            </RecordFormRow>
                             <TimeField
                                 label="Time of Birth"
                                 value={formTimeOfBirth}
                                 onChange={setFormTimeOfBirth}
                             />
-                            <Text style={styles.modalLabel}>Preferred Health Center</Text>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>Preferred Health Center</Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 value={formHealthCenter}
                                 onChangeText={setFormHealthCenter}
                             />
+                            </RecordFormRow>
 
-                            <View style={styles.modalButtons}>
-                                <TouchableOpacity
-                                    onPress={() =>
-                                        setShowAddProfileModal(false)
-                                    }
-                                    style={styles.modalCancelBtn}
-                                >
-                                    <Text style={styles.modalCancelText}>
-                                        {t("cancel")}
-                                    </Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    onPress={handleAddProfile}
-                                    style={styles.modalSaveBtn}
-                                >
-                                    <Text style={styles.modalSaveText}>
-                                        {t("save")}
-                                    </Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    </ScrollView>
-                </View>
-                </KeyboardAvoider>
-            </Modal>
+                </RecordFormGroup>
+            </RecordFormSheet>
 
             {/* Modal: EDIT BABY PROFILE */}
-            <Modal
-                visible={showEditProfileModal}
-                transparent
-                animationType="slide"
-            >
-                <KeyboardAvoider>
-                <View style={styles.modalBg}>
-                    <ScrollView contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled">
-                        <View style={styles.modalCard}>
-                            <Text style={styles.modalTitle}>
-                                {t("profileEditTitle")}
-                            </Text>
+            <RecordFormSheet visible={showEditProfileModal} title={t("profileEditTitle")}
+                onClose={() => setShowEditProfileModal(false)} onSubmit={handleEditProfile} busy={profileSaving === "edit"}
+                cancelLabel={t("cancel")} submitLabel={t("save")}>
+                <RecordFormGroup>
 
                             {renderAvatarPicker(activeProfile.avatarUrl)}
 
-                            <Text style={styles.modalLabel}>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>
                                 {t("profileNameLabel")}
-                            </Text>
+                            </Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 value={formName}
                                 onChangeText={setFormName}
                             />
+                            </RecordFormRow>
 
-                            <Text style={styles.modalLabel}>Nickname</Text>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>Nickname</Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 placeholder="e.g. Baby E"
@@ -1515,12 +1576,13 @@ function MainAppShell({
                                 value={formNickname}
                                 onChangeText={setFormNickname}
                             />
+                            </RecordFormRow>
 
                             <DateField
                                 label={t("profileDobLabel")}
                                 value={formDob}
                                 onChange={setFormDob}
-                                maximumDate={new Date().toISOString().slice(0, 10)}
+                                maximumDate={todayLocal()}
                             />
 
                             <Text style={styles.modalLabel}>
@@ -1567,30 +1629,35 @@ function MainAppShell({
 
                             <View style={modalTwoCol ? styles.formRow : styles.formStack}>
                                 <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
-                                    <Text style={styles.modalLabel}>
+                                    <RecordFormRow label={<Text style={styles.modalLabel}>
                                         Current Weight (kg)
-                                    </Text>
+                                    </Text>}>
+
                                     <TextInput
                                         keyboardType="numeric"
                                         style={styles.modalInput}
                                         value={formWeight}
                                         onChangeText={setFormWeight}
                                     />
+                                    </RecordFormRow>
                                 </View>
                                 <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
-                                    <Text style={styles.modalLabel}>
+                                    <RecordFormRow label={<Text style={styles.modalLabel}>
                                         Current Height (cm)
-                                    </Text>
+                                    </Text>}>
+
                                     <TextInput
                                         keyboardType="numeric"
                                         style={styles.modalInput}
                                         value={formHeight}
                                         onChangeText={setFormHeight}
                                     />
+                                    </RecordFormRow>
                                 </View>
                             </View>
 
-                            <Text style={styles.modalLabel}>Blood Type</Text>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>Blood Type</Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 autoCapitalize="characters"
@@ -1599,74 +1666,64 @@ function MainAppShell({
                                 value={formBloodType}
                                 onChangeText={setFormBloodType}
                             />
-                            <Text style={styles.modalLabel}>Birth Hospital</Text>
+                            </RecordFormRow>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>Birth Hospital</Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 value={formHospital}
                                 onChangeText={setFormHospital}
                             />
-                            <Text style={styles.modalLabel}>Pediatrician</Text>
+                            </RecordFormRow>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>Pediatrician</Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 value={formPediatrician}
                                 onChangeText={setFormPediatrician}
                             />
-                            <Text style={styles.modalLabel}>OB-GYNE</Text>
+                            </RecordFormRow>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>OB-GYNE</Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 value={formObgyne}
                                 onChangeText={setFormObgyne}
                             />
-                            <Text style={styles.modalLabel}>Emergency Contact</Text>
+                            </RecordFormRow>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>Emergency Contact</Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 value={formEmergency}
                                 onChangeText={setFormEmergency}
                             />
+                            </RecordFormRow>
 
-                            <Text style={styles.modalLabel}>Place of Birth</Text>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>Place of Birth</Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 value={formPlaceOfBirth}
                                 onChangeText={setFormPlaceOfBirth}
                             />
+                            </RecordFormRow>
                             <TimeField
                                 label="Time of Birth"
                                 value={formTimeOfBirth}
                                 onChange={setFormTimeOfBirth}
                             />
-                            <Text style={styles.modalLabel}>Preferred Health Center</Text>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>Preferred Health Center</Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 value={formHealthCenter}
                                 onChangeText={setFormHealthCenter}
                             />
+                            </RecordFormRow>
 
-                            <View style={styles.modalButtons}>
-                                <TouchableOpacity
-                                    onPress={() =>
-                                        setShowEditProfileModal(false)
-                                    }
-                                    style={styles.modalCancelBtn}
-                                >
-                                    <Text style={styles.modalCancelText}>
-                                        {t("cancel")}
-                                    </Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    onPress={handleEditProfile}
-                                    style={styles.modalSaveBtn}
-                                >
-                                    <Text style={styles.modalSaveText}>
-                                        {t("save")}
-                                    </Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    </ScrollView>
-                </View>
-                </KeyboardAvoider>
-            </Modal>
+                </RecordFormGroup>
+            </RecordFormSheet>
 
             {/* Annual data-retention re-consent (Data Privacy Act of 2012, RA 10173) */}
             <Modal visible={consentDue} transparent animationType="fade">
@@ -1680,12 +1737,19 @@ function MainAppShell({
                                     Privacy Act of 2012 (RA 10173), do you still want BabyBook+ to keep
                                     retaining your and your child's data?
                                 </Text>
-                                <TouchableOpacity onPress={handleKeepData} style={styles.modalSaveBtn}>
-                                    <Text style={styles.modalSaveText}>Yes, keep my data for another year</Text>
+                                <TouchableOpacity
+                                    onPress={handleKeepData}
+                                    style={styles.modalSaveBtn}
+                                    disabled={!!consentAction}
+                                    accessibilityState={{ disabled: !!consentAction, busy: consentAction === "renew" }}
+                                >
+                                    {(<Text style={styles.modalSaveText}>Yes, keep my data for another year</Text>)}
                                 </TouchableOpacity>
                                 <TouchableOpacity
                                     onPress={() => setWithdrawConfirm(true)}
                                     style={{ marginTop: space.md, alignItems: "center", paddingVertical: 12 }}
+                                    disabled={!!consentAction}
+                                    accessibilityState={{ disabled: !!consentAction }}
                                 >
                                     <Text style={{ color: colors.danger, fontWeight: "700", fontSize: 13 }}>
                                         No — withdraw & delete my data
@@ -1699,12 +1763,19 @@ function MainAppShell({
                                     This permanently deletes your account and all of your child's records.
                                     This cannot be undone.
                                 </Text>
-                                <TouchableOpacity onPress={handleWithdrawData} style={[styles.modalSaveBtn, { backgroundColor: colors.danger }]}>
-                                    <Text style={styles.modalSaveText}>Permanently delete everything</Text>
+                                <TouchableOpacity
+                                    onPress={handleWithdrawData}
+                                    style={[styles.modalSaveBtn, { backgroundColor: colors.danger }]}
+                                    disabled={!!consentAction}
+                                    accessibilityState={{ disabled: !!consentAction, busy: consentAction === "delete" }}
+                                >
+                                    {(<Text style={styles.modalSaveText}>Permanently delete everything</Text>)}
                                 </TouchableOpacity>
                                 <TouchableOpacity
                                     onPress={() => setWithdrawConfirm(false)}
                                     style={{ marginTop: space.md, alignItems: "center", paddingVertical: 12 }}
+                                    disabled={!!consentAction}
+                                    accessibilityState={{ disabled: !!consentAction }}
                                 >
                                     <Text style={{ color: colors.textSecondary, fontWeight: "700", fontSize: 13 }}>Go back</Text>
                                 </TouchableOpacity>
@@ -1713,21 +1784,6 @@ function MainAppShell({
                     </View>
                 </View>
             </Modal>
-
-            <SideMenu
-                visible={menuOpen}
-                onClose={() => setMenuOpen(false)}
-                parentName={parentName}
-                parentAvatar={parentAvatar}
-                onNavigate={(key) => {
-                    changeView(key);
-                    setMenuOpen(false);
-                }}
-                onLogout={() => {
-                    setMenuOpen(false);
-                    handleLogOut();
-                }}
-            />
 
             {/* Baby switcher. An anchored menu, not a bottom sheet: it belongs
                 to the name that opened it and reads as an extension of it.
@@ -1746,7 +1802,7 @@ function MainAppShell({
                         note={childAlerts[p.id] ? "Needs attention" : undefined}
                         selected={p.id === activeProfile.id}
                         onPress={() => {
-                            setSelectedProfileId(p.id);
+                            selectProfile(p);
                             setSwitcherOpen(false);
                         }}
                         leading={
@@ -1796,16 +1852,21 @@ export default function App() {
     // effect below still restores a saved choice, so anyone who has already
     // chosen "system" or "dark" keeps it.
     const [schemeOverride, setSchemeOverride] = useState("light");
+    const [preferencesReady, setPreferencesReady] = useState(false);
 
     useEffect(() => {
         (async () => {
             try {
+                // Cleanup runs independently of the startup preference/splash gate.
+                void removeLegacyOfflineSummaries();
                 const saved = await storage.getItem("bb_theme_override");
                 if (saved) setThemeOverride(saved);
                 const savedScheme = await storage.getItem("bb_dark_mode");
                 if (savedScheme) setSchemeOverride(savedScheme);
             } catch (e) {
                 /* ignore */
+            } finally {
+                setPreferencesReady(true);
             }
         })();
     }, []);
@@ -1832,6 +1893,7 @@ export default function App() {
         <SafeAreaProvider>
             <LanguageProvider>
                 <ThemeProvider gender={themeGender} override={themeOverride} schemeOverride={schemeOverride}>
+                    <DatabaseLoadingProvider>
                     <ToastProvider>
                         <MainAppShell
                             onThemeGenderChange={setThemeGender}
@@ -1839,8 +1901,10 @@ export default function App() {
                             onThemeOverrideChange={changeThemeOverride}
                             schemeOverride={schemeOverride}
                             onSchemeOverrideChange={changeSchemeOverride}
+                            preferencesReady={preferencesReady}
                         />
                     </ToastProvider>
+                    </DatabaseLoadingProvider>
                 </ThemeProvider>
             </LanguageProvider>
         </SafeAreaProvider>
@@ -1995,51 +2059,17 @@ const makeStyles = (colors) => StyleSheet.create({
         alignItems: "center",
         justifyContent: "center",
     },
-    content: {
-        flex: 1,
-    },
-    tabBar: {
-        backgroundColor: colors.surface,
-        borderTopWidth: 1,
-        borderTopColor: colors.hairline,
-        flexDirection: "row",
-        alignItems: "flex-start",
-        justifyContent: "space-around",
-        paddingTop: space.sm,
-        // paddingBottom is applied inline as space.md + insets.bottom, so the
-        // bar paints its own background behind the home indicator instead of
-        // ending above it.
-    },
-    tabItem: {
-        alignItems: "center",
-        justifyContent: "center",
-        flex: 1,
-        minWidth: 0,
-        minHeight: MIN_TOUCH,
-        paddingHorizontal: 2,
-        gap: 3,
-    },
-    tabPill: {
-        width: "100%",
-        maxWidth: 56,
-        height: 32,
+    profileBtn: {
+        width: MIN_TOUCH,
+        height: MIN_TOUCH,
         borderRadius: radius.pill,
         alignItems: "center",
         justifyContent: "center",
     },
-    tabPillActive: {
-        backgroundColor: colors.primarySoft,
+    content: {
+        flex: 1,
     },
-    tabLabel: {
-        ...type.caption,
-        fontWeight: "600",
-        color: colors.textMuted,
-        textAlign: "center",
-    },
-    tabLabelActive: {
-        color: colors.accentStrong,
-        fontWeight: "800",
-    },
+
     fab: {
         position: "absolute",
         right: space.lg,
@@ -2061,12 +2091,7 @@ const makeStyles = (colors) => StyleSheet.create({
         alignItems: "center",
         padding: space.xl,
     },
-    modalScroll: {
-        flexGrow: 1,
-        justifyContent: "center",
-        alignItems: "center",
-        width: "100%",
-    },
+
     avatarPickerWrap: {
         alignItems: "center",
         marginBottom: space.lg,
@@ -2133,12 +2158,13 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     modalInput: {
         backgroundColor: colors.surfaceAlt,
-        borderWidth: 1,
+        borderWidth: 0,
         borderColor: colors.border,
         borderRadius: radius.lg,
         borderCurve: "continuous",
         paddingHorizontal: space.lg,
-        height: 52,
+        minHeight: 52,
+            paddingVertical: space.sm,
         fontSize: 16,
         color: colors.text,
         marginBottom: space.lg,
@@ -2150,24 +2176,7 @@ const makeStyles = (colors) => StyleSheet.create({
     formStack: { flexDirection: "column" },
     formCell: { flex: 1, minWidth: 0 },
     formCellFull: { width: "100%" },
-    modalButtons: {
-        flexDirection: "row",
-        justifyContent: "flex-end",
-        flexWrap: "wrap",
-        gap: space.md,
-    },
-    modalCancelBtn: {
-        paddingVertical: 12,
-        paddingHorizontal: space.lg,
-        borderRadius: radius.pill,
-        borderCurve: "continuous",
-        backgroundColor: colors.surfaceAlt,
-    },
-    modalCancelText: {
-        fontSize: 14,
-        fontWeight: "700",
-        color: colors.textSecondary,
-    },
+
     modalSaveBtn: {
         paddingVertical: 12,
         paddingHorizontal: space.lg,

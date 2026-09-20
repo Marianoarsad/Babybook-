@@ -4,7 +4,7 @@ import {
     Text,
     Image,
     StyleSheet,
-    TouchableOpacity,    ActivityIndicator,
+    TouchableOpacity,
     Animated,
     Easing,
     Platform,
@@ -16,6 +16,9 @@ import { ageText } from "./Dashboard";
 import { RECORD_LABELS, qrPayloadForCode, VISIT_REASON_MAX } from "../utils/shareStore";
 import { exportChildRecordsPdf, pdfExportAvailable } from "../utils/exportPdf";
 import { api } from "../utils/api";
+import { useRecordCache, useScreenRefresh } from "../utils/useRecords";
+import { useLanguage } from "../context/LanguageContext";
+import { AppointmentsSkeleton } from "./ui/Skeleton";
 import { useToast } from "./ui/Toast";
 import { useTheme } from "../context/ThemeContext";
 import { motion, shadow, space, type, MIN_TOUCH } from "../theme";
@@ -25,6 +28,7 @@ import { EmptyStateCard } from "./common/Cards";
 import { useRefreshControl } from "./ui/useRefreshControl";
 import ShowMore from "./ui/ShowMore";
 import TipStrip from "./ui/TipStrip";
+import PulseLoader from "./ui/PulseLoader";
 
 // Turns a raw user-agent string into a short readable summary, e.g. "Chrome on Android".
 function parseUserAgent(ua) {
@@ -50,6 +54,7 @@ const TTL_OPTIONS = [
 ];
 
 export default function ShareRecords({ profile }) {
+    const { t } = useLanguage();
     const toast = useToast();
     const alert = (m) => toast.error(m);
     const { colors } = useTheme();
@@ -63,14 +68,24 @@ export default function ShareRecords({ profile }) {
     const [ttl, setTtl] = useState(60);
     const [visitReason, setVisitReason] = useState("");
     const [generating, setGenerating] = useState(false);
+    const [revokingId, setRevokingId] = useState(null);
     const [activeShare, setActiveShare] = useState(null);
     const [exportingPdf, setExportingPdf] = useState(false);
-    const [history, setHistory] = useState([]);
-    const [accessLog, setAccessLog] = useState([]);
+    const shareCache = useRecordCache(profile.id, "shares");
+    const logCache = useRecordCache(profile.id, "access-log");
+    const [now, setNow] = useState(Date.now);
+    const history = useMemo(() => shareCache.rows.map((share) => share.status === "active" && new Date(share.expiration_date).getTime() <= now
+        ? { ...share, status: "expired" } : share), [shareCache.rows, now]);
+    const accessLog = logCache.rows;
+    const historyKnown = shareCache.hasFetched || history.length > 0;
+    const logKnown = logCache.hasFetched;
     const [historyVisible, setHistoryVisible] = useState(10);
     const [logVisible, setLogVisible] = useState(10);
     const [avatarBroken, setAvatarBroken] = useState(false);
-    const [loading, setLoading] = useState(true);
+    useEffect(() => {
+        const clock = setInterval(() => setNow(Date.now()), 30000);
+        return () => clearInterval(clock);
+    }, []);
 
     // Reveal pulse for the freshly-generated QR — reassures the parent that
     // something just happened, mirrors Skeleton.js's useNativeDriver gating.
@@ -92,28 +107,28 @@ export default function ShareRecords({ profile }) {
         ).start();
     }, [activeShare, pulseAnim]);
 
-    const refresh = useCallback(async () => {
-        setLoading(true);
-        try {
-            const [shares, log] = await Promise.all([
-                api.listShares(profile.id),
-                api.accessLog(profile.id),
-            ]);
-            setHistory(shares);
-            setAccessLog(log);
-            api.markAccessLogSeen(profile.id).catch(() => {});
-        } catch (e) {
-            console.log("share refresh:", e.message);
-        } finally {
-            setLoading(false);
-        }
+    const load = useCallback(async (isCurrent) => {
+        const outcomes = await Promise.allSettled([
+            api.listShares(profile.id, { loading: "nonblocking" }),
+            api.accessLog(profile.id, { loading: "nonblocking" }),
+        ]);
+        if (outcomes[1].status === "fulfilled" && isCurrent()) api.markAccessLogSeen(profile.id, { background: true }).catch(() => {});
+        return ["shares", "access-log"].filter((_, index) => outcomes[index].status === "rejected");
     }, [profile.id]);
-
-    useEffect(() => {
-        refresh();
-    }, [refresh]);
+    const { refreshing: loading, failures, refresh, isActive } = useScreenRefresh(profile.id, load);
 
     const refreshControl = useRefreshControl(loading, refresh);
+    const readStatus = (cache, resource) => {
+        const failed = failures.includes(resource) || failures.includes("load");
+        const message = failed ? t("screenRefreshFailed") : loading ? t("screenRefreshing")
+            : cache.fetchedAt ? t("screenLastChecked").replace("{time}", new Date(cache.fetchedAt).toLocaleTimeString()) : "";
+        return message ? <View style={styles.readStatus}>
+            <Text style={styles.readStatusText}>{message}</Text>
+            {failed ? <TouchableOpacity onPress={refresh} accessibilityRole="button" style={styles.readRetry}>
+                <Text style={styles.readRetryText}>{t("retry")}</Text>
+            </TouchableOpacity> : null}
+        </View> : null;
+    };
 
     const toggle = (key) => {
         setSelected((prev) => {
@@ -125,6 +140,7 @@ export default function ShareRecords({ profile }) {
     };
 
     const handleGenerate = async () => {
+        if (generating || !isActive()) return;
         const keys = allKeys.filter((k) => selected.has(k));
         if (keys.length === 0) return;
         setGenerating(true);
@@ -134,23 +150,29 @@ export default function ShareRecords({ profile }) {
                 ttlMinutes: ttl,
                 visitReason: visitReason.trim(),
             });
+            if (!isActive()) return;
             setActiveShare(share);
             toast.success("Ready to show the doctor");
-            await refresh();
+            refresh();
         } catch (e) {
-            alert(e.message || "Could not generate QR");
+            if (isActive()) alert(e.message || "Could not generate QR");
         } finally {
-            setGenerating(false);
+            if (isActive()) setGenerating(false);
         }
     };
 
     const handleRevoke = async (id) => {
+        if (revokingId || !isActive()) return;
+        setRevokingId(id);
         try {
             await api.revokeShare(profile.id, id);
+            if (!isActive()) return;
             if (activeShare && activeShare.id === id) setActiveShare(null);
-            await refresh();
+            refresh();
         } catch (e) {
-            alert(e.message || "Could not revoke");
+            if (isActive()) alert(e.message || "Could not revoke");
+        } finally {
+            if (isActive()) setRevokingId(null);
         }
     };
 
@@ -160,14 +182,14 @@ export default function ShareRecords({ profile }) {
     // there is no mapping table in between to drift. Untick "Allergies" and
     // the printout has no allergy line either.
     const handleExportPdf = async () => {
-        if (selected.size === 0) return;
+        if (selected.size === 0 || exportingPdf || !isActive()) return;
         setExportingPdf(true);
         try {
             await exportChildRecordsPdf(profile, { scope: new Set(selected) });
         } catch (e) {
-            alert(e.message || "Could not export records");
+            if (isActive()) alert(e.message || "Could not export records");
         } finally {
-            setExportingPdf(false);
+            if (isActive()) setExportingPdf(false);
         }
     };
 
@@ -216,6 +238,8 @@ export default function ShareRecords({ profile }) {
                         Show this to the healthcare professional. Access is view-only and expires {expiryText(activeShare.expiration_date)}.
                     </Text>
 
+                    {readStatus(shareCache, "shares")}
+
                     <Animated.View style={[styles.qrWrap, { transform: [{ scale: pulseAnim }] }]}>
                         <QrCodeView value={qrPayloadForCode(activeShare.code)} size={230} />
                     </Animated.View>
@@ -233,9 +257,16 @@ export default function ShareRecords({ profile }) {
                     </View>
 
                     <View style={styles.resultBtns}>
-                        <TouchableOpacity style={styles.revokeBtn} onPress={() => handleRevoke(activeShare.id)}>
-                            <Ionicons name="close-circle-outline" size={16} color={colors.danger} />
-                            <Text style={styles.revokeText}>Revoke Now</Text>
+                        <TouchableOpacity
+                            style={styles.revokeBtn}
+                            onPress={() => handleRevoke(activeShare.id)}
+                            disabled={revokingId === activeShare.id}
+                            accessibilityState={{ disabled: revokingId === activeShare.id, busy: revokingId === activeShare.id }}
+                        >
+                            {(<>
+                                    <Ionicons name="close-circle-outline" size={16} color={colors.danger} />
+                                    <Text style={styles.revokeText}>Revoke Now</Text>
+                                </>)}
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.doneBtn} onPress={() => setActiveShare(null)}>
                             <Text style={styles.doneText}>New Share</Text>
@@ -331,14 +362,10 @@ export default function ShareRecords({ profile }) {
                 onPress={handleGenerate}
                 disabled={generating || selected.size === 0}
             >
-                {generating ? (
-                    <ActivityIndicator color={colors.onPrimary} />
-                ) : (
-                    <>
+                {(<>
                         <Ionicons name="qr-code" size={18} color={colors.onPrimary} />
                         <Text style={styles.genText}>Generate Consultation QR</Text>
-                    </>
-                )}
+                    </>)}
             </TouchableOpacity>
 
             {/* Paper alternative to the QR, not a follow-up to it — for a
@@ -353,17 +380,23 @@ export default function ShareRecords({ profile }) {
                     accessibilityRole="button"
                     accessibilityLabel="Save or print the selected records as a PDF"
                 >
-                    <Ionicons name="print-outline" size={16} color={colors.primaryDark} />
-                    <Text style={styles.printBtnText}>
-                        {exportingPdf ? "Preparing…" : "Save or print as PDF"}
-                    </Text>
+                    {exportingPdf ? (
+                        <PulseLoader color={colors.primaryDark} />
+                    ) : (
+                        <>
+                            <Ionicons name="print-outline" size={16} color={colors.primaryDark} />
+                            <Text style={styles.printBtnText}>Save or print as PDF</Text>
+                        </>
+                    )}
                 </TouchableOpacity>
             ) : null}
 
-            {!loading && (
+            {(
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>Active & recent shares</Text>
-                    {history.length === 0 && (
+                    {readStatus(shareCache, "shares")}
+                    {!historyKnown ? loading ? <AppointmentsSkeleton /> : <Text style={styles.readStatusText}>{t("screenDataUnavailable")}</Text> : null}
+                    {historyKnown && history.length === 0 && (
                         <EmptyStateCard message="No shares yet. Generate a QR code above." icon="qr-code-outline" />
                     )}
                     {history.slice(0, historyVisible).map((s) => (
@@ -381,8 +414,13 @@ export default function ShareRecords({ profile }) {
                                 </Text>
                             </View>
                             {s.status === "active" && (
-                                <TouchableOpacity onPress={() => handleRevoke(s.id)} style={styles.histRevoke}>
-                                    <Ionicons name="close" size={16} color={colors.danger} />
+                                <TouchableOpacity
+                                    onPress={() => handleRevoke(s.id)}
+                                    style={styles.histRevoke}
+                                    disabled={revokingId === s.id}
+                                    accessibilityState={{ disabled: revokingId === s.id, busy: revokingId === s.id }}
+                                >
+                                    {(<Ionicons name="close" size={16} color={colors.danger} />)}
                                 </TouchableOpacity>
                             )}
                         </View>
@@ -396,10 +434,12 @@ export default function ShareRecords({ profile }) {
                 </View>
             )}
 
-            {!loading && (
+            {(
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>Access log · who viewed records</Text>
-                    {accessLog.length === 0 && (
+                    {readStatus(logCache, "access-log")}
+                    {!logKnown ? loading ? <AppointmentsSkeleton /> : <Text style={styles.readStatusText}>{t("screenDataUnavailable")}</Text> : null}
+                    {logKnown && accessLog.length === 0 && (
                         <EmptyStateCard message="No one has viewed shared records yet." icon="eye-outline" />
                     )}
                     {accessLog.slice(0, logVisible).map((l) => (
@@ -437,6 +477,10 @@ export default function ShareRecords({ profile }) {
 }
 
 const makeStyles = (colors) => StyleSheet.create({
+    readStatus: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.sm, marginVertical: space.sm },
+    readStatusText: { ...type.caption, color: colors.textMuted, flexShrink: 1 },
+    readRetry: { minHeight: MIN_TOUCH, justifyContent: "center", paddingHorizontal: space.sm },
+    readRetryText: { ...type.label, color: colors.primary },
     scroll: { padding: space.lg },
     headerRow: { flexDirection: "row", marginBottom: 16 },
     h1: { ...type.title, fontWeight: "800", color: colors.primary },

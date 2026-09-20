@@ -34,7 +34,6 @@ export default function AboutApp() {
                     accessibilityRole="image"
                     accessibilityLabel="BabyBook+"
                 />
-                <Text style={styles.brandTitle}>BabyBook+</Text>
                 <Text style={styles.brandVersion}>Version {APP_VERSION}</Text>
                 <View style={styles.epiBadge}>
                     <Text style={styles.epiBadgeText}>DOH-aligned EPI schedule</Text>
@@ -69,8 +68,7 @@ const makeStyles = (colors) =>
         // Padding on the content so the bottom clearance scrolls with it.
         content: { padding: space.lg },
         brandBox: { alignItems: "center", marginVertical: space.lg },
-        brandLogo: { width: 72, height: 72, marginBottom: space.xs },
-        brandTitle: { ...type.display, color: colors.primary },
+        brandLogo: { width: 176, height: 176, marginBottom: space.xs },
         brandVersion: { ...type.caption, color: colors.textMuted, marginTop: 4 },
         epiBadge: {
             backgroundColor: colors.recVaccine.bg,

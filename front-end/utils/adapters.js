@@ -90,7 +90,13 @@ export function nutritionToApp(n) {
         milkType: n.milk_type || "",
         feedMethod: n.feed_method || (quantity != null ? "bottle" : ""),
         formulaBrand: n.formula_brand || "",
+        formulaScoops:
+            n.formula_scoops != null && n.formula_scoops !== "" ? Number(n.formula_scoops) : null,
         quantity,
+        breastmilkQuantity:
+            n.breastmilk_quantity != null && n.breastmilk_quantity !== ""
+                ? Number(n.breastmilk_quantity)
+                : null,
         unit: n.unit || "",
         durationMinutes: n.duration_minutes != null && n.duration_minutes !== "" ? Number(n.duration_minutes) : null,
         // breast_side is deliberately not surfaced — the form doesn't collect
@@ -114,10 +120,15 @@ export function nutritionFormToRecord(form) {
     if (form.date) body.entry_date = form.date;
     if (form.time) body.entry_time = form.time;
     if ((form.entryType || "milk") === "milk") {
-        // Formula is by definition a bottle, so the form hides the choice.
-        const method = form.milkType === "Formula" ? "bottle" : form.feedMethod || "bottle";
+        const usesFormula = form.milkType === "Formula" || form.milkType === "Mixed";
+        // Formula and Mixed use the bottle-only fields in the form.
+        const method = usesFormula ? "bottle" : form.feedMethod || "bottle";
         body.milk_type = form.milkType || null;
         body.feed_method = method;
+        body.formula_scoops =
+            usesFormula && String(form.formulaScoops ?? "").trim() !== ""
+                ? Number(form.formulaScoops)
+                : null;
         body.food_introduced = null;
         body.reaction_severity = null;
         body.reaction = null;
@@ -130,10 +141,15 @@ export function nutritionFormToRecord(form) {
             // comment in schema.sql.
             body.breast_side = null;
             body.quantity = null;
+            body.breastmilk_quantity = null;
             body.unit = null;
             body.formula_brand = null;
         } else {
             body.quantity = form.quantity === "" || form.quantity == null ? null : Number(form.quantity);
+            body.breastmilk_quantity =
+                form.milkType === "Mixed" && form.breastmilkQuantity !== "" && form.breastmilkQuantity != null
+                    ? Number(form.breastmilkQuantity)
+                    : null;
             body.unit = form.unit || null;
             body.formula_brand =
                 form.milkType === "Formula" || form.milkType === "Mixed" ? form.formulaBrand || null : null;
@@ -148,7 +164,9 @@ export function nutritionFormToRecord(form) {
         body.milk_type = null;
         body.feed_method = null;
         body.formula_brand = null;
+        body.formula_scoops = null;
         body.quantity = null;
+        body.breastmilk_quantity = null;
         body.unit = null;
         body.duration_minutes = null;
         body.breast_side = null;
@@ -170,7 +188,10 @@ export function toMilliliters(quantity, unit) {
 // totals zero and reads as a day with no feeding at all.
 export function feedVolumeMl(e) {
     if (!e || e.feedMethod === "breast") return 0;
-    return toMilliliters(e.quantity, e.unit);
+    const total =
+        Number(e.quantity || 0) +
+        (e.milkType === "Mixed" ? Number(e.breastmilkQuantity || 0) : 0);
+    return toMilliliters(total, e.unit);
 }
 
 // One-line description of a RAW nutrition_records row, for the four places
@@ -185,14 +206,25 @@ export function feedRowSummary(n) {
         return `Solid food${n.food_introduced ? ` • ${n.food_introduced}` : ""}`;
     }
     const base = n.milk_type || "Milk";
+    const scoops =
+        n.formula_scoops != null && n.formula_scoops !== ""
+            ? ` • ${Number(n.formula_scoops)} scoop${Number(n.formula_scoops) === 1 ? "" : "s"}`
+            : "";
     if (n.feed_method === "breast") {
         // Duration is optional, so "at the breast" is the fallback rather than
         // a bare milk type — the record still says what kind of feed it was.
         const mins = Number(n.duration_minutes);
-        return Number.isFinite(mins) && mins > 0 ? `${base} • ${mins} min` : `${base} • at the breast`;
+        return Number.isFinite(mins) && mins > 0 ? `${base} • ${mins} min${scoops}` : `${base} • at the breast${scoops}`;
     }
     const qty = n.quantity != null && n.quantity !== "" ? Number(n.quantity) : null;
-    return qty != null ? `${base} • ${qty} ${n.unit || "mL"}` : base;
+    const breastmilkQty =
+        n.breastmilk_quantity != null && n.breastmilk_quantity !== ""
+            ? Number(n.breastmilk_quantity)
+            : null;
+    if (base === "Mixed" && qty != null && breastmilkQty != null) {
+        return `${base} • ${qty} ${n.unit || "mL"} formula + ${breastmilkQty} ${n.unit || "mL"} breastmilk${scoops}`;
+    }
+    return qty != null ? `${base} • ${qty} ${n.unit || "mL"}${scoops}` : `${base}${scoops}`;
 }
 
 // Backend checkup row -> app appointment shape (Growth appointments list).
@@ -218,6 +250,7 @@ export function milestoneToApp(m) {
         id: String(m.id),
         title: m.title,
         isCompleted: !!m.is_completed,
+        _pending: !!m._pending,
         date: m.date_recorded ? String(m.date_recorded).slice(0, 10) : "",
         ageAchieved: m.age_achieved || "",
         description: m.description || "",

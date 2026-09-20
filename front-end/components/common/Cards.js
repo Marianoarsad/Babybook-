@@ -98,15 +98,12 @@ export function RadioRow({ label, sublabel, selected, onPress, icon, iconBg, tra
 }
 
 // 3. LIST ENTRY CARD
-// `iconBg` is effectively required — every real content type should be tinted
-// with its own colors.rec* token (see theme.js) rather than falling back to a
-// shared default, which is exactly how five different record types used to
-// end up with the same icon color. The dev warning catches an omission at
-// first render instead of it rendering as a silently-identical gray tile.
-export function ListEntryCard({ title, subtitle, label, notes, icon, iconBg, actions, thumbnailUrl, onThumbnailPress }) {
+// Leading icons are optional. When present, `iconBg` must use the record's
+// colors.rec* tint rather than silently falling back to a shared gray tile.
+export function ListEntryCard({ title, subtitle, label, notes, icon, iconBg, actions, thumbnailUrl, onThumbnailPress, onPress, showChevron = false, accessibilityLabel }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
-    if (__DEV__ && !iconBg) {
+    if (__DEV__ && icon && !iconBg) {
         console.warn("ListEntryCard: iconBg is required — pass a colors.rec* tint for this record type.");
     }
     // The thumbnail and the action are grouped into one shrink-proof trailing
@@ -115,11 +112,18 @@ export function ListEntryCard({ title, subtitle, label, notes, icon, iconBg, act
     // narrow enough to clip a real record name like "Pentavalent (DPT-HepB-Hib) 3".
     // The text column now shrinks last and ellipsizes rather than pushing the
     // trailing block off the card edge.
-    const trailing = thumbnailUrl || actions;
+    const trailing = thumbnailUrl || actions || showChevron;
+    const Card = onPress ? TouchableOpacity : View;
     return (
-        <View style={styles.listCard}>
+        <Card
+            style={styles.listCard}
+            onPress={onPress}
+            activeOpacity={0.82}
+            accessibilityRole={onPress ? "button" : undefined}
+            accessibilityLabel={onPress ? accessibilityLabel || `View ${title}` : undefined}
+        >
             <View style={styles.listMain}>
-                <View style={[styles.listIconContainer, { backgroundColor: iconBg }]}>{icon}</View>
+                {icon ? <View style={[styles.listIconContainer, { backgroundColor: iconBg }]}>{icon}</View> : null}
                 <View style={styles.listTextContainer}>
                     <Text style={styles.listTitle} numberOfLines={2} ellipsizeMode="tail">
                         {title}
@@ -141,7 +145,10 @@ export function ListEntryCard({ title, subtitle, label, notes, icon, iconBg, act
                 <View style={styles.listTrailing}>
                     {thumbnailUrl ? (
                         <TouchableOpacity
-                            onPress={onThumbnailPress}
+                            onPress={(event) => {
+                                event.stopPropagation?.();
+                                onThumbnailPress?.();
+                            }}
                             style={styles.thumbWrap}
                             accessibilityRole="imagebutton"
                             accessibilityLabel="View attached photo"
@@ -150,9 +157,10 @@ export function ListEntryCard({ title, subtitle, label, notes, icon, iconBg, act
                         </TouchableOpacity>
                     ) : null}
                     {actions ? <View style={styles.listActions}>{actions}</View> : null}
+                    {showChevron ? <Ionicons name="chevron-forward" size={18} color={colors.textMuted} style={styles.listChevron} /> : null}
                 </View>
             ) : null}
-        </View>
+        </Card>
     );
 }
 
@@ -346,8 +354,9 @@ const makeStyles = (colors) => StyleSheet.create({
     listNotes: { ...type.caption, color: colors.textSecondary, marginTop: 5, fontStyle: "italic" },
     // One shrink-proof trailing block instead of two unbounded siblings, so
     // the text column is the only thing that gives way as the card narrows.
-    listTrailing: { flexDirection: "row", alignItems: "center", flexShrink: 0 },
+    listTrailing: { flexDirection: "row", alignItems: "center", alignSelf: "center", flexShrink: 0 },
     listActions: { marginLeft: space.sm },
+    listChevron: { marginLeft: space.sm },
     thumbWrap: {
         width: 46,
         height: 46,

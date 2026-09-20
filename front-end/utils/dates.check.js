@@ -4,9 +4,12 @@ const fs = require("fs");
 const path = require("path");
 const src = fs.readFileSync(path.join(__dirname, "dates.js"), "utf8").replace(/export function/g, "function");
 const M = new Function(
-    `${src}\nreturn { todayLocal, toLocalISO, shortDate, monthLabel, shortTime, overdueBy,
+    `${src}\nreturn { todayLocal, toLocalISO, shiftMonthClamped, shortDate, monthLabel, shortTime, overdueBy,
                       nowLocalTime, durationText, minutesBetween, ageAtDate, monthsBetween,
-                      spanText, ageLabel };`,
+                      spanText, ageLabel, compactDate, shortDateRange, numericDateRange, setRangeEndpoint,
+                      dateRangePreset, evenDateSlots, evenYearSlots,
+                      dateEndpointBounds, weekOfMonth, weekRangeFromSelection,
+                      monthRangeFromSelection };`,
 )();
 
 let fail = 0;
@@ -29,12 +32,64 @@ eq("shortDate iso", M.shortDate("2025-07-19"), "19 Jul 2025");
 eq("shortDate datetime", M.shortDate("2027-02-06T09:00:00Z"), "06 Feb 2027");
 eq("shortDate empty", M.shortDate(""), "");
 eq("shortDate junk", M.shortDate("not-a-date"), "");
+const currentYear = new Date().getFullYear();
+const pastYear = currentYear - 1;
+eq("compactDate", M.compactDate(`${currentYear}-09-04`), "4 Sept");
+eq("compactDate with year", M.compactDate("2026-09-04", true), "4 Sept 2026");
+eq("shortDateRange same day", M.shortDateRange(`${currentYear}-09-04`, `${currentYear}-09-04`), "4 Sept");
+eq("shortDateRange same month", M.shortDateRange(`${currentYear}-09-01`, `${currentYear}-09-04`), "1–4 Sept");
+eq("shortDateRange past year", M.shortDateRange(`${pastYear}-09-01`, `${pastYear}-09-04`), `1–4 Sept ${pastYear}`);
+eq("shortDateRange across months", M.shortDateRange(`${currentYear}-08-28`, `${currentYear}-09-04`), `28 Aug–4 Sept ${currentYear}`);
+eq("shortDateRange invalid", M.shortDateRange("", "2026-09-04"), "");
+eq("numericDateRange", M.numericDateRange("2026-09-01", "2026-09-14"), "01/09/2026 - 14/09/2026");
+eq("numericDateRange same day", M.numericDateRange("2026-09-04", "2026-09-04"), "04/09/2026 - 04/09/2026");
+eq("numericDateRange invalid", M.numericDateRange("", "2026-09-04"), "");
+const axisSlots = M.evenDateSlots("2026-09-01", "2026-09-30");
+eq("date axis has seven slots", axisSlots.length, 7);
+eq("date axis reaches both edges", `${axisSlots[0]}|${axisSlots[6]}`, "2026-09-01|2026-09-30");
+eq("short date axes keep seven slots", M.evenDateSlots("2026-09-01", "2026-09-02").length, 7);
+eq("date axis rejects reversed ranges", M.evenDateSlots("2026-09-02", "2026-09-01").length, 0);
+eq("28-day month reaches day 28", M.evenDateSlots("2026-02-01", "2026-02-28").at(-1), "2026-02-28");
+eq("29-day month reaches day 29", M.evenDateSlots("2028-02-01", "2028-02-29").at(-1), "2028-02-29");
+eq("30-day month reaches day 30", M.evenDateSlots("2026-04-01", "2026-04-30").at(-1), "2026-04-30");
+eq("31-day month reaches day 31", M.evenDateSlots("2026-05-01", "2026-05-31").at(-1), "2026-05-31");
+eq("short year ranges show every year", JSON.stringify(M.evenYearSlots(2020, 2023)), "[2020,2021,2022,2023]");
+eq("long year ranges keep seven labels", M.evenYearSlots(2020, 2029).length, 7);
+eq("year labels keep both endpoints", `${M.evenYearSlots(2020, 2029)[0]}|${M.evenYearSlots(2020, 2029).at(-1)}`, "2020|2029");
+eq("year labels reject reversed ranges", M.evenYearSlots(2029, 2020).length, 0);
+eq("range sets start", JSON.stringify(M.setRangeEndpoint({}, "from", "2026-09-02")), '{"from":"2026-09-02","to":null}');
+eq("range keeps later end", JSON.stringify(M.setRangeEndpoint({ from: "2026-09-01", to: "2026-09-05" }, "from", "2026-09-03")), '{"from":"2026-09-03","to":"2026-09-05"}');
+eq("range moves end after start", JSON.stringify(M.setRangeEndpoint({ from: "2026-09-01", to: "2026-09-05" }, "from", "2026-09-07")), '{"from":"2026-09-07","to":"2026-09-07"}');
+eq("range moves start before end", JSON.stringify(M.setRangeEndpoint({ from: "2026-09-05", to: "2026-09-08" }, "to", "2026-09-02")), '{"from":"2026-09-02","to":"2026-09-02"}');
+eq("ending date cannot precede start", JSON.stringify(M.dateEndpointBounds({ from: "2026-08-12", to: "2026-09-01" }, "to", "2020-01-01", "2026-09-13")), '{"min":"2026-08-12","max":"2026-09-13"}');
+eq("starting date cannot follow end", JSON.stringify(M.dateEndpointBounds({ from: "2026-08-12", to: "2026-09-01" }, "from", "2020-01-01", "2026-09-13")), '{"min":"2020-01-01","max":"2026-09-01"}');
+eq("preset today", JSON.stringify(M.dateRangePreset("today", "2025-01-01", "2026-09-05")), '{"from":"2026-09-05","to":"2026-09-05"}');
+eq("preset week starts Monday", JSON.stringify(M.dateRangePreset("week", "2025-01-01", "2026-09-05")), '{"from":"2026-08-31","to":"2026-09-05"}');
+eq("preset week on Monday", JSON.stringify(M.dateRangePreset("week", "2025-01-01", "2026-09-07")), '{"from":"2026-09-07","to":"2026-09-07"}');
+eq("preset month", JSON.stringify(M.dateRangePreset("month", "2025-01-01", "2026-09-05")), '{"from":"2026-09-01","to":"2026-09-05"}');
+eq("preset leap month", JSON.stringify(M.dateRangePreset("month", "2025-01-01", "2028-02-29")), '{"from":"2028-02-01","to":"2028-02-29"}');
+eq("preset year clamps to birth", JSON.stringify(M.dateRangePreset("year", "2026-04-12", "2026-09-05")), '{"from":"2026-04-12","to":"2026-09-05"}');
+eq("week 1 from date", M.weekOfMonth("2026-09-07"), 1);
+eq("week 4 includes month tail", M.weekOfMonth("2026-09-30"), 4);
+eq("invalid week date", M.weekOfMonth(""), null);
+eq("week range", JSON.stringify(M.weekRangeFromSelection("2026-09", 2, 4)), '{"from":"2026-09-08","to":"2026-09-30"}');
+eq("week range clamps birth and today", JSON.stringify(M.weekRangeFromSelection("2026-09", 1, 4, "2026-09-04", "2026-09-19")), '{"from":"2026-09-04","to":"2026-09-19"}');
+eq("week range handles leap February", JSON.stringify(M.weekRangeFromSelection("2028-02", 4, 4)), '{"from":"2028-02-22","to":"2028-02-29"}');
+eq("week range rejects inversion", M.weekRangeFromSelection("2026-09", 3, 2), null);
+eq("month range crosses year", JSON.stringify(M.monthRangeFromSelection({ from: "2025-12", to: "2026-02" })), '{"from":"2025-12-01","to":"2026-02-28"}');
+eq("month range clamps endpoints", JSON.stringify(M.monthRangeFromSelection({ from: "2026-08", to: "2026-09" }, "2026-08-12", "2026-09-19")), '{"from":"2026-08-12","to":"2026-09-19"}');
+eq("month range rejects inversion", M.monthRangeFromSelection({ from: "2026-09", to: "2026-08" }), null);
 eq("monthLabel", M.monthLabel("2026-08-12"), "August 2026");
 eq("monthLabel jan", M.monthLabel("2025-01-31"), "January 2025");
 eq("monthLabel empty", M.monthLabel(""), "");
 eq("monthLabel junk", M.monthLabel("nope"), "");
 eq("toLocalISO round-trip", M.toLocalISO(new Date(2026, 7, 15)), "2026-08-15");
 eq("toLocalISO non-date", M.toLocalISO("2026-08-15"), "");
+eq("month shift keeps day", M.shiftMonthClamped("2026-08-15", 1), "2026-09-15");
+eq("month shift crosses year", M.shiftMonthClamped("2026-12-15", 1), "2027-01-15");
+eq("month shift clamps February", M.shiftMonthClamped("2026-01-31", 1), "2026-02-28");
+eq("month shift clamps leap February", M.shiftMonthClamped("2028-01-31", 1), "2028-02-29");
+eq("month shift rejects junk", M.shiftMonthClamped("nope", 1), "");
 eq("shortTime hh:mm:ss", M.shortTime("09:00:00"), "9:00 AM");
 eq("shortTime pm", M.shortTime("15:15"), "3:15 PM");
 eq("shortTime midnight", M.shortTime("00:30"), "12:30 AM");

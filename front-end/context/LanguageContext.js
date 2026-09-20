@@ -6,6 +6,7 @@ const LanguageContext = createContext();
 
 export const LanguageProvider = ({ children }) => {
     const [language, setLanguageState] = useState("en");
+    const [ready, setReady] = useState(false);
 
     useEffect(() => {
         const loadSavedLanguage = async () => {
@@ -16,6 +17,8 @@ export const LanguageProvider = ({ children }) => {
                 }
             } catch (e) {
                 console.log("Error loading saved language:", e);
+            } finally {
+                setReady(true);
             }
         };
         loadSavedLanguage();
@@ -39,7 +42,7 @@ export const LanguageProvider = ({ children }) => {
     };
 
     return (
-        <LanguageContext.Provider value={{ language, setLanguage, t }}>
+        <LanguageContext.Provider value={{ language, setLanguage, t, ready }}>
             {children}
         </LanguageContext.Provider>
     );

@@ -2,9 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { View, Text, Image, StyleSheet, Animated, Easing, Platform, AccessibilityInfo } from "react-native";
 import { useTheme } from "../context/ThemeContext";
 import { space, motion } from "../theme";
+import PulseLoader from "./ui/PulseLoader";
 
-// The app's own splash, shown from launch until fonts, the saved session and
-// the first-run check have all resolved. Replaces AppLoadingScreen.js (deleted)
+// The React splash fallback, shown on web until fonts, assets, preferences,
+// the saved session and the first-run check have all resolved. Native keeps
+// expo-splash-screen visible through the same readiness gate. Replaces AppLoadingScreen.js (deleted)
 // and Landing.js (deleted). Landing.js was a marketing web page — hero, feature
 // grid, repeated CTAs — that repeated Onboarding.js's four cards immediately
 // after showing them, on a screen every relaunch had to pass through. A phone
@@ -15,8 +17,8 @@ import { space, motion } from "../theme";
 // 1. FLAT colors.background, never the page gradient. That token is #F2F5F7
 //    light / #12151A dark, which are the exact values app.json gives the NATIVE
 //    splash (expo-splash-screen). The native splash is what a phone shows first;
-//    this screen takes over from it, and matching the ground exactly is what
-//    makes the handoff invisible. A gradient here would flash on every launch.
+//    this screen takes over from it, and matching the light/dark ground exactly
+//    is what makes the handoff invisible. A gradient here would flash on launch.
 //    The logo is 200px wide for the same reason — app.json says imageWidth: 200,
 //    so the mark must not jump size at the swap.
 //
@@ -39,7 +41,7 @@ import { space, motion } from "../theme";
 //
 // It also states nothing it cannot know. The old loading screen counted a
 // percentage from 0 to 96 that was, by its own comment, "simulated" — it tracked
-// nothing. Three dots say "working" without inventing a number.
+// nothing. The pulsing brand mark says "working" without inventing a number.
 
 // Must match app.json's splash "imageWidth", or the mark changes size at the
 // handoff. Measured against a real device screenshot, not assumed — see the
@@ -52,7 +54,7 @@ const LOGO_SIZE = 200;
 // is the only brand moment there, and without a floor it is a flicker. On a
 // phone the system splash has already been up for a second or more, so piling
 // another 1100ms on top of it just makes the app feel slow to open.
-const MIN_VISIBLE_MS = Platform.OS === "web" ? 1100 : 400;
+const MIN_VISIBLE_MS = 1100;
 
 export default function Splash({ appReady = false, onFinished }) {
     const { colors } = useTheme();
@@ -80,7 +82,6 @@ export default function Splash({ appReady = false, onFinished }) {
     const useNative = Platform.OS !== "web";
     const enter = useRef(new Animated.Value(0)).current; // 0 -> 1, TEXT only (never the logo)
     const exit = useRef(new Animated.Value(1)).current; // 1 -> 0, whole screen
-    const pulse = useRef(new Animated.Value(0)).current; // the waiting dots
 
     useEffect(() => {
         if (reduceMotion) {
@@ -93,15 +94,8 @@ export default function Splash({ appReady = false, onFinished }) {
             easing: Easing.out(Easing.cubic),
             useNativeDriver: useNative,
         }).start();
-        const loop = Animated.loop(
-            Animated.sequence([
-                Animated.timing(pulse, { toValue: 1, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: useNative }),
-                Animated.timing(pulse, { toValue: 0, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: useNative }),
-            ]),
-        );
-        loop.start();
-        return () => loop.stop();
-    }, [enter, pulse, reduceMotion, useNative]);
+        return undefined;
+    }, [enter, reduceMotion, useNative]);
 
     // Timing lives here rather than in App.js, so the only thing App has to ask
     // is "are you finished?".
@@ -147,33 +141,11 @@ export default function Splash({ appReady = false, onFinished }) {
 
             {/* Absolute, so text can never shift the logo above centre. */}
             <Animated.View style={[styles.textBlock, textStyle]}>
-                <Text style={styles.wordmark}>BabyBook+</Text>
-                {/* The same sentence Auth.js shows on the screen this leads
-                    into, rather than a second tagline that would have to be
-                    kept in step with it. */}
                 <Text style={styles.tagline}>Your child's health, all in one place</Text>
             </Animated.View>
 
-            <Animated.View style={[styles.dotsRow, textStyle]} accessibilityRole="progressbar" accessibilityLabel="Loading">
-                {[0, 1, 2].map((i) => (
-                    <Animated.View
-                        key={i}
-                        style={[
-                            styles.dot,
-                            reduceMotion
-                                ? null
-                                : {
-                                      opacity: pulse.interpolate({
-                                          inputRange: [0, 1],
-                                          // Staggered, so they read as a wave
-                                          // rather than three lights blinking
-                                          // in unison.
-                                          outputRange: i === 1 ? [0.35, 1] : [1, 0.35],
-                                      }),
-                                  },
-                        ]}
-                    />
-                ))}
+            <Animated.View style={[styles.loaderWrap, textStyle]}>
+                <PulseLoader size={38} accessibilityLabel="Loading BabyBook+" />
             </Animated.View>
         </Animated.View>
     );
@@ -204,32 +176,15 @@ const makeStyles = (colors) =>
             alignItems: "center",
             paddingHorizontal: space.xl,
         },
-        // Deliberately no fontFamily: the brand fonts are still loading.
-        wordmark: {
-            fontSize: 28,
-            fontWeight: "800",
-            letterSpacing: -0.4,
-            color: colors.primary,
-        },
         tagline: {
             fontSize: 15,
             fontWeight: "500",
             color: colors.textSecondary,
-            marginTop: space.sm,
             textAlign: "center",
             maxWidth: 280,
         },
-        dotsRow: {
+        loaderWrap: {
             position: "absolute",
             bottom: space.xxl * 2,
-            flexDirection: "row",
-            gap: space.sm,
-        },
-        dot: {
-            width: 8,
-            height: 8,
-            borderRadius: 4,
-            backgroundColor: colors.primary,
-            opacity: 0.55,
         },
     });

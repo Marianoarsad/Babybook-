@@ -1,13 +1,13 @@
 import React, { useState } from "react";
-import { View, Text, TouchableOpacity, ScrollView } from "react-native";
+import { View, Text, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { space, radius, shadow } from "../theme";
+import { space, radius } from "../theme";
 import { useTheme } from "../context/ThemeContext";
 import Field from "./ui/Field";
-import Button from "./ui/Button";
+
 import DateField from "./ui/DateField";
 import { useToast } from "./ui/Toast";
-import KeyboardAvoider from "./ui/KeyboardAvoider";
+import RecordFormSheet, { RecordFormGroup } from "./ui/RecordFormSheet";
 
 // Shown when an authenticated parent has no children yet.
 // Progressive disclosure: required fields first, optional details behind a toggle.
@@ -56,28 +56,10 @@ export default function EmptyChild({ parentName, onCreate, onLogOut }) {
     };
 
     return (
-        <KeyboardAvoider>
-        <ScrollView
-            contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: space.xl }}
-            style={{ backgroundColor: colors.background }}
-        >
-            <View
-                style={[
-                    {
-                        backgroundColor: colors.surface,
-                        borderRadius: radius.xl,
-                        borderCurve: "continuous",
-                        padding: space.xl,
-                        borderWidth: 1,
-                        borderColor: colors.border,
-                        maxWidth: 460,
-                        width: "100%",
-                        alignSelf: "center",
-                        gap: space.sm,
-                    },
-                    shadow.card,
-                ]}
-            >
+        <RecordFormSheet visible title={`Welcome${parentName ? `, ${parentName}` : ""}!`}
+            cancelLabel="Log out" submitLabel="Create Profile" onClose={onLogOut} onSubmit={submit}
+            busy={saving} error={nameError} dismissible={false}>
+            <RecordFormGroup>
                 <View
                     style={{
                         width: 60,
@@ -93,9 +75,6 @@ export default function EmptyChild({ parentName, onCreate, onLogOut }) {
                 >
                     <Ionicons name="happy-outline" size={30} color={colors.primary} />
                 </View>
-                <Text style={{ fontSize: 22, fontWeight: "800", color: colors.primary, textAlign: "center" }}>
-                    Welcome{parentName ? `, ${parentName}` : ""}!
-                </Text>
                 <Text style={{ fontSize: 14, color: colors.textSecondary, textAlign: "center", marginBottom: space.lg }}>
                     Let's add your first child to start their BabyBook+.
                 </Text>
@@ -186,10 +165,7 @@ export default function EmptyChild({ parentName, onCreate, onLogOut }) {
                     </View>
                 ) : null}
 
-                <Button title="Create Profile" onPress={submit} loading={saving} />
-                <Button title="Log out" variant="ghost" icon="log-out-outline" onPress={onLogOut} style={{ marginTop: space.sm }} />
-            </View>
-        </ScrollView>
-        </KeyboardAvoider>
+            </RecordFormGroup>
+        </RecordFormSheet>
     );
 }

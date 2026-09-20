@@ -77,6 +77,10 @@ Everything below works with either — just use the matching `DATABASE_URL`.
    CORS_ORIGIN=<your Expo web URL if any, comma-separated — can leave blank for now>
    PUBLIC_URL=https://<your-service-name>.onrender.com
    UPLOAD_DIR=/var/data/uploads
+   GOOGLE_CLIENT_IDS=<comma-separated Google OAuth client IDs>
+   FACEBOOK_APP_ID=<Meta app ID>
+   FACEBOOK_APP_SECRET=<Meta app secret>
+   FACEBOOK_GRAPH_VERSION=v23.0
    ```
    `DB_SSL` can stay unset — `pool.js` auto-enables SSL for any non-localhost host.
 5. **Persistent disk for uploaded photos (recommended):** Render's filesystem is wiped on every redeploy/restart. Avatar and memory photos saved to local disk will vanish unless you attach a disk.
@@ -139,7 +143,23 @@ Open `front-end/eas.json` and replace the placeholder in **both** the `preview` 
 
 If you deployed to both and want to compare, just swap this value and rebuild — no other code changes needed.
 
+⚠️ **These `env` blocks are read by `eas build` only — the Android and iOS builds.** The Expo **web**
+build is produced by `expo export -p web`, a different command that never opens `eas.json`. It takes
+`EXPO_PUBLIC_API_BASE_URL` from your shell (or `front-end/.env`), and with nothing set it falls back
+to `http://localhost:4000` and bakes that into the deployed page. See `RELEASING.md` Section 7 for
+the web build steps and the check that catches this before you upload.
+
 Also revisit `CORS_ORIGIN` on the backend once you know your app's origins (for the EAS internal-distribution build this mostly doesn't matter since it isn't a browser context, but do add it if you also serve the Expo web build somewhere).
+
+### Social sign-in setup
+
+Social buttons stay disabled in development (and are omitted in production) until their provider values are configured.
+
+- **Google:** create Web and Android OAuth clients. Use `com.babybookplus.app` for Android and register the debug, EAS, and Play App Signing SHA-1 fingerprints. Set `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` in the frontend and include that ID in backend `GOOGLE_CLIENT_IDS`. Add each deployed web origin to the Web client.
+- **Facebook:** create a Meta app with Facebook Login for Android and Web. Register `com.babybookplus.app`, its launcher activity and Android key hashes, plus deployed web origins. Set frontend `EXPO_PUBLIC_FACEBOOK_APP_ID`, build-only `FACEBOOK_CLIENT_TOKEN`, and backend `FACEBOOK_APP_ID` / `FACEBOOK_APP_SECRET`.
+- Rebuild the Android development client after native provider configuration changes. These SDKs do not run in Expo Go.
+
+After deploying the backend, apply `009_user_auth_identities.sql` with `npm run db:migrate:up`; never use the destructive `db:migrate` command on shared data.
 
 ---
 
@@ -195,7 +215,9 @@ This produces an installable Android `.apk` (and an iOS build you can install vi
 If you just want a shareable link that works on **any** Android or iOS phone today, publish the
 **Expo web** build (this app already runs on web) via **EAS Hosting** — the same workflow already
 in use for the live web demo (`expo export -p web` then `eas deploy --prod`). Testers open the URL
-in their phone browser. Caveat: web can't use native camera/notification features the same way a
+in their phone browser. ⚠️ Set `EXPO_PUBLIC_API_BASE_URL` in your shell before the export — this
+command does **not** read `eas.json`, and without it the page ships pointing at `localhost`; the
+exact steps and the pre-deploy check are in `RELEASING.md` Section 7. Caveat: web can't use native camera/notification features the same way a
 real build can — use this for UI/flow demos, and the EAS builds above for the true native
 prototype.
 

@@ -230,21 +230,33 @@ Status color, shared and fixed. This is the vocabulary a clinician reads fastest
 
 **The Status Is Not Decoration Rule.** Green, coral, amber, and teal carry meaning. Never reach for one because a card needed a color — a green chip that doesn't mean "complete" corrupts the only palette a clinician can scan without reading.
 
+## Brand Mark
+
+The official BabyBook+ identity consists of two supplied-artwork variants. The compact mark places `BB+` above the shallow open book; the full lockup places stacked `Baby` / `Book+` above the same book. Small surfaces use the compact mark, while splash, Auth, and About use the full lockup so the name stays descriptive without becoming illegible in the launcher.
+
+Both variants use indigo artwork on the shared `#F2F5F7` ground. `front-end/assets/logo-mark-source.png` and `logo-wordmark-source.png` are the canonical 500px images and must not be redrawn or re-typeset. Platform exports may change only resolution and required background transparency; their dedicated files remain separate rather than interchangeable crops.
+
+**The Small-Mark Rule.** At 24–48px the two `B` forms, plus, open-book silhouette, centre gutter, and right-page edge must remain distinct. Never force the full `Baby` / `Book+` wordmark into a launcher or favicon, pre-round the launcher square, or reuse a transparent splash export as the iOS launcher icon.
+
 ## Typography
 
-**Display / Body / Label Font:** System (San Francisco on iOS, Roboto on Android)
+**Display / Title / Heading Font:** Archivo
 
-**Character:** No custom typeface is loaded, and that is the correct decision rather than an omission. On an adaptive product, the system face is what makes the app feel native on each OS, and it inherits Dynamic Type and the Android font-size setting for free. Personality comes from weight and rhythm, not from a display face. The result is heavy, tight, and confident — closer to a well-set chart label than to a nursery poster.
+**Body / Label / Caption Font:** Public Sans
+
+**Character:** Archivo gives major headings a compact, confident silhouette, while Public Sans keeps instructions and record details neutral and highly legible. Both families are loaded through `@expo-google-fonts`; their named family and numeric weight must stay aligned so neither native nor web synthesizes a missing weight.
 
 ### Hierarchy
 
-- **Display** (800, 28px, -0.4px tracking): Screen-defining numbers and the largest headline moments. One per screen at most.
-- **Title** (800, 22px, -0.2px tracking): Screen titles and major section openers.
-- **Heading** (800, 18px, -0.1px tracking): Card and section headers — the `SectionContainerCard` title.
-- **Body** (500, 16px, 22px leading): Default reading size and the minimum for any text input.
-- **Body Strong** (700, 16px, 22px leading): List row titles, record names, emphasized values inside body copy.
-- **Label** (700, 14px): Field labels, button text, chip text, and tab labels.
-- **Caption** (500, 13px, 18px leading): Timestamps, metadata, section subtitles, helper text.
+- **Display** (700, 32px, 36px leading, -0.4px tracking): Screen-defining numbers and the largest headline moments. One per screen at most.
+- **Title** (700, 23px, 28px leading, -0.2px tracking): Screen titles and major section openers.
+- **Heading** (600, 18px, 23px leading): Card and section headers — the `SectionContainerCard` title.
+- **Body** (400, 16px, 24px leading): Default reading size and the minimum for any text input.
+- **Body Strong** (600, 16px, 24px leading): List row titles, record names, emphasized values inside body copy.
+- **Label** (600, 14px, 18px leading): Field labels, button text, chip text, and tab labels.
+- **Caption** (400, 13px, 17px leading): Timestamps, metadata, section subtitles, helper text.
+
+The onboarding carousel uses one deliberate hero exception between Title and Display: Archivo 700 at 28px with 34px leading. It is shared by all three slides and is not a general-purpose type token.
 
 Negative tracking tightens only at 18px and above, where default spacing reads loose; body and below stay at normal tracking for legibility.
 
@@ -252,7 +264,7 @@ Negative tracking tightens only at 18px and above, where default spacing reads l
 
 **The 16px Floor Rule.** No body text and no text input goes below 16px. Below that, mobile browsers auto-zoom on focus — which yanks the layout sideways mid-task — and small text fails the parents and grandparents this product is for. 13px is the absolute floor for any text on screen, reserved for captions and metadata.
 
-**The Weight Ladder Rule.** Adjacent steps in this scale are close in size (16 → 18 → 22), so **weight** separates them, not size. Hierarchy runs 800 → 700 → 500. Never introduce a new level by inventing a size between two existing steps; change the weight instead.
+**The Weight Ladder Rule.** Adjacent steps in this scale are close in size (16 → 18 → 23), so **weight** helps separate them. Hierarchy runs 700 → 600 → 400. Do not introduce a new level by inventing a size between two existing steps; use an existing token unless a documented, screen-specific hero treatment is warranted.
 
 ### Known debt
 
@@ -342,9 +354,13 @@ Buttons, cards, inputs, and chips are **tactile and confident**. Controls answer
 
 ### Navigation
 
-- **Bottom tab bar:** White, 1px hairline top border, five equal destinations. Active state is a 56×32 pill in `softCoral` behind the icon, with the label switching to accent color at 800 weight; inactive labels are 11px/600 muted ink.
-- **Header:** 42px rounded-square icon buttons (20px radius, soft brand tint fill) at either end — QR share on the left group, hamburger menu on the right. The child's name sits at 16px/800 in the palette primary. Notification counts ride as a coral badge, 18px minimum, ringed 2px in white.
-- **Side menu:** Slide-in drawer from the right, grouped into Account / Application / Support / Security / Session.
+- **Bottom tab bar:** Flat theme-aware surface, five equal-width destinations, matching 28px filled SVG icons and centered 13px medium labels. Selected icon/label use primary ink; inactive ones use secondary ink. A 4px child-palette line spans 60% of the selected column at the bar's top; no pill or decorative notification dot. Labels can use two lines at larger font settings. The indicator slides and the selected icon makes a small lift/scale within 220ms; reduced motion disables both. Safe-area padding, measured FAB positioning and shared bottom clearance adapt to the bar's actual height.
+- **Header:** 44px icon buttons at either end — search and QR sharing, plus the caregiver's circular avatar on the right. Tapping the avatar opens Profile. The child's name remains the child switcher. Notification counts ride as a coral badge, 18px minimum, ringed 2px in white.
+- **Search:** The dedicated mobile Search screen uses the global back/title header and a 56px outlined pill field. With no query it shows recent-search chips, a horizontally scrolling two-row category rail, and record-derived suggestion chips; an active query replaces discovery with one rounded result list. Search history is child-scoped, device-local, capped at six, and visibly erasable.
+- **Profile hub:** A vertically scrolling mobile settings screen with caregiver identity, contact details, baby-profile and member-since highlights, an informational plan card, and grouped Preferences / Account & Privacy / BabyBook+ & Support rows. Sign Out is a separate danger action.
+- **Calendar planner:** Calendar is monthly-only: one raised surface with a centered selected date, a three-month selector, Monday-first weekday row, and a full-width grid. The active month opens a 3×4 current/future month picker; the selected day uses the current child palette. Event categories retain their stable semantic colors as thin rounded bands, with multi-day medication courses visually connected. The legend stays beneath the calendar as six equal centered cells in a 3×2 grid, with each color band above its label. White section cards separate the selected day's plans, upcoming plans, and overdue vaccines/checkups. Selected-day rows end in a 44px synced checkbox while the rest of each row opens details; planner checks are intentionally independent of clinical completion. Calendar creation is a labelled `Add plan` text action, not a second floating `+`; the app-wide FAB keeps its normal action sheet.
+
+- **Date and time pickers:** Every shared date/time field opens a full overlay over its parent form on web and native. Dates use the Growth calendar language, a tappable month header, a constrained 3×4 month grid, and explicit commit/cancel controls. Time uses a minimal three-column AM/PM, hour, and minute wheel with the selected row prominent and adjacent values subdued.
 
 ### Signature Component: The Log Sheet
 

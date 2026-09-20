@@ -1,6 +1,5 @@
 import React, { useMemo } from "react";
 import {
-    Modal,
     View,
     Text,
     StyleSheet,
@@ -9,10 +8,12 @@ import {
     TouchableOpacity,
     Platform,
 } from "react-native";
+import Modal from "./ui/AppModal";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
 import { radius, space, shadow, type } from "../theme";
 import { ageAtDate, shortDate } from "../utils/dates";
+import Gradient from "./ui/Gradient";
 
 // The private ageAt() and prettyDate() that used to live here are now
 // utils/dates.js's ageAtDate() and shortDate(). The age one had to move: a
@@ -51,9 +52,14 @@ export default function MemoryDetail({ visible, memory, dob, typeLabel, onClose 
             visible={visible}
             animationType="fade"
             onRequestClose={onClose}
-            transparent
         >
-            <View style={styles.root}>
+            <Gradient
+                colors={colors.pageGradient}
+                locations={[0, 0.5, 1]}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+                style={styles.root}
+            >
                 {/* Header */}
                 <View style={styles.header}>
                     <TouchableOpacity
@@ -136,16 +142,14 @@ export default function MemoryDetail({ visible, memory, dob, typeLabel, onClose 
                         )}
                     </View>
                 </ScrollView>
-            </View>
+            </Gradient>
         </Modal>
     );
 }
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        // transparent, not colors.background: App.js paints the page gradient.
-
-        root: { flex: 1, backgroundColor: "transparent" },
+        root: { flex: 1 },
         header: {
             flexDirection: "row",
             alignItems: "center",

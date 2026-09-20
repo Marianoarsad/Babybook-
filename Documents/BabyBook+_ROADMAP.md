@@ -62,7 +62,7 @@ Grouped by what it means for the product, not by when it was built.
 
 | Finding | What it was | Status |
 |---|---|---|
-| 3.1 No offline mode | App useless without signal, exactly where it is needed | ◑ **Shortcut shipped.** An offline summary screen caches key records on the device. The full offline rebuild is still open. |
+| 3.1 No offline mode | App useless without signal, exactly where it is needed | ❌ **Still open.** Offline Summary was retired in September 2026 and its device-local snapshots are cleared. Session caching is not persistent offline mode; the full offline rebuild remains open. |
 | 3.2 Medical history missing from QR share | Doctor could not see medications or illnesses | ✅ **Fixed.** |
 | 3.3 Verification photos never reach the doctor | Attachments exist but are not in the snapshot | ❌ **Still open.** |
 | 3.4 Photos publicly accessible | Anyone with a URL could view a child's medical photos | ✅ **Fixed** — private Supabase Storage bucket, short-lived signed URLs. Verified live. |

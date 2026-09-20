@@ -1,19 +1,22 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, Modal, TextInput, TouchableOpacity, ScrollView } from "react-native";
+import { View, Text, StyleSheet, TextInput, TouchableOpacity } from "react-native";
+import Modal from "./AppModal";
 import { Ionicons } from "@expo/vector-icons";
-import { radius, space, shadow, type, MIN_TOUCH } from "../../theme";
+import { radius, space, type, MIN_TOUCH } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
 import { useLanguage } from "../../context/LanguageContext";
 import { api } from "../../utils/api";
+import { useRecordSave } from "../../utils/useRecords";
 import { medHistoryToMed } from "../../utils/adapters";
 import { todayLocal } from "../../utils/dates";
 import { defaultDoseTimes, doseTimesOf } from "../../utils/medication";
 import { useToast } from "./Toast";
-import Button from "./Button";
+
 import { DateField, TimeField } from "./DateField";
 import OptionSheet from "./OptionSheet";
 import PhotoAttach from "./PhotoAttach";
-import KeyboardAvoider from "./KeyboardAvoider";
+
+import RecordFormSheet, { RecordFormGroup, RecordFormRow } from "./RecordFormSheet";
 
 // Add or edit a medicine course.
 //
@@ -50,12 +53,14 @@ export default function MedicineModal({
     conditions = [],
     onClose,
     onSaved,
+    onDelete,
 }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const { t } = useLanguage();
     const toast = useToast();
     const editing = !!record;
+    const saveRecord = useRecordSave(visible, profile.id, "medical-history", record?.id);
 
     const [name, setName] = useState("");
     const [treatsId, setTreatsId] = useState("");
@@ -136,9 +141,7 @@ export default function MedicineModal({
                 prescribed_by: prescribedBy.trim() || null,
                 treats_id: treatsId ? Number(treatsId) : null,
             };
-            const saved = editing
-                ? await api.updateRecord(profile.id, "medical-history", record.id, body)
-                : await api.createRecord(profile.id, "medical-history", body);
+            const saved = await saveRecord(body);
             // Optional now: a parent giving paracetamol at home has no
             // prescription to photograph, and requiring one made the commonest
             // medicine in the app unloggable. Posting replaces any existing
@@ -151,7 +154,7 @@ export default function MedicineModal({
                         photoUri,
                     });
                 } catch (e) {
-                    console.log("upload attachment:", e.message);
+                    throw new Error(`Medicine saved, but its photo could not be saved: ${e.message}. Retry to finish without creating another record.`);
                 }
             }
             if (onSaved) onSaved(medHistoryToMed(saved), editing);
@@ -173,20 +176,14 @@ export default function MedicineModal({
 
     return (
         <>
-        <Modal visible={visible} transparent animationType="slide">
-            <KeyboardAvoider>
-                <View style={styles.modalBg}>
-                    <View style={styles.modalCard}>
-                        <Text style={styles.modalTitle}>
-                            {editing ? "Edit medicine" : "Add a medicine"}
-                        </Text>
+        <RecordFormSheet visible={visible} title={editing ? "Edit medicine" : "Add a medicine"}
+            onClose={onClose} onSubmit={handleSave} busy={saving}
+            cancelLabel={t("cancel")} submitLabel={t("save")} error={nameError}
+            record={record} onDelete={onDelete ? () => onDelete(record) : undefined} deleteTitle={"Delete medicine?"} deleteMessage={`Delete "${record?.title || ""}"? This cannot be undone.`}>
+            <RecordFormGroup>
 
-                        <ScrollView
-                            style={styles.scroll}
-                            keyboardShouldPersistTaps="handled"
-                            showsVerticalScrollIndicator={false}
-                        >
-                            <Text style={styles.label}>What is the medicine called?</Text>
+                            <RecordFormRow label={<Text style={styles.label}>What is the medicine called?</Text>}>
+
                             <TextInput
                                 style={[styles.input, nameError && styles.inputError]}
                                 placeholder="Write it as it appears on the label"
@@ -198,6 +195,7 @@ export default function MedicineModal({
                                 }}
                                 accessibilityLabel="Medicine name"
                             />
+                            </RecordFormRow>
 
                             {/* ONLY medicines this child has already been given.
                                 Never a built-in drug list — see the header. */}
@@ -247,7 +245,8 @@ export default function MedicineModal({
                                 </>
                             )}
 
-                            <Text style={styles.label}>How much each time?</Text>
+                            <RecordFormRow label={<Text style={styles.label}>How much each time?</Text>}>
+
                             <TextInput
                                 style={styles.input}
                                 placeholder="5 mL"
@@ -256,6 +255,7 @@ export default function MedicineModal({
                                 onChangeText={setDoseAmount}
                                 accessibilityLabel="Amount per dose"
                             />
+                            </RecordFormRow>
                             {/* Says where the number comes from without ever
                                 supplying one. PRODUCT.md Principle 5. */}
                             <Text style={styles.hintTight}>
@@ -326,7 +326,8 @@ export default function MedicineModal({
                                 maximumDate={todayLocal()}
                             />
 
-                            <Text style={styles.label}>For how many days?</Text>
+                            <RecordFormRow label={<Text style={styles.label}>For how many days?</Text>}>
+
                             <TextInput
                                 style={styles.input}
                                 placeholder="Leave blank if there's no set number"
@@ -336,6 +337,7 @@ export default function MedicineModal({
                                 onChangeText={(v) => setCourseDays(v.replace(/[^0-9]/g, "").slice(0, 3))}
                                 accessibilityLabel="Number of days"
                             />
+                            </RecordFormRow>
 
                             <Text style={styles.label}>Is the course done?</Text>
                             <View style={styles.row}>
@@ -377,7 +379,8 @@ export default function MedicineModal({
                                 />
                             )}
 
-                            <Text style={styles.label}>Who prescribed it? (optional)</Text>
+                            <RecordFormRow label={<Text style={styles.label}>Who prescribed it? (optional)</Text>}>
+
                             <TextInput
                                 style={styles.input}
                                 placeholder="Leave blank if you bought it yourself"
@@ -386,8 +389,10 @@ export default function MedicineModal({
                                 onChangeText={setPrescribedBy}
                                 accessibilityLabel="Prescribed by"
                             />
+                            </RecordFormRow>
 
-                            <Text style={styles.label}>Instructions (optional)</Text>
+                            <RecordFormRow stacked label={<Text style={styles.label}>Instructions (optional)</Text>}>
+
                             <TextInput
                                 style={[styles.input, styles.inputMultiline]}
                                 placeholder="Anything you were told — with food, finish the whole course"
@@ -399,6 +404,7 @@ export default function MedicineModal({
                                 textAlignVertical="top"
                                 accessibilityLabel="Instructions"
                             />
+                            </RecordFormRow>
 
                             <PhotoAttach
                                 required={false}
@@ -407,39 +413,9 @@ export default function MedicineModal({
                                 label="Photo (optional)"
                                 helper="The prescription or the bottle label — if you have one."
                             />
-                        </ScrollView>
 
-                        {/* Beside the buttons, outside the ScrollView, because
-                            that is the only part of a form this long guaranteed
-                            to be on screen. The coral field border says which,
-                            this says what. */}
-                        {nameError ? (
-                            <View style={styles.errorRow}>
-                                <Ionicons name="alert-circle" size={15} color={colors.danger} />
-                                <Text style={styles.errorText}>{nameError}</Text>
-                            </View>
-                        ) : null}
-
-                        <View style={styles.buttons}>
-                            <Button
-                                title={t("cancel")}
-                                variant="secondary"
-                                fullWidth={false}
-                                disabled={saving}
-                                onPress={onClose}
-                            />
-                            <Button
-                                title={t("save")}
-                                variant="accent"
-                                fullWidth={false}
-                                loading={saving}
-                                onPress={handleSave}
-                            />
-                        </View>
-                    </View>
-                </View>
-            </KeyboardAvoider>
-        </Modal>
+            </RecordFormGroup>
+        </RecordFormSheet>
 
             {/* A sibling of the form's Modal rather than a child of it: two
                 stacked native Modals fight over which is on top, and Health.js
@@ -468,29 +444,6 @@ export default function MedicineModal({
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        modalBg: {
-            flex: 1,
-            backgroundColor: "rgba(28,25,23,0.55)",
-            justifyContent: "center",
-            alignItems: "center",
-            padding: space.xl,
-        },
-        modalCard: {
-            backgroundColor: colors.background,
-            borderRadius: radius.xl,
-            borderCurve: "continuous",
-            padding: space.xl,
-            width: "100%",
-            // 440, not 360 — the sheet was narrower than every reference
-            // phone width (390, 430), wasting room the fields needed.
-            maxWidth: 440,
-            maxHeight: "88%",
-            borderWidth: 1,
-            borderColor: colors.hairline,
-            ...shadow.raised,
-        },
-        modalTitle: { ...type.title, color: colors.text, marginBottom: space.lg },
-        scroll: { flexGrow: 0 },
 
         // Sentence case, matching DateField's own label — this form holds
         // several of them, and mixing cases reads as two different designers.
@@ -504,20 +457,21 @@ const makeStyles = (colors) =>
         hintTight: { ...type.caption, color: colors.textMuted, marginTop: -space.md, marginBottom: space.lg },
 
         input: {
-            backgroundColor: colors.surface,
-            borderWidth: 1,
+            backgroundColor: colors.surfaceAlt,
+            borderWidth: 0,
             borderColor: colors.border,
-            borderRadius: radius.md,
+            borderRadius: radius.lg,
             borderCurve: "continuous",
             paddingHorizontal: space.md,
-            height: 48,
+            minHeight: 52,
+            paddingVertical: space.sm,
             fontSize: type.body.fontSize,
             fontFamily: type.body.fontFamily,
             color: colors.text,
             marginBottom: space.lg,
         },
         inputMultiline: { height: 84, paddingTop: space.md, paddingBottom: space.md },
-        inputError: { borderColor: colors.danger },
+        inputError: { borderWidth: 1, borderColor: colors.danger },
 
         chips: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginBottom: space.lg },
         chip: {
@@ -538,13 +492,14 @@ const makeStyles = (colors) =>
             alignItems: "center",
             justifyContent: "space-between",
             gap: space.sm,
-            backgroundColor: colors.surface,
-            borderWidth: 1,
+            backgroundColor: colors.surfaceAlt,
+            borderWidth: 0,
             borderColor: colors.border,
-            borderRadius: radius.md,
+            borderRadius: radius.lg,
             borderCurve: "continuous",
             paddingHorizontal: space.md,
-            height: 48,
+            minHeight: 52,
+            paddingVertical: space.sm,
             marginBottom: space.lg,
         },
         pickerText: { ...type.body, color: colors.text, flex: 1 },
@@ -600,13 +555,4 @@ const makeStyles = (colors) =>
         optionText: { ...type.label, color: colors.textSecondary, flexShrink: 1 },
         optionTextOn: { color: colors.onPrimary },
 
-        errorRow: { flexDirection: "row", alignItems: "center", gap: space.sm, marginTop: space.md },
-        errorText: { ...type.caption, color: colors.danger, flex: 1 },
-
-        buttons: {
-            flexDirection: "row",
-            justifyContent: "flex-end",
-            gap: space.md,
-            marginTop: space.lg,
-        },
     });

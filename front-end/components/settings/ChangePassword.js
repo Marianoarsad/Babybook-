@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator, Animated } from "react-native";
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Animated } from "react-native";
 import { SectionContainerCard } from "../common/Cards";
 import { api } from "../../utils/api";
 import { useToast } from "../ui/Toast";
@@ -126,11 +126,7 @@ export default function ChangePassword() {
                     accessibilityRole="button"
                     accessibilityLabel="Update Password"
                 >
-                    {saving ? (
-                        <ActivityIndicator color={colors.onAccent} />
-                    ) : (
-                        <Text style={styles.saveBtnText}>Update Password</Text>
-                    )}
+                    {(<Text style={styles.saveBtnText}>Update Password</Text>)}
                 </TouchableOpacity>
             </SectionContainerCard>
         </Animated.ScrollView>

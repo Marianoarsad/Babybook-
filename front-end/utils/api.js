@@ -1,6 +1,11 @@
 // Central API client for the BabyBook+ backend.
 import { Platform } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
 import { storage } from "./storageAdapter";
+import { trackApiActivity } from "./apiActivity.cjs";
+import recordStore from "./recordStore.cjs";
+export { getApiActivitySnapshot, subscribeApiActivity } from "./apiActivity.cjs";
 
 // ---------------------------------------------------------------------------
 // IMPORTANT: where is the backend?
@@ -23,15 +28,43 @@ let cachedToken = null;
 
 export async function getToken() {
     if (cachedToken) return cachedToken;
-    cachedToken = await storage.getItem(TOKEN_KEY);
+    const sessionEpoch = recordStore.getEpoch();
+    if (Platform.OS === "web") {
+        const token = await storage.getItem(TOKEN_KEY);
+        if (sessionEpoch !== recordStore.getEpoch()) throw new ApiError(401, "Session changed");
+        cachedToken = token;
+        return cachedToken;
+    }
+    const token = await SecureStore.getItemAsync(TOKEN_KEY);
+    if (sessionEpoch !== recordStore.getEpoch()) throw new ApiError(401, "Session changed");
+    cachedToken = token;
+    // One-time migration from the old AsyncStorage location.
+    if (!cachedToken) {
+        const legacy = await AsyncStorage.getItem(TOKEN_KEY);
+        if (sessionEpoch !== recordStore.getEpoch()) throw new ApiError(401, "Session changed");
+        if (legacy) {
+            await SecureStore.setItemAsync(TOKEN_KEY, legacy);
+            await AsyncStorage.removeItem(TOKEN_KEY);
+            if (sessionEpoch !== recordStore.getEpoch()) throw new ApiError(401, "Session changed");
+            cachedToken = legacy;
+        }
+    }
     return cachedToken;
 }
 export async function setToken(token) {
+    if ((token || null) !== cachedToken) recordStore.reset();
     cachedToken = token || null;
-    if (token) await storage.setItem(TOKEN_KEY, token);
-    else await storage.removeItem(TOKEN_KEY);
+    if (Platform.OS === "web") {
+        if (token) await storage.setItem(TOKEN_KEY, token);
+        else await storage.removeItem(TOKEN_KEY);
+        return;
+    }
+    if (token) await SecureStore.setItemAsync(TOKEN_KEY, token);
+    else await SecureStore.deleteItemAsync(TOKEN_KEY);
+    await AsyncStorage.removeItem(TOKEN_KEY);
 }
 export async function clearToken() {
+    recordStore.reset();
     await setToken(null);
 }
 
@@ -44,8 +77,11 @@ export class ApiError extends Error {
 }
 
 async function request(method, path, body, opts = {}) {
+    if (opts.auth !== false) opts = { ...opts, sessionEpoch: opts.sessionEpoch ?? recordStore.getEpoch() };
+    return trackApiActivity(async () => {
     const { auth = true, isForm = false } = opts;
     const headers = {};
+    if (opts.operationKey) headers["X-Operation-Key"] = opts.operationKey;
     let payload;
 
     if (isForm) {
@@ -59,6 +95,7 @@ async function request(method, path, body, opts = {}) {
         const token = await getToken();
         if (token) headers["Authorization"] = `Bearer ${token}`;
     }
+    if (opts.sessionEpoch !== undefined && opts.sessionEpoch !== recordStore.getEpoch()) throw new ApiError(401, "Session changed");
 
     let res;
     try {
@@ -67,7 +104,10 @@ async function request(method, path, body, opts = {}) {
         throw new ApiError(0, "Network error — is the backend running and reachable?");
     }
 
-    const text = await res.text();
+    let text;
+    try { text = await res.text(); }
+    catch (e) { throw new ApiError(0, "Response was interrupted. Check whether the change was saved."); }
+    if (opts.sessionEpoch !== undefined && opts.sessionEpoch !== recordStore.getEpoch()) throw new ApiError(401, "Session changed");
     let data = null;
     try {
         data = text ? JSON.parse(text) : null;
@@ -80,6 +120,64 @@ async function request(method, path, body, opts = {}) {
         throw new ApiError(res.status, message, data);
     }
     return data;
+    }, opts.background || opts.loading === "nonblocking");
+}
+
+const resourcePath = (child, resource) => `/api/children/${child}/${resource}`;
+export const ACCOUNT_SCOPE = "__account__";
+export const ACCOUNT_RESOURCE = "account";
+function seedAccount(user, sessionEpoch = recordStore.getEpoch()) {
+    if (!user || sessionEpoch !== recordStore.getEpoch()) return;
+    recordStore.acceptFetch(ACCOUNT_SCOPE, ACCOUNT_RESOURCE, [user], recordStore.version(ACCOUNT_SCOPE, ACCOUNT_RESOURCE));
+}
+async function readList(child, resource, path, opts = {}) {
+    const stamp = recordStore.startFetch(child, resource);
+    const rows = await request("GET", path, undefined, { ...opts, sessionEpoch: stamp.epoch });
+    if (!Array.isArray(rows)) throw new ApiError(0, "Could not load records. Please retry.");
+    const displayed = recordStore.acceptFetch(child, resource, rows, stamp);
+    return opts.confirmedOnly ? rows : displayed;
+}
+async function writeAccount(method, path, body) {
+    const epoch = recordStore.getEpoch();
+    const result = await request(method, path, body, { sessionEpoch: epoch });
+    if (!result?.user) throw new ApiError(0, "Could not confirm account details. Please retry.");
+    seedAccount(result.user, epoch);
+    return result;
+}
+const uncertain = (error) => !error.status || error.status >= 500;
+async function writeRecord(child, resource, id, body, opts = {}, deleting = false) {
+    const sessionEpoch = opts.sessionEpoch ?? recordStore.getEpoch();
+    if (!opts.optimistic && id != null && recordStore.isLocked(child, resource, id)) throw new ApiError(409, "This record has a pending change.");
+    const saved = await request(deleting ? "DELETE" : id == null ? "POST" : "PUT",
+        resourcePath(child, resource) + (id == null ? "" : `/${id}`), body, { ...opts, sessionEpoch });
+    if (!deleting && !saved?.id) throw new ApiError(0, "Could not confirm the saved record. Check before retrying.");
+    if (!opts.optimistic) recordStore.confirm(child, resource, saved, id, deleting, sessionEpoch);
+    if (deleting && resource === "medical-history" && sessionEpoch === recordStore.getEpoch()) recordStore.removeMedicationDoses(child, id);
+    return saved;
+}
+const OPTIMISTIC = { milestones: ["create", "update"], "calendar-plan-statuses": ["create", "update"],
+    "medication-doses": ["create", "delete"], growth: ["delete"], nutrition: ["delete"], "calendar-events": ["delete"] };
+async function runOperation(op) {
+    if (op.epoch !== recordStore.getEpoch()) throw new ApiError(401, "Session changed");
+    if (!recordStore.getOperations().some((item) => item.key === op.key)) throw new Error("This change is no longer pending.");
+    recordStore.update(op, { status: "saving", message: "" });
+    try {
+        const saved = await writeRecord(op.child, op.resource, op.type === "create" ? null : op.id,
+            op.type === "delete" ? undefined : op.body,
+            { loading: "nonblocking", optimistic: true, operationKey: op.type === "create" ? op.key : undefined, sessionEpoch: op.epoch }, op.type === "delete");
+        recordStore.finish(op, saved);
+        return saved;
+    } catch (error) {
+        if (op.epoch === recordStore.getEpoch() && op.type === "create") {
+            const confirmed = recordStore.getConfirmed(op.child, op.resource).find((row) => row._operation_key === op.key);
+            if (confirmed) { recordStore.finish(op, confirmed); return confirmed; }
+        }
+        if (op.type === "delete" && error.status === 404 && error.message === "Record not found") {
+            recordStore.finish(op); return;
+        }
+        recordStore.update(op, { status: uncertain(error) ? "uncertain" : "failed", message: error.message });
+        throw error;
+    }
 }
 
 // Maps a Blob's reported MIME type to a file extension the backend's
@@ -127,13 +225,24 @@ export const api = {
     // --- auth ---
     register: (b) => request("POST", "/api/auth/register", b, { auth: false }),
     login: (b) => request("POST", "/api/auth/login", b, { auth: false }),
-    me: () => request("GET", "/api/auth/me"),
-    updateMe: (b) => request("PUT", "/api/auth/me", b),
+    socialAuth: (b) => request("POST", "/api/auth/social", b, { auth: false }),
+    socialRegister: (b) => request("POST", "/api/auth/social/register", b, { auth: false }),
+    socialLink: (b) => request("POST", "/api/auth/social/link", b, { auth: false }),
+    seedAccount,
+    me: async (opts = {}) => {
+        const stamp = recordStore.startFetch(ACCOUNT_SCOPE, ACCOUNT_RESOURCE);
+        const result = await request("GET", "/api/auth/me", undefined, { ...opts, sessionEpoch: stamp.epoch });
+        if (!result?.user) throw new ApiError(0, "Could not load account details. Please retry.");
+        if (stamp.epoch !== recordStore.getEpoch()) throw new ApiError(401, "Session changed");
+        const users = recordStore.acceptFetch(ACCOUNT_SCOPE, ACCOUNT_RESOURCE, [result.user], stamp);
+        return { ...result, user: users[0] || result.user };
+    },
+    updateMe: (b) => writeAccount("PUT", "/api/auth/me", b),
     renewConsent: () => request("POST", "/api/auth/consent/renew"),
     changePassword: (b) => request("POST", "/api/auth/change-password", b),
     // Separate from updateMe: email is the login identity, so the server
     // requires the current password. See auth.routes.js POST /change-email.
-    changeEmail: (b) => request("POST", "/api/auth/change-email", b),
+    changeEmail: (b) => writeAccount("POST", "/api/auth/change-email", b),
     deleteAccount: () => request("DELETE", "/api/auth/me"),
     forgotPassword: (b) => request("POST", "/api/auth/forgot-password", b, { auth: false }),
     resetPassword: (b) => request("POST", "/api/auth/reset-password", b, { auth: false }),
@@ -148,38 +257,111 @@ export const api = {
 
     // Set the baby's profile picture from a device photo (multipart upload).
     // Returns the updated child row (with the served avatar_url).
-    uploadChildAvatar: async (childId, photoUri) => {
+    uploadChildAvatar: (childId, photoUri) => trackApiActivity(async () => {
         const form = new FormData();
         await appendPhoto(form, "photo", photoUri, "avatar.jpg");
         return request("POST", `/api/children/${childId}/avatar`, form, { isForm: true });
-    },
+    }),
 
     // --- record attachments (mandatory supporting photo per health record) ---
-    listAttachments: (childId) => request("GET", `/api/children/${childId}/attachments`),
-    uploadAttachment: async (childId, { recordType, recordId, photoUri, fileUrl }) => {
+    listAttachments: (childId, opts = {}) => request("GET", `/api/children/${childId}/attachments`, undefined, opts),
+    uploadAttachment: (childId, { recordType, recordId, photoUri, fileUrl }) => trackApiActivity(async () => {
         const form = new FormData();
         form.append("record_type", recordType);
         form.append("record_id", String(recordId));
         if (photoUri) await appendPhoto(form, "photo", photoUri, "doc.jpg");
         else if (fileUrl) form.append("file_url", fileUrl);
         return request("POST", `/api/children/${childId}/attachments`, form, { isForm: true });
-    },
+    }),
     deleteAttachment: (childId, id) => request("DELETE", `/api/children/${childId}/attachments/${id}`),
 
     // The vaccine names + dose counts the DOH schedule contains, so the Add
     // Vaccination form can offer a list instead of an empty box. Served from
     // the same data the due dates and reminders come from, so the picker and
     // the schedule cannot drift apart.
-    vaccineCatalogue: () => request("GET", `/api/children/vaccine-catalogue`),
+    vaccineCatalogue: (opts = {}) => request("GET", `/api/children/vaccine-catalogue`, undefined, opts),
 
     // --- generic child records (vaccinations, growth, milestones, etc.) ---
-    listRecords: (childId, resource) => request("GET", `/api/children/${childId}/${resource}`),
-    createRecord: (childId, resource, b) => request("POST", `/api/children/${childId}/${resource}`, b),
-    updateRecord: (childId, resource, id, b) => request("PUT", `/api/children/${childId}/${resource}/${id}`, b),
-    deleteRecord: (childId, resource, id) => request("DELETE", `/api/children/${childId}/${resource}/${id}`),
+    listRecords: (childId, resource, opts = {}) => readList(childId, resource, resourcePath(childId, resource), opts),
+    cachedRecords: (childId, resource) => recordStore.getRows(childId, resource),
+    createRecord: (childId, resource, b, opts = {}) => writeRecord(childId, resource, null, b, opts),
+    updateRecord: (childId, resource, id, b, opts = {}) => writeRecord(childId, resource, id, b, opts),
+    deleteRecord: (childId, resource, id, opts = {}) => writeRecord(childId, resource, id, undefined, opts, true),
+    saveRecord: async (child, resource, id, body, attempt) => {
+        let state = attempt.current;
+        if (!state) state = attempt.current = { key: recordStore.operationKey(), body, id, epoch: recordStore.getEpoch() };
+        if (state.epoch !== recordStore.getEpoch()) throw new ApiError(401, "Session changed");
+        // An interrupted create is replayed with its ORIGINAL key/body before accepting edits.
+        if (state.uncertain && state.id == null) {
+            const previous = await writeRecord(child, resource, null, state.body, { operationKey: state.key, sessionEpoch: state.epoch });
+            state.id = previous.id;
+        }
+        if (!state.uncertain && JSON.stringify(state.body) !== JSON.stringify(body)) state.key = recordStore.operationKey();
+        state.body = body;
+        try {
+            const saved = await writeRecord(child, resource, state.id, body,
+                { operationKey: state.id == null ? state.key : undefined, sessionEpoch: state.epoch });
+            state.id = saved.id; state.uncertain = false;
+            return saved;
+        } catch (error) { state.uncertain = uncertain(error); throw error; }
+    },
+    optimisticRecord: (child, resource, type, id, body, options = {}) => {
+        if (!OPTIMISTIC[resource]?.includes(type)) throw new Error("This action requires server confirmation.");
+        const op = recordStore.begin({ child, resource, type, id, body, entity: options.entity, label: options.label });
+        return runOperation(op);
+    },
+    retryMutation: (op) => {
+        const current = recordStore.getOperations().find((item) => item.key === op.key);
+        if (!current || current.status === "saving") throw new Error("This change is already being processed.");
+        return runOperation(current);
+    },
+    checkMutation: async (op) => {
+        if (op.epoch !== recordStore.getEpoch()) throw new ApiError(401, "Session changed");
+        if (op.type === "create") {
+            let saved;
+            try { saved = await request("GET", `${resourcePath(op.child, op.resource)}/operations/${op.key}`,
+                undefined, { loading: "nonblocking", sessionEpoch: op.epoch }); }
+            catch (error) {
+                if (error.status === 404 && error.message === "Operation not found") {
+                    if (op.resource === "calendar-plan-statuses") {
+                        const rows = await api.listRecords(op.child, op.resource, { loading: "nonblocking", confirmedOnly: true });
+                        const existing = rows.find((row) => row.source_type === op.body.source_type
+                            && String(row.source_id) === String(op.body.source_id)
+                            && String(row.occurrence_date).slice(0, 10) === op.body.occurrence_date);
+                        if (existing) {
+                            if (existing.completed === op.body.completed) { recordStore.finish(op, existing); return true; }
+                            recordStore.update(op, { type: "update", id: existing.id, body: { completed: op.body.completed },
+                                status: "failed", message: "This plan changed elsewhere. Retry to apply your checkbox change." });
+                        }
+                    }
+                    return false;
+                }
+                if (error.status === 410) {
+                    recordStore.update(op, { status: "failed", message: "The saved record was deleted. This submission cannot be recreated." });
+                }
+                throw error;
+            }
+            recordStore.finish(op, saved);
+            return true;
+        }
+        let saved;
+        try { saved = await request("GET", `${resourcePath(op.child, op.resource)}/${op.id}`,
+            undefined, { loading: "nonblocking", sessionEpoch: op.epoch }); }
+        catch (error) {
+            if (op.type === "delete" && error.status === 404 && error.message === "Record not found") {
+                recordStore.finish(op); return true;
+            }
+            throw error;
+        }
+        if (op.type === "update" && Object.entries(op.body).every(([key, value]) =>
+            value == null ? saved[key] == null : String(saved[key]) === String(value))) {
+            recordStore.finish(op, saved); return true;
+        }
+        return false;
+    },
 
     // --- memories with a device photo (multipart upload) ---
-    uploadMemory: async (childId, { photoUri, caption, notes, date_recorded }) => {
+    uploadMemory: (childId, { photoUri, caption, notes, date_recorded }) => trackApiActivity(async () => {
         const form = new FormData();
         if (photoUri) {
             await appendPhoto(form, "photo", photoUri, "photo.jpg");
@@ -188,7 +370,7 @@ export const api = {
         if (notes) form.append("notes", notes);
         if (date_recorded) form.append("date_recorded", date_recorded);
         return request("POST", `/api/children/${childId}/memories`, form, { isForm: true });
-    },
+    }),
 
     // --- a milestone with a device photo (multipart upload) ---
     //
@@ -200,22 +382,34 @@ export const api = {
     // Blank fields are omitted rather than sent empty: over multipart every
     // value is a string, and an empty `date_recorded` would reach Postgres as
     // "" and fail to parse as a date.
-    createMilestoneWithPhoto: async (childId, fields, photoUri) => {
+    createMilestoneWithPhoto: (childId, fields, photoUri) => trackApiActivity(async () => {
         const form = new FormData();
         if (photoUri) await appendPhoto(form, "photo", photoUri, "milestone.jpg");
         for (const [k, v] of Object.entries(fields)) {
             if (v !== undefined && v !== null && v !== "") form.append(k, String(v));
         }
         return request("POST", `/api/children/${childId}/milestones`, form, { isForm: true });
-    },
+    }),
 
     // --- QR consultation shares (parent) ---
-    createShare: (childId, b) => request("POST", `/api/children/${childId}/shares`, b),
-    listShares: (childId) => request("GET", `/api/children/${childId}/shares`),
-    revokeShare: (childId, id) => request("POST", `/api/children/${childId}/shares/${id}/revoke`),
-    accessLog: (childId) => request("GET", `/api/children/${childId}/access-log`),
-    unseenAccessLog: (childId) => request("GET", `/api/children/${childId}/access-log/unseen`),
-    markAccessLogSeen: (childId) => request("POST", `/api/children/${childId}/access-log/mark-seen`),
+    createShare: async (childId, b) => {
+        const epoch = recordStore.getEpoch();
+        const share = await request("POST", `/api/children/${childId}/shares`, b, { sessionEpoch: epoch });
+        if (!share?.id) throw new ApiError(0, "Could not confirm the share. Check before retrying.");
+        recordStore.confirm(childId, "shares", share, share.id, false, epoch);
+        return share;
+    },
+    listShares: (childId, opts = {}) => readList(childId, "shares", `/api/children/${childId}/shares`, opts),
+    revokeShare: async (childId, id) => {
+        const epoch = recordStore.getEpoch();
+        const share = await request("POST", `/api/children/${childId}/shares/${id}/revoke`, undefined, { sessionEpoch: epoch });
+        if (!share?.id) throw new ApiError(0, "Could not confirm revocation. Check before retrying.");
+        recordStore.confirm(childId, "shares", share, id, false, epoch);
+        return share;
+    },
+    accessLog: (childId, opts = {}) => readList(childId, "access-log", `/api/children/${childId}/access-log`, opts),
+    unseenAccessLog: (childId, opts = {}) => request("GET", `/api/children/${childId}/access-log/unseen`, undefined, { background: opts.background }),
+    markAccessLogSeen: (childId, opts = {}) => request("POST", `/api/children/${childId}/access-log/mark-seen`, undefined, { background: opts.background }),
 
     // --- QR consultation (healthcare professional, public) ---
     resolveConsult: (b) => request("POST", "/api/consult/resolve", b, { auth: false }),

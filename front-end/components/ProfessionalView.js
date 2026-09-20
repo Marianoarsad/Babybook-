@@ -6,7 +6,6 @@ import {
     TextInput,
     TouchableOpacity,
     ScrollView,
-    ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { RECORD_LABELS } from "../utils/shareStore";
@@ -20,14 +19,7 @@ import { shortDate, shortTime, overdueBy, spanText, todayLocal } from "../utils/
 import { courseDayText, isActiveOn } from "../utils/medication";
 import { feedRowSummary } from "../utils/adapters";
 import { ageText } from "./Dashboard";
-import {
-    WHO_MAX_DAY,
-    ageInDays,
-    formatPercentile,
-    normalizeSex,
-    percentileFromZ,
-    zScore,
-} from "../utils/whoGrowth";
+import { ageInDays } from "../utils/whoGrowth";
 
 // How many rows of any one record type show before "Show more". The clinician
 // this screen serves has, per PRODUCT.md, "a patient in front of them and very
@@ -221,14 +213,10 @@ export default function ProfessionalView({ onExit }) {
                 </Text>
 
                 <TouchableOpacity style={styles.viewBtn} onPress={() => handleView()} disabled={loading}>
-                    {loading ? (
-                        <ActivityIndicator color={colors.onPrimary} />
-                    ) : (
-                        <>
+                    {(<>
                             <Ionicons name="eye-outline" size={18} color={colors.onPrimary} />
                             <Text style={styles.viewBtnText}>View Records</Text>
-                        </>
-                    )}
+                        </>)}
                 </TouchableOpacity>
 
                 {scannerAvailable() ? (
@@ -705,72 +693,6 @@ function CareTimeline({ rows }) {
     );
 }
 
-// Percentile movement between the earliest and latest usable measurement.
-//
-// PRINCIPLE 5 BOUNDARY, and it is a fine one. A percentile is a published
-// reference position and the difference between two of them is arithmetic —
-// both are facts. "Falling off the curve", "poor growth", "catch-up" are
-// verdicts, and none of them appear here or may be added. The app states the
-// movement and the interval; reading it is the clinician's job, and they are
-// the one person on either side of this screen qualified to do it.
-function GrowthTrend({ rows, sex, dateOfBirth }) {
-    const { colors } = useTheme();
-    const styles = useMemo(() => makeStyles(colors), [colors]);
-    const sexKey = normalizeSex(sex);
-
-    const lines = useMemo(() => {
-        if (!sexKey || !dateOfBirth) return [];
-        const out = [];
-        for (const [indicator, field, label] of [
-            ["weight", "weight", "Weight"],
-            ["height", "height", "Height"],
-            ["head", "head_circumference", "Head"],
-        ]) {
-            const usable = (rows || [])
-                .filter((r) => r.date_recorded && r[field] != null && r[field] !== "")
-                .map((r) => {
-                    const day = ageInDays(dateOfBirth, String(r.date_recorded).slice(0, 10));
-                    if (day == null || day > WHO_MAX_DAY) return null;
-                    const z = zScore(indicator, sexKey, day, Number(r[field]));
-                    return z == null ? null : { date: String(r.date_recorded).slice(0, 10), z };
-                })
-                .filter(Boolean)
-                .sort((a, b) => a.date.localeCompare(b.date));
-            // Two distinct dates or there is no movement to report.
-            if (usable.length < 2) continue;
-            const first = usable[0];
-            const last = usable[usable.length - 1];
-            if (first.date === last.date) continue;
-            const p0 = percentileFromZ(first.z);
-            const p1 = percentileFromZ(last.z);
-            out.push({
-                label,
-                from: formatPercentile(p0),
-                to: formatPercentile(p1),
-                span: spanText(first.date, last.date),
-                n: usable.length,
-            });
-        }
-        return out;
-    }, [rows, sexKey, dateOfBirth]);
-
-    if (!lines.length) return null;
-
-    return (
-        <View style={styles.trendCard}>
-            <Text style={styles.trendTitle}>WHO percentile, first to latest recorded</Text>
-            {lines.map((l, i) => (
-                <Text key={i} style={styles.trendRow} numberOfLines={2}>
-                    {l.label}: {l.from} → {l.to}
-                    <Text style={styles.trendMeta}>
-                        {"  "}({l.n} measurements over {l.span})
-                    </Text>
-                </Text>
-            ))}
-        </View>
-    );
-}
-
 // "What does this child need today?" — the question the immunisation list was
 // not answering. Overdue doses named and sorted oldest-first, then the next
 // scheduled visit with everything falling due on it.
@@ -884,26 +806,12 @@ function RecordsView({ session, onEnd, onExit }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const p = session.payload || {};
-    const sexKey = normalizeSex(p.profile?.sex);
     const dob = p.profile?.dateOfBirth;
     // Measured section offsets for the jump bar. A ref, not state: these are
     // written on every layout pass and nothing should re-render because a
     // section moved two pixels.
     const scrollRef = useRef(null);
     const sectionY = useRef({});
-
-    // Where a measurement sits on the WHO reference. Shown here and nowhere
-    // else in this file: a percentile is a published reference position, not a
-    // verdict, and the clinician is the person qualified to read it. The app
-    // still never labels it (PRODUCT.md, "never imply clinical authority").
-    const percentileFor = (indicator, value, dateRecorded) => {
-        if (!sexKey || !dob || value == null || value === "") return null;
-        const day = ageInDays(dob, String(dateRecorded).slice(0, 10));
-        if (day == null || day > WHO_MAX_DAY) return null;
-        const z = zScore(indicator, sexKey, day, Number(value));
-        if (z == null) return null;
-        return formatPercentile(percentileFromZ(z));
-    };
 
     const sections = {
         profile: p.profile && (
@@ -1106,44 +1014,13 @@ function RecordsView({ session, onEnd, onExit }) {
                     head_circumference, which is the snapshot's own shape, so no
                     adapter is involved and the two screens cannot plot the same
                     child differently. */}
-                {(p.growth.measurements || []).length > 0 && dob && sexKey ? (
-                    <>
-                        {/* `plain` is deliberately NOT passed. The parent's
-                            Dashboard card states the percentile in words and
-                            drops the outer reference band; this screen keeps
-                            the ordinal and both bands, which is the shorthand a
-                            clinician reads fluently. */}
-                        <GrowthChart
-                            rows={p.growth.measurements}
-                            sex={p.profile?.sex}
-                            dateOfBirth={dob}
-                            name={(p.profile?.name || "").split(" ")[0]}
-                        />
-                        <GrowthTrend
-                            rows={p.growth.measurements}
-                            sex={p.profile?.sex}
-                            dateOfBirth={dob}
-                        />
-                    </>
+                {(p.growth.measurements || []).length > 0 && dob ? (
+                    <GrowthChart rows={p.growth.measurements} dateOfBirth={dob} />
                 ) : null}
                 <Capped
                     rows={p.growth.measurements || []}
                     noun="measurements"
                     render={(g, i) => {
-                        // Percentiles are the reason a clinician reads this
-                        // section at all; raw centimetres make them do the
-                        // reference lookup by hand.
-                        const pct = [
-                            ["weight", g.weight, "Wt"],
-                            ["height", g.height, "Ht"],
-                            ["head", g.head_circumference, "HC"],
-                        ]
-                            .map(([ind, val, label]) => {
-                                const s = percentileFor(ind, val, g.date_recorded);
-                                return s ? `${label} ${s}` : null;
-                            })
-                            .filter(Boolean)
-                            .join(" · ");
                         return (
                             <Item
                                 key={i}
@@ -1160,7 +1037,6 @@ function RecordsView({ session, onEnd, onExit }) {
                                 sub={[shortDate(g.date_recorded), GROWTH_PLACE[g.measured_at]]
                                     .filter(Boolean)
                                     .join(" · ")}
-                                flag={pct ? `${pct} (WHO percentile)` : null}
                             />
                         );
                     }}
@@ -1487,17 +1363,6 @@ const makeStyles = (colors) => StyleSheet.create({
     vaxBandTitleNext: { ...type.label, color: colors.info, marginBottom: 3 },
     vaxBandRow: { ...type.caption, color: colors.text, lineHeight: 18 },
     vaxBandRowNext: { ...type.caption, color: colors.text, lineHeight: 18 },
-
-    trendCard: {
-        marginTop: space.sm,
-        padding: space.sm,
-        borderRadius: 12,
-        borderCurve: "continuous",
-        backgroundColor: colors.surfaceAlt,
-    },
-    trendTitle: { ...type.caption, fontWeight: "800", color: colors.textSecondary, marginBottom: 4 },
-    trendRow: { ...type.body, color: colors.text, lineHeight: 22 },
-    trendMeta: { ...type.caption, color: colors.textMuted },
 
     timelineCard: { flexDirection: "row", gap: space.md, marginBottom: space.sm, flexWrap: "wrap" },
     timelineCol: { flex: 1, minWidth: 140 },

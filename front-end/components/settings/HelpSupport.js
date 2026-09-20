@@ -31,7 +31,7 @@ const FAQS = [
     },
     {
         q: "How do I change my baby's profile info?",
-        a: "Open the side menu → Edit Profile for your own account, or use the pencil icon on the Dashboard baby card to edit your child's profile.",
+        a: "Open Profile → Edit Profile for your own account, or use the pencil icon on the Dashboard baby card to edit your child's profile.",
         icon: "person-circle-outline",
         tint: "recCheckup",
     },

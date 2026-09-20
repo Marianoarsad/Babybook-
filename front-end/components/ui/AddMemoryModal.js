@@ -1,18 +1,20 @@
 import React, { useMemo, useState } from "react";
-import { View, Text, StyleSheet, Modal, TextInput, TouchableOpacity, ScrollView } from "react-native";
+import { View, Text, StyleSheet, TextInput, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { radius, space, shadow, type } from "../../theme";
+import { radius, space, type } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
 import { useLanguage } from "../../context/LanguageContext";
 import { api } from "../../utils/api";
+import { useRecordSave } from "../../utils/useRecords";
 import { memoryToApp, milestoneToApp } from "../../utils/adapters";
 import { pickImage, pickerAvailable } from "../../utils/imagePicker";
 import { todayLocal, ageAtDate, monthsBetween } from "../../utils/dates";
 import { suggestedTitles } from "../../utils/milestoneChecklist";
 import { useToast } from "./Toast";
-import Button from "./Button";
+
 import { DateField } from "./DateField";
-import KeyboardAvoider from "./KeyboardAvoider";
+
+import RecordFormSheet, { RecordFormGroup, RecordFormRow } from "./RecordFormSheet";
 
 // Add one entry to the Gallery — either a photo memory or a developmental
 // milestone. One form, because from the parent's side they are the same act:
@@ -46,6 +48,7 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
     const [saving, setSaving] = useState(false);
 
     const isMilestone = kind === "milestone";
+    const saveRecord = useRecordSave(visible, profile.id, isMilestone ? "milestones" : "memories");
 
     // Checklist items this child has not recorded yet, drawn from their own
     // age band. Tapping one fills the exact title the Development Checklist
@@ -94,14 +97,14 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
                 };
                 const saved = photoUri
                     ? await api.createMilestoneWithPhoto(profile.id, fields, photoUri)
-                    : await api.createRecord(profile.id, "milestones", { ...fields, photo_url: null });
+                    : await saveRecord({ ...fields, photo_url: null });
                 if (onSaved) onSaved(milestoneToApp(saved), "milestone");
                 toast.success("Milestone saved");
             } else {
                 const date_recorded = date || todayLocal();
                 const saved = photoUri
                     ? await api.uploadMemory(profile.id, { photoUri, caption: name, notes, date_recorded })
-                    : await api.createRecord(profile.id, "memories", {
+                    : await saveRecord({
                           caption: name,
                           notes: notes || null,
                           photo_url: null,
@@ -127,11 +130,10 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
     ];
 
     return (
-        <Modal visible={visible} transparent animationType="slide">
-            <KeyboardAvoider>
-                <View style={styles.modalBg}>
-                    <View style={styles.modalCard}>
-                        <Text style={styles.modalTitle}>Add to Gallery</Text>
+        <RecordFormSheet visible={visible} title={"Add to Gallery"}
+            onClose={onClose} onSubmit={handleSave} busy={saving}
+            cancelLabel={t("cancel")} submitLabel={t("save")}>
+            <RecordFormGroup>
 
                         {/* Which kind of entry — the only choice that changes
                             where this record goes. */}
@@ -162,14 +164,10 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
                             })}
                         </View>
 
-                        <ScrollView
-                            style={styles.scroll}
-                            keyboardShouldPersistTaps="handled"
-                            showsVerticalScrollIndicator={false}
-                        >
                             {isMilestone ? (
                                 <>
-                                    <Text style={styles.modalLabel}>Milestone</Text>
+                                    <RecordFormRow label={<Text style={styles.modalLabel}>Milestone</Text>}>
+
                                     <TextInput
                                         style={styles.modalInput}
                                         placeholder="First steps"
@@ -177,6 +175,7 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
                                         value={title}
                                         onChangeText={setTitle}
                                     />
+                                    </RecordFormRow>
 
                                     {chips.length > 0 && (
                                         <>
@@ -200,7 +199,8 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
                                 </>
                             ) : (
                                 <>
-                                    <Text style={styles.modalLabel}>Caption</Text>
+                                    <RecordFormRow label={<Text style={styles.modalLabel}>Caption</Text>}>
+
                                     <TextInput
                                         style={styles.modalInput}
                                         placeholder="First steps!"
@@ -208,17 +208,20 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
                                         value={caption}
                                         onChangeText={setCaption}
                                     />
+                                    </RecordFormRow>
                                 </>
                             )}
 
-                            <Text style={styles.modalLabel}>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>
                                 {isMilestone ? "What happened (optional)" : "Notes (optional)"}
-                            </Text>
+                            </Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 value={notes}
                                 onChangeText={setNotes}
                             />
+                            </RecordFormRow>
 
                             {/* A milestone is usually logged after the fact, and
                                 its date is what the stored age is derived from. */}
@@ -261,56 +264,14 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
                                     </Text>
                                 </View>
                             )}
-                        </ScrollView>
 
-                        <View style={styles.modalButtons}>
-                            <Button
-                                title={t("cancel")}
-                                variant="secondary"
-                                fullWidth={false}
-                                disabled={saving}
-                                onPress={onClose}
-                            />
-                            <Button
-                                title={t("save")}
-                                variant="accent"
-                                fullWidth={false}
-                                loading={saving}
-                                onPress={handleSave}
-                            />
-                        </View>
-                    </View>
-                </View>
-            </KeyboardAvoider>
-        </Modal>
+            </RecordFormGroup>
+        </RecordFormSheet>
     );
 }
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        modalBg: {
-            flex: 1,
-            backgroundColor: "rgba(28,25,23,0.55)",
-            justifyContent: "center",
-            alignItems: "center",
-            padding: space.xl,
-        },
-        modalCard: {
-            backgroundColor: colors.background,
-            borderRadius: radius.xl,
-            borderCurve: "continuous",
-            padding: space.xl,
-            width: "100%",
-            // 440, not 360 — the sheet was narrower than every reference
-            // phone width (390, 430), wasting room the fields needed.
-            maxWidth: 440,
-            maxHeight: "88%",
-            borderWidth: 1,
-            borderColor: colors.hairline,
-            ...shadow.raised,
-        },
-        modalTitle: { ...type.title, color: colors.text, marginBottom: space.lg },
-        scroll: { flexGrow: 0 },
 
         segment: {
             flexDirection: "row",
@@ -337,13 +298,14 @@ const makeStyles = (colors) =>
 
         modalLabel: { ...type.subheading, color: colors.textMuted, marginBottom: space.sm },
         modalInput: {
-            backgroundColor: colors.surface,
-            borderWidth: 1,
+            backgroundColor: colors.surfaceAlt,
+            borderWidth: 0,
             borderColor: colors.border,
-            borderRadius: radius.md,
+            borderRadius: radius.lg,
             borderCurve: "continuous",
             paddingHorizontal: space.md,
-            height: 48,
+            minHeight: 52,
+            paddingVertical: space.sm,
             fontSize: type.body.fontSize,
             fontFamily: type.body.fontFamily,
             color: colors.text,
@@ -386,10 +348,4 @@ const makeStyles = (colors) =>
         },
         noteText: { ...type.caption, color: colors.text, flex: 1 },
 
-        modalButtons: {
-            flexDirection: "row",
-            justifyContent: "flex-end",
-            gap: space.md,
-            marginTop: space.lg,
-        },
     });

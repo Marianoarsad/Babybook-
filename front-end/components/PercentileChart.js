@@ -1,14 +1,22 @@
 import React, { useMemo, useState } from "react";
 import { View, Text, StyleSheet } from "react-native";
-import Svg, { Path, Circle, Line, Text as SvgText } from "react-native-svg";
+import Svg, { Path, Circle, Line, Text as SvgText, Defs, LinearGradient, Stop } from "react-native-svg";
 import { useTheme } from "../context/ThemeContext";
-import { space } from "../theme";
+import { useLanguage } from "../context/LanguageContext";
+import { space, type } from "../theme";
+import { evenDateSlots, evenYearSlots } from "../utils/dates";
 import {
     WHO_MAX_DAY,
     ageInDays,
+    chartAxisTicks,
+    integerAxisRange,
+    latestPointPerDay,
+    measurementAgeDomain,
     normalizeSex,
     referenceCurve,
+    signedAgeInDays,
     unitFor,
+    wholeNumberLabel,
 } from "../utils/whoGrowth";
 
 // A child's measurements drawn against the WHO reference envelope.
@@ -19,9 +27,8 @@ import {
 // "Never imply clinical authority"). Colour in this chart belongs to one thing
 // only: the child's own line.
 //
-// The x axis is proportional to AGE, not to the index of the measurement, so a
-// point taken after a six-month gap sits six months along. The band comparison
-// is meaningless otherwise.
+// The clinician chart keeps a proportional age axis for its WHO comparison.
+// Parent trend charts use a proportional recorded-date axis.
 
 const Z_LINES = [-3, -2, 0, 2, 3];
 const FIELD = { weight: "weight", height: "height", head: "head_circumference" };
@@ -41,16 +48,44 @@ export default function PercentileChart({
     // statistics background met an unexplained second shape. The clinician's
     // copy keeps both -- see the `plain` gate in GrowthChart.js.
     simple = false,
+    // Reference context is opt-in; parent and professional charts now show
+    // only the family's recorded measurements.
+    showReference = false,
+    seriesColor,
+    areaFill = false,
+    dateWindow = null,
+    datePreset = null,
+    yearRange = null,
+    axisWindow = null,
+    pointAlignedShortRange = false,
+    emptyMessage,
 }) {
     const { colors } = useTheme();
+    const { language, t } = useLanguage();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const lineColor = seriesColor || colors.primary;
+    const chartFontFamily = areaFill ? type.caption.fontFamily : undefined;
     const [width, setWidth] = useState(0);
+    const selectedDayCount = useMemo(() => {
+        if (!dateWindow?.from || !dateWindow?.to) return null;
+        const start = new Date(`${dateWindow.from}T00:00:00`);
+        const end = new Date(`${dateWindow.to}T00:00:00`);
+        if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return null;
+        return Math.round((end - start) / 86400000) + 1;
+    }, [dateWindow]);
+    const shortRange = pointAlignedShortRange && selectedDayCount != null && selectedDayCount < 8;
+    const multiYearMode = Boolean(
+        areaFill
+        && datePreset === "year"
+        && yearRange
+        && Number(yearRange.to) > Number(yearRange.from)
+    );
     // Callers pass whatever they hold — "Female", "boy", or an already
     // normalized "girls". Anything unrecognized yields null and the reference
     // bands are simply omitted rather than guessed.
     const sexKey = useMemo(() => normalizeSex(sex), [sex]);
 
-    const chartHeight = compact ? 184 : 252;
+    const chartHeight = areaFill ? (compact ? 220 : 288) : compact ? 184 : 252;
     // 26, not 10: the unit label sits above the topmost y tick, and both are
     // 13px right-aligned to the same edge. At 18 the two glyphs touched --
     // "kg" sat directly on top of "14.4". 26 leaves 18px between the two
@@ -64,15 +99,19 @@ export default function PercentileChart({
     // Widened from 30/26 to fit the 13px tick labels (DESIGN.md's 13px text
     // floor) without clipping — narrower and "14.5"/"med" started running off
     // the left/right edge of the compact chart.
-    const gutter = compact ? 36 : 38;
-    const rightPad = compact ? 6 : 30; // room for the z-line labels
+    const gutter = areaFill ? 44 : compact ? 36 : 38;
+    // Keep the latest marker clear of the right edge.
+    const rightPad = areaFill ? 24 : compact || simple ? 6 : 30;
     const plotH = chartHeight - padTop - padBottom;
     const plotW = Math.max(0, width - gutter - rightPad);
 
     const field = FIELD[indicator];
     const unit = unitFor(indicator);
+    const indicatorLabel = t(
+        indicator === "head" ? "growthHeadCirc" : indicator === "height" ? "growthHeight" : "growthWeight"
+    );
 
-    // The child's own measurements, placed by age.
+    // The child's own measurements, sorted by age before plotting.
     const points = useMemo(() => {
         if (!dateOfBirth) return [];
         return (rows || [])
@@ -83,29 +122,80 @@ export default function PercentileChart({
                 const value = Number(raw);
                 const day = ageInDays(dateOfBirth, date);
                 if (!(value > 0) || day == null) return null;
-                return { day, value, date };
+                return { id: r.id, day, value, date };
             })
-            .filter(Boolean)
-            .sort((a, b) => a.day - b.day);
-    }, [rows, field, dateOfBirth]);
+            .filter((p) => p && (!dateWindow || (p.date >= dateWindow.from && p.date <= dateWindow.to)))
+            .sort((a, b) => a.day - b.day || Number(a.id || 0) - Number(b.id || 0));
+    }, [rows, field, dateOfBirth, dateWindow]);
 
-    const inRange = useMemo(() => points.filter((p) => p.day <= WHO_MAX_DAY), [points]);
-    const beyondRange = points.length - inRange.length;
+    // WHO curves stop at age five, but the family's own measurements do not.
+    // Keep plotting every saved value and limit only the reference overlay.
+    const inRange = points;
+    const chartPoints = useMemo(() => {
+        if (multiYearMode) {
+            const latestByYear = new Map();
+            for (const point of inRange) latestByYear.set(point.date.slice(0, 4), point);
+            return [...latestByYear.values()];
+        }
+        return shortRange ? latestPointPerDay(inRange) : inRange;
+    }, [inRange, multiYearMode, shortRange]);
+    const beyondRange = showReference ? points.filter((p) => p.day > WHO_MAX_DAY).length : 0;
+    // Filters decide which records are visible; real measurements decide the
+    // viewport. All-mode callers may share one recorded window so its three
+    // metric charts remain directly comparable.
+    const plotDateWindow = useMemo(
+        () => areaFill
+            ? axisWindow || (chartPoints.length
+                ? { from: chartPoints[0].date, to: chartPoints[chartPoints.length - 1].date }
+                : dateWindow)
+            : dateWindow,
+        [areaFill, axisWindow, chartPoints, dateWindow],
+    );
 
-    // Age window: fit the child's history, with a floor so a newborn's first
-    // measurement doesn't render on a one-day-wide axis.
-    const toDay = useMemo(() => {
-        const maxDay = inRange.length ? inRange[inRange.length - 1].day : 0;
-        return Math.min(WHO_MAX_DAY, Math.max(Math.ceil(maxDay * 1.12), 90));
-    }, [inRange]);
+    // Growth's date-filtered charts fit the visible measurements. Other callers
+    // retain the existing history view and its newborn-width floor.
+    const domain = useMemo(() => {
+        if (multiYearMode) {
+            return { from: Number(yearRange.from), to: Number(yearRange.to) };
+        }
+        if (areaFill && datePreset === "year" && yearRange && chartPoints.length) {
+            const fitted = measurementAgeDomain(chartPoints);
+            if (fitted) return fitted;
+        }
+        if (areaFill && plotDateWindow?.from && plotDateWindow?.to) {
+            const first = signedAgeInDays(dateOfBirth, plotDateWindow.from);
+            const last = signedAgeInDays(dateOfBirth, plotDateWindow.to);
+            if (first != null && last != null) {
+                return first === last ? { from: first - 1, to: last + 1 } : { from: first, to: last };
+            }
+        }
+        if (yearRange) {
+            const first = signedAgeInDays(dateOfBirth, `${yearRange.from}-01-01`);
+            const last = signedAgeInDays(dateOfBirth, `${yearRange.to}-12-31`);
+            if (first != null && last != null) return { from: first, to: last };
+        }
+        if (dateWindow) {
+            const fitted = measurementAgeDomain(chartPoints);
+            if (fitted) return fitted;
+            const first = Math.max(0, ageInDays(dateOfBirth, dateWindow.from) || 0);
+            const last = Math.max(first, ageInDays(dateOfBirth, dateWindow.to) || first);
+            if (first === last) return { from: Math.max(0, first - 1), to: first + 1 };
+            return { from: first, to: last };
+        }
+        const maxDay = chartPoints.length ? chartPoints[chartPoints.length - 1].day : 0;
+        const fitted = Math.max(Math.ceil(maxDay * 1.12), 90);
+        return { from: 0, to: fitted };
+    }, [areaFill, multiYearMode, datePreset, plotDateWindow, yearRange, dateWindow, dateOfBirth, chartPoints]);
 
     const bands = useMemo(() => {
-        if (!sexKey) return null;
+        if (!showReference || !sexKey || domain.from > WHO_MAX_DAY) return null;
         const curves = {};
-        for (const z of Z_LINES) curves[z] = referenceCurve(indicator, sexKey, 0, toDay, z);
+        for (const z of Z_LINES) {
+            curves[z] = referenceCurve(indicator, sexKey, domain.from, Math.min(domain.to, WHO_MAX_DAY), z);
+        }
         if (!curves[0].length) return null;
         return curves;
-    }, [indicator, sexKey, toDay]);
+    }, [indicator, sexKey, showReference, domain]);
 
     // Y window covers the full reference envelope plus anything the child's own
     // line does outside it, so an outlying measurement is never clipped away.
@@ -115,18 +205,37 @@ export default function PercentileChart({
             for (const p of bands[-3]) vals.push(p.value);
             for (const p of bands[3]) vals.push(p.value);
         }
-        for (const p of inRange) vals.push(p.value);
+        for (const p of chartPoints) vals.push(p.value);
         if (!vals.length) return null;
         let min = Math.min(...vals);
         let max = Math.max(...vals);
         if (min === max) { min -= 1; max += 1; }
         const pad = (max - min) * 0.06;
-        return { min: min - pad, max: max + pad };
-    }, [bands, inRange]);
+        const quantum = indicator === "weight" ? 0.1 : 1;
+        const range = {
+            min: Math.floor((min - pad) / quantum) * quantum,
+            max: Math.ceil((max + pad) / quantum) * quantum,
+        };
+        return areaFill
+            ? integerAxisRange(Math.max(0, range.min), range.max, 7)
+            : range;
+    }, [areaFill, bands, chartPoints, indicator]);
+
+    const yTicks = useMemo(() => {
+        if (!yRange) return [];
+        const count = areaFill ? 7 : 3;
+        return chartAxisTicks(yRange.min, yRange.max, count).reverse();
+    }, [areaFill, yRange]);
+    const yTickDecimals = useMemo(() => {
+        if (!yRange || areaFill) return 0;
+        const step = (yRange.max - yRange.min) / Math.max(1, yTicks.length - 1);
+        return indicator === "weight" || step < 1 ? 1 : 0;
+    }, [areaFill, indicator, yRange, yTicks.length]);
 
     const geo = useMemo(() => {
         if (!yRange || plotW <= 0) return null;
-        const xFor = (day) => gutter + (day / toDay) * plotW;
+        const span = Math.max(1, domain.to - domain.from);
+        const xFor = (day) => gutter + ((day - domain.from) / span) * plotW;
         const yFor = (v) => padTop + plotH - ((v - yRange.min) / (yRange.max - yRange.min)) * plotH;
         const lineFor = (curve) =>
             curve.map((p, i) => `${i ? "L" : "M"} ${xFor(p.day).toFixed(1)} ${yFor(p.value).toFixed(1)}`).join(" ");
@@ -137,42 +246,112 @@ export default function PercentileChart({
             return `${fwd} ${back} Z`;
         };
         return { xFor, yFor, lineFor, areaFor };
-    }, [yRange, plotW, plotH, toDay, gutter, padTop]);
+    }, [yRange, plotW, plotH, domain, gutter, padTop]);
 
     const childPath = useMemo(() => {
-        if (!geo || inRange.length < 1) return null;
-        const coords = inRange.map((p) => ({ x: geo.xFor(p.day), y: geo.yFor(p.value) }));
-        const line = coords
-            .map((c, i) => `${i ? "L" : "M"} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`)
-            .join(" ");
-        return { line, coords };
-    }, [geo, inRange]);
+        if (!geo || chartPoints.length < 1) return null;
+        const coords = chartPoints.map((p) => ({
+            point: p,
+            x: geo.xFor(multiYearMode ? Number(p.date.slice(0, 4)) : p.day),
+            y: geo.yFor(p.value),
+        }));
+        const line = coords.map((c, i) => `${i ? "L" : "M"} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(" ");
+        const baseline = padTop + plotH;
+        const area = `${line} L ${coords[coords.length - 1].x.toFixed(1)} ${baseline} L ${coords[0].x.toFixed(1)} ${baseline} Z`;
+        const maxDots = compact ? 12 : 24;
+        const step = Math.max(1, Math.ceil((coords.length - 1) / Math.max(1, maxDots - 1)));
+        const dots = coords.filter((_, index) => index === 0 || index === coords.length - 1 || index % step === 0);
+        return { line, area, coords: dots, latest: coords[coords.length - 1] };
+    }, [chartPoints, compact, geo, multiYearMode, padTop, plotH]);
 
     const xTicks = useMemo(() => {
-        const months = toDay / 30.4375;
+        if (areaFill && datePreset === "year" && yearRange) {
+            const fromYear = Number(yearRange.from);
+            const toYear = Number(yearRange.to);
+            if (toYear > fromYear) {
+                return evenYearSlots(fromYear, toYear).map((year) => ({ label: String(year) }));
+            }
+            const labelWindow = dateWindow || plotDateWindow;
+            if (!labelWindow) return [];
+            const tickCount = plotW < 240 ? 5 : 7;
+            const months = [...new Set(
+                evenDateSlots(labelWindow.from, labelWindow.to, tickCount).map((iso) => iso.slice(0, 7))
+            )];
+            const locale = language === "fil" ? "fil-PH" : "en-PH";
+            return months.map((month) => ({
+                label: new Date(`${month}-01T00:00:00`).toLocaleDateString(locale, { month: "short" }).slice(0, 3),
+                fontSize: 11,
+            }));
+        }
+        if (areaFill && plotDateWindow) {
+            const customRange = datePreset == null;
+            const labelWindow = customRange && dateWindow ? dateWindow : plotDateWindow;
+            // DD/MM needs more room than day numbers. Keep seven slots when
+            // they fit; five 40px intervals are the narrow-screen fallback.
+            const tickCount = (datePreset === "month" || customRange) && plotW < 240 ? 5 : 7;
+            const rawSlots = evenDateSlots(labelWindow.from, labelWindow.to, tickCount);
+            const slots = customRange ? [...new Set(rawSlots)] : rawSlots;
+            const locale = language === "fil" ? "fil-PH" : "en-PH";
+            return slots.map((iso) => ({
+                day: signedAgeInDays(dateOfBirth, iso),
+                label: datePreset === "year"
+                    ? new Date(`${iso}T00:00:00`).toLocaleDateString(locale, { month: "short" }).slice(0, 3)
+                    : datePreset === "month" || customRange
+                      ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
+                      : String(Number(iso.slice(8, 10))),
+                fontSize: datePreset === "year" ? 11 : 13,
+            }));
+        }
+        const labelWindow = dateWindow || plotDateWindow;
+        if (labelWindow) {
+            const slots = evenDateSlots(labelWindow.from, labelWindow.to);
+            return slots.map((iso, index) => {
+                const first = slots.indexOf(iso);
+                const last = slots.lastIndexOf(iso);
+                const show = iso === slots[0] ? index === first : iso === slots[slots.length - 1] ? index === last : index === first;
+                return {
+                    day: ageInDays(dateOfBirth, iso),
+                    label: show ? String(Number(iso.slice(8, 10))) : "",
+                };
+            });
+        }
+        const months = domain.to / 30.4375;
         const stepMonths = months <= 4 ? 1 : months <= 14 ? 3 : months <= 30 ? 6 : 12;
         const out = [];
-        for (let mo = 0; mo * 30.4375 <= toDay; mo += stepMonths) {
+        for (let mo = 0; mo * 30.4375 <= domain.to; mo += stepMonths) {
             out.push({
                 day: mo * 30.4375,
-                label: mo === 0 ? "Birth" : mo % 12 === 0 ? `${mo / 12}y` : `${mo}m`,
+                label: mo === 0 ? t("growthChartBirth") : mo % 12 === 0 ? `${mo / 12}y` : `${mo}m`,
             });
         }
         return out;
-    }, [toDay]);
+    }, [areaFill, yearRange, datePreset, domain, dateWindow, plotDateWindow, dateOfBirth, language, plotW, t]);
+
+    const latestHighlight = areaFill && childPath?.latest ? childPath.latest : null;
 
     if (!dateOfBirth) {
-        return <Text style={styles.note}>Add the child's date of birth to compare growth against WHO reference curves.</Text>;
+        return <Text style={[styles.note, areaFill && styles.parentChartText]}>{t(showReference ? "growthMissingDobReference" : "growthMissingDobPlot")}</Text>;
     }
     if (!points.length) {
-        return <Text style={styles.note}>No {indicator === "head" ? "head circumference" : indicator} measurements recorded yet.</Text>;
+        return <Text style={[styles.note, areaFill && styles.parentChartText]}>{emptyMessage || t("growthNoMeasurements").replace("{metric}", indicatorLabel.toLowerCase())}</Text>;
     }
 
     return (
-        <View>
+        <View
+            accessible
+            accessibilityLabel={yearRange ? `${indicatorLabel} growth chart from ${yearRange.from} to ${yearRange.to}` : undefined}
+        >
             <View style={{ height: chartHeight }} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
                 {geo ? (
                     <Svg width={width} height={chartHeight}>
+                        {areaFill ? (
+                            <Defs>
+                                <LinearGradient id={`growth-${indicator}`} x1="0" y1="0" x2="0" y2="1">
+                                    <Stop offset="0" stopColor={lineColor} stopOpacity={0.22} />
+                                    <Stop offset="1" stopColor={lineColor} stopOpacity={0.02} />
+                                </LinearGradient>
+                            </Defs>
+                        ) : null}
                         {bands ? (
                             <>
                                 {/* Reference envelope, widest first. The outer
@@ -194,7 +373,7 @@ export default function PercentileChart({
                                         fill="none"
                                     />
                                 ))}
-                                {!compact &&
+                                {!compact && !simple &&
                                     Z_LINES.map((z) => {
                                         const curve = bands[z];
                                         const last = curve[curve.length - 1];
@@ -215,117 +394,173 @@ export default function PercentileChart({
                             </>
                         ) : null}
 
-                        {/* Baseline */}
-                        <Line
-                            x1={gutter}
-                            y1={padTop + plotH}
-                            x2={gutter + plotW}
-                            y2={padTop + plotH}
-                            stroke={colors.hairline}
-                            strokeWidth={1}
-                        />
+                        {/* Horizontal guides keep values easy to trace without visual clutter. */}
+                        {(areaFill ? yTicks : [yRange?.min])
+                            .filter((v) => v != null)
+                            .map((v, i) => (
+                                <Line
+                                    key={`grid-${i}`}
+                                    x1={gutter}
+                                    y1={geo.yFor(v)}
+                                    x2={gutter + plotW}
+                                    y2={geo.yFor(v)}
+                                    stroke={colors.hairline}
+                                    strokeWidth={1}
+                                    strokeDasharray={areaFill ? "4 4" : undefined}
+                                    strokeLinecap={areaFill ? "round" : undefined}
+                                />
+                            ))}
 
                         {/* The unit, on the axis with the numbers it belongs
                             to. It used to appear only inside the legend phrase
                             "This child (kg)", which is nowhere near the figures
                             a reader is trying to interpret. */}
                         <SvgText
-                            x={gutter - 6}
+                            x={0}
                             y={11}
                             fontSize={13}
-                            fontWeight="700"
+                            fontFamily={chartFontFamily}
+                            fontWeight={areaFill ? type.caption.fontWeight : "700"}
                             fill={colors.textMuted}
-                            textAnchor="end"
+                            textAnchor="start"
                         >
                             {unit}
                         </SvgText>
 
                         {/* Y scale */}
                         {yRange
-                            ? [yRange.max, (yRange.max + yRange.min) / 2, yRange.min].map((v, i) => (
+                            ? yTicks.map((v, i) => {
+                                  return (
                                   <SvgText
                                       key={`y${i}`}
-                                      x={gutter - 6}
+                                      x={0}
                                       y={geo.yFor(v) + 3.5}
                                       fontSize={13}
-                                      fontWeight="600"
+                                      fontFamily={chartFontFamily}
+                                      fontWeight={areaFill ? type.caption.fontWeight : "600"}
                                       fill={colors.textMuted}
-                                      textAnchor="end"
+                                      textAnchor="start"
                                   >
-                                      {v.toFixed(v > 40 ? 0 : 1)}
+                                      {areaFill
+                                          ? wholeNumberLabel(v)
+                                          : v.toFixed(yTickDecimals)}
                                   </SvgText>
-                              ))
+                                  );
+                              })
                             : null}
 
                         {/* The child */}
-                        {childPath && inRange.length > 1 ? (
-                            <Path d={childPath.line} stroke={colors.primary} strokeWidth={2.5} fill="none" />
+                        {areaFill && childPath && chartPoints.length > 1 ? (
+                            <Path d={childPath.area} fill={`url(#growth-${indicator})`} />
+                        ) : null}
+                        {childPath && chartPoints.length > 1 ? (
+                            <Path
+                                d={childPath.line}
+                                stroke={lineColor}
+                                strokeWidth={2.5}
+                                strokeLinecap="round"
+                                strokeLinejoin={areaFill ? "miter" : "round"}
+                                fill="none"
+                            />
                         ) : null}
                         {childPath
-                            ? childPath.coords.map((c, i) => (
-                                  <Circle
-                                      key={i}
-                                      cx={c.x}
-                                      cy={c.y}
-                                      r={compact ? 3 : 4}
-                                      fill={colors.surface}
-                                      stroke={colors.primary}
-                                      strokeWidth={2}
-                                  />
-                              ))
+                            ? childPath.coords.map((c, i) => {
+                                  const selected = latestHighlight === c;
+                                  return (
+                                      <React.Fragment key={c.point?.id || `${c.point?.date}-${i}`}>
+                                          {selected ? (
+                                              <Circle
+                                                  cx={c.x}
+                                                  cy={c.y}
+                                                  r={7}
+                                                  fill={colors.surface}
+                                                  stroke={lineColor}
+                                                  strokeWidth={2}
+                                              />
+                                          ) : null}
+                                          <Circle
+                                              cx={c.x}
+                                              cy={c.y}
+                                              r={selected ? 3.5 : areaFill ? 2.5 : compact ? 2.75 : 3.5}
+                                              fill={colors.surface}
+                                              fillOpacity={1}
+                                              stroke={lineColor}
+                                              strokeWidth={areaFill ? 1.25 : 2}
+                                              strokeOpacity={selected || !areaFill ? 1 : 0.62}
+                                          />
+                                      </React.Fragment>
+                                  );
+                              })
                             : null}
 
                         {/* X scale — drawn in both sizes now. */}
-                        {xTicks.map((t, i) => (
+                        {xTicks.map((t, i) => {
+                            const x = areaFill
+                                ? xTicks.length === 1
+                                    ? gutter + plotW / 2
+                                    : gutter + (i / (xTicks.length - 1)) * plotW
+                                : geo.xFor(t.day);
+                            return (
                             <SvgText
                                 key={`x${i}`}
-                                x={geo.xFor(t.day)}
+                                x={x}
                                 y={chartHeight - 5}
-                                fontSize={13}
-                                fontWeight="600"
+                                fontSize={t.fontSize || 13}
+                                fontFamily={chartFontFamily}
+                                fontWeight={areaFill ? type.caption.fontWeight : "600"}
                                 fill={colors.textMuted}
-                                textAnchor={i === 0 ? "start" : "middle"}
+                                textAnchor={areaFill
+                                    ? "middle"
+                                    : xTicks.length === 1
+                                      ? "middle"
+                                      : i === 0
+                                        ? "start"
+                                        : i === xTicks.length - 1
+                                          ? "end"
+                                          : "middle"}
                             >
                                 {t.label}
                             </SvgText>
-                        ))}
+                            );
+                        })}
+
                     </Svg>
                 ) : null}
             </View>
 
-            {/* One entry per mark the chart draws, and no mark without an
-                entry. The dashed line was previously drawn and never named
-                anywhere in compact mode, because its own label is suppressed
-                there. Labels are kept short deliberately; the unit moved to the
-                axis so this row does not have to carry it. */}
-            <View style={styles.legendRow}>
-                <View style={styles.legendItem}>
-                    <View style={[styles.legendLine, { backgroundColor: colors.primary }]} />
-                    <Text style={styles.legendText}>{name || "This child"}</Text>
-                </View>
-                <View style={styles.legendItem}>
-                    <View style={styles.legendBand} />
-                    <Text style={styles.legendText}>Most children this age</Text>
-                </View>
-                <View style={styles.legendItem}>
-                    <View style={styles.legendDash}>
-                        <View style={styles.legendDashSeg} />
-                        <View style={styles.legendDashSeg} />
-                        <View style={styles.legendDashSeg} />
+            {/* The recorded-only overview names each series above its chart,
+                so repeating the same legend below every chart adds noise. */}
+            {showReference ? (
+                <View style={styles.legendRow}>
+                    <View style={styles.legendItem}>
+                        <View style={[styles.legendLine, { backgroundColor: lineColor }]} />
+                        <Text style={[styles.legendText, areaFill && styles.parentChartText]}>{name || t("growthLegendThisChild")}</Text>
                     </View>
-                    <Text style={styles.legendText}>Average</Text>
+                    {bands ? <>
+                        <View style={styles.legendItem}>
+                            <View style={styles.legendBand} />
+                            <Text style={[styles.legendText, areaFill && styles.parentChartText]}>{t("growthLegendMost")}</Text>
+                        </View>
+                        <View style={styles.legendItem}>
+                            <View style={styles.legendDash}>
+                                <View style={styles.legendDashSeg} />
+                                <View style={styles.legendDashSeg} />
+                                <View style={styles.legendDashSeg} />
+                            </View>
+                            <Text style={[styles.legendText, areaFill && styles.parentChartText]}>{t("growthLegendMiddle")}</Text>
+                        </View>
+                    </> : null}
                 </View>
-            </View>
+            ) : null}
 
-            {!sexKey ? (
-                <Text style={styles.note}>
-                    WHO curves are published separately for boys and girls. Add the child's sex to see the reference range.
+            {showReference && !sexKey ? (
+                <Text style={[styles.note, areaFill && styles.parentChartText]}>
+                    {t("growthMissingSex")}
                 </Text>
             ) : null}
             {beyondRange > 0 ? (
-                <Text style={styles.note}>
-                    {beyondRange} measurement{beyondRange === 1 ? "" : "s"} taken after age 5 {beyondRange === 1 ? "is" : "are"} not
-                    shown — WHO's standards for these measures stop at 5 years.
+                <Text style={[styles.note, areaFill && styles.parentChartText]}>
+                    {t(beyondRange === 1 ? "growthBeyondAgeOne" : "growthBeyondAgeMany").replace("{count}", beyondRange)}
                 </Text>
             ) : null}
         </View>
@@ -362,4 +597,5 @@ const makeStyles = (colors) =>
             opacity: 0.08,
         },
         legendText: { fontSize: 13, fontWeight: "600", color: colors.textMuted },
+        parentChartText: { ...type.caption, color: colors.textMuted },
     });

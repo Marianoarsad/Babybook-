@@ -10,8 +10,17 @@ const VALID_MILK = ["Formula", "Breastmilk", "Mixed"];
 const VALID_METHODS = ["breast", "bottle"];
 const VALID_SIDES = ["left", "right", "both"];
 const VALID_SEVERITY = ["none", "mild", "severe"];
+const VALID_PLAN_SOURCES = ["vaccination", "checkup", "medical-history", "calendar-event"];
 
 const blank = (v) => v === undefined || v === null || v === "";
+const validISODate = (value) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
+    if (!match) return false;
+    const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    return date.getFullYear() === Number(match[1])
+        && date.getMonth() === Number(match[2]) - 1
+        && date.getDate() === Number(match[3]);
+};
 
 // Reject anything outside a column's vocabulary. Runs on update as well as
 // create — a bad enum is wrong whenever it arrives.
@@ -41,6 +50,21 @@ function validateNutrition(data, { isCreate }) {
     if (!blank(data.quantity) && Number(data.quantity) <= 0) {
         throw new ApiError(400, "Quantity must be greater than 0");
     }
+    if (!blank(data.breastmilk_quantity)) {
+        const quantity = Number(data.breastmilk_quantity);
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+            throw new ApiError(400, "Breastmilk quantity must be greater than 0");
+        }
+        if (!blank(data.milk_type) && data.milk_type !== "Mixed") {
+            throw new ApiError(400, "Breastmilk quantity is only valid for mixed feeds");
+        }
+    }
+    if (!blank(data.formula_scoops)) {
+        const scoops = Number(data.formula_scoops);
+        if (!Number.isFinite(scoops) || scoops <= 0 || scoops > 999.99) {
+            throw new ApiError(400, "Formula scoops must be between 0 and 999.99");
+        }
+    }
 
     if (!isCreate) return;
 
@@ -60,7 +84,7 @@ function validateNutrition(data, { isCreate }) {
         // a volume they would invent a duration. That the feed happened, and
         // when, is the record — the minutes are a bonus. Range is still
         // enforced above for any value that IS given.
-        if (!blank(data.quantity)) {
+        if (!blank(data.quantity) || !blank(data.breastmilk_quantity)) {
             throw new ApiError(400, "A breastfeed has no measured volume — remove the quantity");
         }
     } else {
@@ -68,6 +92,22 @@ function validateNutrition(data, { isCreate }) {
         // pre-migration clients and rows valid: they behave exactly as before.
         if (blank(data.quantity)) throw new ApiError(400, "Quantity is required");
         if (blank(data.unit)) throw new ApiError(400, "Unit is required");
+    }
+}
+
+function validatePlanStatus(data, { isCreate }) {
+    if (isCreate && (blank(data.source_type) || blank(data.source_id) || blank(data.occurrence_date))) {
+        throw new ApiError(400, "source_type, source_id and occurrence_date are required");
+    }
+    checkEnum(data.source_type, VALID_PLAN_SOURCES, "Invalid planner source");
+    if (!blank(data.source_id) && (!Number.isInteger(Number(data.source_id)) || Number(data.source_id) <= 0)) {
+        throw new ApiError(400, "source_id must be a positive integer");
+    }
+    if (!blank(data.occurrence_date) && !validISODate(data.occurrence_date)) {
+        throw new ApiError(400, "occurrence_date must use YYYY-MM-DD");
+    }
+    if (!blank(data.completed) && typeof data.completed !== "boolean") {
+        throw new ApiError(400, "completed must be a boolean");
     }
 }
 
@@ -86,6 +126,9 @@ const RESOURCES = [
         ],
         orderBy: "COALESCE(date_given, due_date) DESC NULLS LAST, id DESC",
         encrypted: ["vaccine_name", "visit_name", "notes", "reaction"],
+        attachmentTypes: ["vaccination"],
+        planSourceType: "vaccination",
+        reminderForeignKey: "vaccination_id",
     },
     {
         path: "checkups",
@@ -93,6 +136,9 @@ const RESOURCES = [
         columns: ["title", "checkup_date", "time_of_visit", "doctor_name", "clinic", "status", "notes"],
         orderBy: "checkup_date DESC NULLS LAST, id DESC",
         encrypted: ["title", "doctor_name", "clinic", "notes"],
+        attachmentTypes: ["checkup"],
+        planSourceType: "checkup",
+        reminderForeignKey: "checkup_id",
     },
     {
         path: "medical-history",
@@ -126,6 +172,8 @@ const RESOURCES = [
         encrypted: ["title", "description", "facility", "notes", "dose_amount", "prescribed_by"],
         // jsonb, and the client sends an array — see the note in pickBody.
         json: ["dose_times"],
+        attachmentTypes: ["medication", "illness", "hospitalization"],
+        planSourceType: "medical-history",
     },
     {
         // One row per dose actually given. Kept separate from the medication
@@ -166,7 +214,8 @@ const RESOURCES = [
         // `encrypted` list below — ciphertext on a three-value enum buys no
         // privacy and blocks aggregating in SQL later.
         columns: [
-            "entry_type", "milk_type", "feed_method", "formula_brand", "quantity", "unit",
+            "entry_type", "milk_type", "feed_method", "formula_brand", "formula_scoops",
+            "quantity", "breastmilk_quantity", "unit",
             "duration_minutes", "breast_side",
             "food_introduced", "reaction_severity", "reaction", "entry_date", "entry_time", "notes",
         ],
@@ -187,6 +236,14 @@ const RESOURCES = [
         columns: ["title", "description", "event_type", "event_date", "event_time", "reminder_settings"],
         orderBy: "event_date ASC, id DESC",
         encrypted: ["title", "description"],
+        planSourceType: "calendar-event",
+    },
+    {
+        path: "calendar-plan-statuses",
+        table: "calendar_plan_statuses",
+        columns: ["source_type", "source_id", "occurrence_date", "completed"],
+        orderBy: "occurrence_date DESC, id DESC",
+        validate: validatePlanStatus,
     },
 ];
 

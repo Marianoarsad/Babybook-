@@ -19,6 +19,15 @@ export const byMoment = (a, b) => (a.date + (a.time || "")).localeCompare(b.date
 
 export const foodKey = (name) => String(name || "").trim().toLowerCase();
 
+const DAY_MS = 86400000;
+const isoLocal = (time) => {
+    const d = new Date(time);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+const explicitSpanDays = (rangeObj) => rangeObj?.from && rangeObj?.to
+    ? Math.max(1, Math.round((new Date(`${rangeObj.to}T00:00:00`) - new Date(`${rangeObj.from}T00:00:00`)) / DAY_MS) + 1)
+    : 0;
+
 function periodStart(d, gran) {
     const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
     if (gran === "day") return x;
@@ -34,13 +43,30 @@ function bucketLabel(d, gran) {
     return `${s.getMonth() + 1}/${s.getDate()}`;
 }
 
+function nextPeriod(d, gran) {
+    const next = new Date(d);
+    if (gran === "day") next.setDate(next.getDate() + 1);
+    else if (gran === "week") next.setDate(next.getDate() + 7);
+    else next.setMonth(next.getMonth() + 1);
+    return next;
+}
+
+const bucketGranularity = (days) => days <= 14 ? "day" : days <= 120 ? "week" : "month";
+
 // Entries inside a range. `offsetPeriods: 1` returns the window immediately
 // before it, same length — that's how the night-feed comparison gets its
 // "previous 7 days" without a second definition of what a period is.
 // A range with no `days` (All Time) has no previous window, by definition.
 export function inRangeOf(entries, rangeObj, offsetPeriods = 0, now = Date.now()) {
+    const selectedDays = explicitSpanDays(rangeObj);
+    if (selectedDays) {
+        const shift = offsetPeriods * selectedDays * DAY_MS;
+        const from = isoLocal(new Date(`${rangeObj.from}T00:00:00`).getTime() - shift);
+        const to = isoLocal(new Date(`${rangeObj.to}T00:00:00`).getTime() - shift);
+        return entries.filter((e) => e.date >= from && e.date <= to);
+    }
     if (!rangeObj || !rangeObj.days) return offsetPeriods ? [] : entries.slice();
-    const span = rangeObj.days * 86400000;
+    const span = rangeObj.days * DAY_MS;
     const end = now - offsetPeriods * span;
     const start = end - span;
     return entries.filter((e) => {
@@ -53,13 +79,16 @@ export function inRangeOf(entries, rangeObj, offsetPeriods = 0, now = Date.now()
 // millilitres, or minutes at the breast. The measure used to be hardcoded to
 // millilitres, which drew a day of eight breastfeeds as an empty bar.
 export function buildBuckets(entries, rangeObj, valueOf, now = Date.now()) {
-    if (!entries.length) return { bars: [], days: 0, total: 0 };
+    const selectedDays = explicitSpanDays(rangeObj);
+    const knownDays = selectedDays || rangeObj?.days || 0;
+    const knownGranularity = knownDays ? bucketGranularity(knownDays) : null;
+    if (!entries.length) return { bars: [], days: selectedDays, total: 0, granularity: knownGranularity };
     const rows = inRangeOf(entries, rangeObj, 0, now);
-    if (!rows.length) return { bars: [], days: 0, total: 0 };
+    if (!rows.length) return { bars: [], days: selectedDays, total: 0, granularity: knownGranularity };
     const dates = rows.map((e) => new Date(e.date));
     const minD = new Date(Math.min.apply(null, dates));
-    const spanDays = rangeObj.days || Math.max(1, Math.round((now - minD.getTime()) / 86400000) + 1);
-    const gran = spanDays <= 14 ? "day" : spanDays <= 120 ? "week" : "month";
+    const spanDays = selectedDays || rangeObj.days || Math.max(1, Math.round((now - minD.getTime()) / DAY_MS) + 1);
+    const gran = bucketGranularity(spanDays);
     const map = {};
     let total = 0;
     for (const e of rows) {
@@ -70,10 +99,20 @@ export function buildBuckets(entries, rangeObj, valueOf, now = Date.now()) {
         map[key].value += v;
         total += v;
     }
-    const bars = Object.keys(map)
-        .map((k) => map[k])
-        .sort((a, b) => a.sort - b.sort);
-    return { bars, days: spanDays, total };
+    const windowFrom = selectedDays
+        ? new Date(`${rangeObj.from}T00:00:00`)
+        : rangeObj.days
+            ? new Date(new Date(now).setDate(new Date(now).getDate() - rangeObj.days + 1))
+            : minD;
+    const windowTo = selectedDays ? new Date(`${rangeObj.to}T00:00:00`) : new Date(now);
+    const bars = [];
+    for (let cursor = periodStart(windowFrom, gran), end = periodStart(windowTo, gran);
+        cursor <= end;
+        cursor = nextPeriod(cursor, gran)) {
+        const key = cursor.getTime();
+        bars.push(map[key] || { value: 0, sort: key, label: bucketLabel(cursor, gran) });
+    }
+    return { bars, days: spanDays, total, granularity: gran };
 }
 
 function dayDiffInclusive(a, b) {
@@ -83,8 +122,10 @@ function dayDiffInclusive(a, b) {
 // Consecutive same-milk-type runs. Editing an entry's type re-groups the runs,
 // so a previous period ends and a new one begins exactly as specified.
 export function milkDurations(milk, today = todayLocal()) {
-    if (!milk.length) return { periods: [], current: null };
-    const sorted = milk.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    const sorted = milk
+        .filter((e) => e.date && e.date <= today)
+        .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    if (!sorted.length) return { periods: [], current: null };
     const runs = [];
     for (const e of sorted) {
         const last = runs[runs.length - 1];

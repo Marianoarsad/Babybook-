@@ -12,6 +12,7 @@ import { useLanguage } from "../context/LanguageContext";
 import { EmptyStateCard, SectionContainerCard, MemoryVisualCard } from "./common/Cards";
 import MemoryDetail from "./MemoryDetail";
 import GrowthChart from "./GrowthChart";
+import Gradient from "./ui/Gradient";
 import { DashboardSkeleton } from "./ui/Skeleton";
 import { Ionicons } from "@expo/vector-icons";
 import { radius, space, shadow, type, MIN_TOUCH } from "../theme";
@@ -19,12 +20,12 @@ import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
 import { useScroll } from "../context/ScrollContext";
 import { useTheme } from "../context/ThemeContext";
 import { api } from "../utils/api";
+import { useRecords } from "../utils/useRecords";
 import { memoryToApp, toMilliliters, feedRowSummary } from "../utils/adapters";
 import { useToast } from "./ui/Toast";
 import { useRefreshControl } from "./ui/useRefreshControl";
-import { cacheSummary, getSummary } from "../utils/offlineSummary";
 import { seen, markSeen } from "../utils/firstRun";
-import { todayLocal, durationText } from "../utils/dates";
+import { todayLocal, durationText, dateRangePreset } from "../utils/dates";
 
 // Age in a friendly form ("15 months", "2y 3m") from a YYYY-MM-DD DOB.
 export function ageText(dob) {
@@ -110,9 +111,7 @@ function shareExpiryText(iso) {
 // This deliberately reports and does not interpret. It used to also compute a
 // "growing faster/slower than before" verdict from the last three weights; that
 // was removed because PRODUCT.md Principle 5 forbids the app from reading as a
-// clinical judgment, and because GrowthChart — directly below this card —
-// already plots the same measurements against the WHO reference bands, which is
-// a real comparison rather than a guess derived from home scales.
+// clinical judgment. The chart below presents the recorded values directly.
 function latestGrowth(rows) {
     const sorted = (rows || [])
         .filter((r) => r.date_recorded)
@@ -140,10 +139,6 @@ const withAlpha = (hex, alphaHex) =>
 // out on stale results exactly like a manual `if (!active) return;` guard
 // would — this only centralizes that bookkeeping across Dashboard's three
 // fetches, it doesn't change what each one fetches.
-// How long a cached offline summary counts as current. A judgement call, not
-// a rule from anywhere — it only decides whether the Offline Summary card sits
-// near the top of the Home tab or further down it.
-const OFFLINE_FRESH_MS = 7 * 24 * 60 * 60 * 1000;
 
 function useDashboardFetch(loader, deps) {
     const [loading, setLoading] = useState(true);
@@ -178,8 +173,9 @@ export default function Dashboard({
     onChangeView,
 }) {
     const { t } = useLanguage();
-    const { colors } = useTheme();
-    const styles = useMemo(() => makeStyles(colors), [colors]);
+    const { colors, scheme } = useTheme();
+    const cardForeground = scheme === "dark" ? colors.background : colors.onPrimary;
+    const styles = useMemo(() => makeStyles(colors, cardForeground), [colors, cardForeground]);
     const padBottom = useScreenPadBottom();
     const padTop = useScreenPadTop();
     const { scrollProps } = useScroll();
@@ -199,40 +195,6 @@ export default function Dashboard({
     // the 13px floor set in theme.js ("no text anywhere goes smaller"). In
     // practice a 360pt screen gives each cell ~100pt and nothing shrinks at
     // all; this only engages on a very narrow screen or a raised OS font scale.
-    // Where the Offline Summary card sits.
-    //
-    // The card is a "set this up before you need it" nudge, so it holds a
-    // prominent slot until it has done its job, then drops down the page
-    // rather than occupying prime space forever.
-    //
-    // "Has it done its job?" is HAS THE PARENT OPENED IT, not "is a copy
-    // cached". Caching is automatic — loadActivityBundle writes a fresh copy on
-    // every single Dashboard load — so a cache-age test is true within a second
-    // of launch and would make the prominent slot both useless and flickery
-    // (it would appear, then jump down mid-read). Opening it is the only signal
-    // that means the parent actually knows the feature is there.
-    //
-    // The age check is kept as a second condition for the real case it covers:
-    // a device that has been offline long enough for the saved copy to be out
-    // of date, where re-showing the prompt is genuinely useful.
-    const [offlineSeen, setOfflineSeen] = useState(true); // assume seen until told otherwise: no flash
-    const [offlineStale, setOfflineStale] = useState(false);
-    useEffect(() => {
-        let active = true;
-        seen("offlineSummary").then((v) => active && setOfflineSeen(v));
-        getSummary(profile.id)
-            .then((s) => {
-                if (!active) return;
-                if (!s || !s.cachedAt) return;
-                const age = Date.now() - new Date(s.cachedAt).getTime();
-                setOfflineStale(!(age >= 0 && age < OFFLINE_FRESH_MS));
-            })
-            .catch(() => {});
-        return () => {
-            active = false;
-        };
-    }, [profile.id]);
-    const offlinePrompt = !offlineSeen || offlineStale;
 
     const [statRowWidth, setStatRowWidth] = useState(0);
     // Width the widest realistic value ("100.5 cm", 8 characters) needs at the
@@ -263,39 +225,14 @@ export default function Dashboard({
     // otherwise slips past the `avatarUrl ? Image : fallback` check below and
     // renders as a blank circle instead of the fallback it was meant to show.
     const [brokenAvatars, setBrokenAvatars] = useState(() => new Set());
-    const loadActivityBundle = useCallback(async (isActive) => {
-        const failed = [];
-        const safe = (p, label) =>
-            p.catch((e) => {
-                failed.push(label);
-                return [];
-            });
-        const [vax, checkups, nutrition, milestones, medHistory, events, shares] = await Promise.all([
-            safe(api.listRecords(profile.id, "vaccinations"), "vaccinations"),
-            safe(api.listRecords(profile.id, "checkups"), "checkups"),
-            safe(api.listRecords(profile.id, "nutrition"), "nutrition"),
-            safe(api.listRecords(profile.id, "milestones"), "milestones"),
-            safe(api.listRecords(profile.id, "medical-history"), "medical-history"),
-            // Custom calendar events — only exist once the calendar_events
-            // migration has run (CLAUDE.md, "Pending user action"). `safe()`
-            // keeps the rest of the dashboard working either way, while still
-            // letting a genuine outage surface below instead of being hidden.
-            safe(api.listRecords(profile.id, "calendar-events"), "calendar-events"),
-            safe(api.listShares(profile.id), "shares"),
-        ]);
-        if (!isActive()) return;
-
-        // Cache a flattened offline-consultation summary from the data this
-        // load already fetched — no extra request. Best-effort: a parent
-        // opening the app with a live connection should always leave with a
-        // fresh copy on the device, ready for the next time they don't have one.
-        // Deliberately does NOT move the card: caching is automatic and says
-        // nothing about whether the parent has seen the feature. It only
-        // clears the "your saved copy is out of date" condition.
-        cacheSummary(profile, { vaccinations: vax, checkups, medicalHistory: medHistory })
-            .then(() => isActive() && setOfflineStale(false))
-            .catch(() => {});
-
+    const vax = useRecords(profile.id, "vaccinations");
+    const checkups = useRecords(profile.id, "checkups");
+    const nutrition = useRecords(profile.id, "nutrition");
+    const milestones = useRecords(profile.id, "milestones");
+    const medHistory = useRecords(profile.id, "medical-history");
+    const events = useRecords(profile.id, "calendar-events");
+    const [shares, setBundleShares] = useState([]);
+    useEffect(() => {
         const todayStr = todayLocal();
                 const items = [];
                 (vax || [])
@@ -453,6 +390,30 @@ export default function Dashboard({
                 } else {
                     setTodayFeeding(null);
                 }
+    }, [vax, checkups, nutrition, milestones, medHistory, events, shares]);
+    const loadActivityBundle = useCallback(async (isActive) => {
+        const failed = [];
+        const safe = (p, label) =>
+            p.catch((e) => {
+                failed.push(label);
+                return [];
+            });
+        const [vax, checkups, nutrition, milestones, medHistory, events, shares] = await Promise.all([
+            safe(api.listRecords(profile.id, "vaccinations", { loading: "nonblocking" }), "vaccinations"),
+            safe(api.listRecords(profile.id, "checkups", { loading: "nonblocking" }), "checkups"),
+            safe(api.listRecords(profile.id, "nutrition", { loading: "nonblocking" }), "nutrition"),
+            safe(api.listRecords(profile.id, "milestones", { loading: "nonblocking" }), "milestones"),
+            safe(api.listRecords(profile.id, "medical-history", { loading: "nonblocking" }), "medical-history"),
+            // Custom calendar events — only exist once the calendar_events
+            // migration has run (CLAUDE.md, "Pending user action"). `safe()`
+            // keeps the rest of the dashboard working either way, while still
+            // letting a genuine outage surface below instead of being hidden.
+            safe(api.listRecords(profile.id, "calendar-events", { loading: "nonblocking" }), "calendar-events"),
+            safe(api.listShares(profile.id, { loading: "nonblocking" }), "shares"),
+        ]);
+        if (!isActive()) return;
+
+        setBundleShares(shares);
         if (failed.length) {
             // Some sources didn't load — the dashboard still shows whatever
             // did, but this keeps "failed to load" from reading identically
@@ -470,13 +431,11 @@ export default function Dashboard({
     // Growth history — separate fetch, since nothing else on this screen
     // needs the measurement history. Kept raw (growthRows) for the chart, on
     // top of the latest measurement (growth) the Health ID card shows.
-    const [growth, setGrowth] = useState(null);
-    const [growthRows, setGrowthRows] = useState([]);
+    const growthRows = useRecords(profile.id, "growth");
+    const growth = useMemo(() => latestGrowth(growthRows), [growthRows]);
     const loadGrowth = useCallback(async (isActive) => {
-        const rows = await api.listRecords(profile.id, "growth");
+        const rows = await api.listRecords(profile.id, "growth", { loading: "nonblocking" });
         if (!isActive()) return;
-        setGrowth(latestGrowth(rows));
-        setGrowthRows(rows || []);
     }, [profile.id]);
     const {
         loading: growthLoading,
@@ -485,12 +444,12 @@ export default function Dashboard({
     } = useDashboardFetch(loadGrowth, [profile.id]);
 
     // Photo memories load from and persist to the backend.
-    const [memories, setMemories] = useState([]);
+    const memoryRows = useRecords(profile.id, "memories");
+    const memories = useMemo(() => memoryRows.map(memoryToApp), [memoryRows]);
     const [detailMemory, setDetailMemory] = useState(null);
     const loadMemories = useCallback(async (isActive) => {
-        const rows = await api.listRecords(profile.id, "memories");
+        const rows = await api.listRecords(profile.id, "memories", { loading: "nonblocking" });
         if (!isActive()) return;
-        setMemories(rows.map(memoryToApp));
     }, [profile.id]);
     const {
         loading: memoriesLoading,
@@ -500,38 +459,6 @@ export default function Dashboard({
 
     const dashboardLoading = activityLoading || growthLoading || memoriesLoading;
     const dashboardError = activityError || growthError || memoriesError;
-    // Rendered in one of two places, never both — see offlineStale above.
-    // Prominent while there is nothing saved (or it has gone stale), because a
-    // parent has to prepare it BEFORE they need it; quiet once it is done.
-    const renderOfflineCard = () => (
-                <Pressable
-                    style={({ pressed, hovered, focused }) => [
-                        styles.offlineCard,
-                        { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
-                        focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.primary, "59")}` } : null,
-                    ]}
-                    onPress={() => {
-                        markSeen("offlineSummary");
-                        setOfflineSeen(true);
-                        nav("offlineSummary");
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel="View offline consultation summary"
-                >
-                    <View style={styles.offlineIcon}>
-                        <Ionicons name="cloud-offline-outline" size={18} color={colors.primary} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                        <Text style={styles.offlineLabel}>Offline Summary</Text>
-                        <Text style={styles.offlineSub}>
-                            {offlinePrompt
-                                ? "Works without signal — worth opening once while you have it"
-                                : "Saved on this device — opens without signal"}
-                        </Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={18} color={colors.primary} />
-                </Pressable>
-    );
 
     const retryAll = () => {
         retryActivity();
@@ -553,6 +480,10 @@ export default function Dashboard({
               .sort((a, b) => String(a.date_recorded).localeCompare(String(b.date_recorded)))
               .pop()?.head_circumference ?? null
         : null;
+    const dashboardGrowthRange = useMemo(
+        () => dateRangePreset("month", profile.dateOfBirth),
+        [profile.dateOfBirth]
+    );
 
     const nav = (view, tab) => onChangeView && onChangeView(view, tab);
 
@@ -593,13 +524,12 @@ export default function Dashboard({
     // Health ID card — identity line, then the standing facts. "Girl"/"Boy"
     // rather than "Female"/"Male": this card is the parent's, and it matches
     // the vocabulary the app already uses for its own palettes. The clinical
-    // wording stays in ProfessionalView and the offline summary.
+    // wording stays in ProfessionalView.
     const sexWord = profile.gender === "boy" ? "Boy" : "Girl";
 
     // Empty means "nobody has entered this", which is NOT the same as "this
     // child has none" — a doctor reading a blank allergy line has to be able
-    // to tell those apart. "None recorded" is the phrasing OfflineSummaryView
-    // and ProfessionalView already use for exactly this reason.
+    // to tell those apart. ProfessionalView uses "None recorded" too.
     const NONE_RECORDED = "None recorded";
     const listValue = (arr) => (Array.isArray(arr) && arr.length ? arr.join(", ") : "");
     const vitalFacts = [
@@ -787,10 +717,6 @@ export default function Dashboard({
                 </View>
             ) : null}
 
-            {/* Offline Summary, prominent slot — only while there is nothing
-                saved yet or the copy has gone stale. Once it is current the
-                card moves down the page, below Feeding. */}
-            {offlinePrompt ? renderOfflineCard() : null}
 
             {/* Needs attention. Shows the three most urgent things rather than
                 one, because a seeded or long-neglected account can hold a
@@ -891,11 +817,9 @@ export default function Dashboard({
             {/* Child Health ID — who this child is and the standing facts a
                 parent or a doctor asks for first. This is the app's only
                 always-on surface for them: there is no child-profile screen
-                (settings/ViewProfile.js is the *parent's* account), and the
-                only other place they appear is OfflineSummaryView, behind its
-                own nav destination. So the order here matches what the
-                clinician sees there — identity, allergies/blood/hereditary,
-                then care contacts.
+                (settings/ViewProfile.js is the *parent's* account). The
+                standing facts remain visible here — identity,
+                allergies/blood/hereditary, then care contacts.
 
                 Nothing safety-critical is collapsed. Allergies and blood type
                 used to sit behind the expander, which is backwards for the
@@ -906,8 +830,7 @@ export default function Dashboard({
                 Growth numbers here are the latest measurement and its date,
                 nothing more. The faster/slower verdict that used to live in
                 this card is gone: PRODUCT.md Principle 5 forbids the app from
-                reading as clinical judgment, and GrowthChart directly below
-                already plots these against the WHO bands. */}
+                reading as clinical judgment. */}
             <View style={styles.idCard}>
                 {/* Identity. The header (App.js) shows the name as text with no
                     avatar, and the switcher's 32px pills are for switching, not
@@ -1128,54 +1051,25 @@ export default function Dashboard({
                 ) : null}
             </View>
 
-            {/* Growth chart — reuses the same growth history the Health ID
-                card's measurement strip reads from. Sex and date of birth are
-                what let it draw the WHO reference bands; without them it still
-                plots the child's own line. This card owns growth *over time*;
-                the strip above only states the latest numbers. */}
+            {/* Growth chart — reuses the same history the Health ID strip reads
+                from, but limits its plot to this local calendar month. The strip
+                above remains the latest all-time snapshot. */}
             <GrowthChart
                 rows={growthRows}
-                sex={profile?.sex || profile?.gender}
                 dateOfBirth={profile?.dateOfBirth}
                 loading={growthLoading}
-                name={profile?.nickname || profile?.firstName}
-                // The parent's card: plain wording, one reference band. The
-                // professional's copy of this same component deliberately does
-                // not pass this.
+                title={t("growthMonthlyTitle")}
+                dateWindow={dashboardGrowthRange}
+                emptyMessage={t("growthNoMeasurementsThisMonth")}
+                onViewDetail={() => nav("growth")}
                 plain
             />
 
-            {/* Upcoming appointment — the only way to Calendar from this screen. */}
-            {upcoming ? (
-                <Pressable
-                    style={({ pressed, hovered, focused }) => [
-                        styles.upcomingCard,
-                        { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
-                        focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.primary, "59")}` } : null,
-                    ]}
-                    onPress={() => nav("calendar")}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Next: ${upcoming.title}, ${upcoming.date}`}
-                >
-                    <View style={styles.upcomingIcon}>
-                        <Ionicons name="calendar" size={20} color={colors.primary} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                        <Text style={styles.upcomingLabel}>Next: {upcoming.title}</Text>
-                        <Text style={styles.upcomingSub}>
-                            {upcoming.date}
-                            {upcoming.subtitle ? ` · ${upcoming.subtitle}` : ""}
-                        </Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-                </Pressable>
-            ) : null}
-
             {/* Vaccination progress */}
             {vaxProgress && vaxProgress.total > 0 ? (
-                <View style={styles.progressCard}>
+                <Gradient colors={[colors.primaryDark, colors.primary]} style={styles.progressCard}>
                     <View style={styles.progressHeader}>
-                        <Ionicons name="shield-checkmark-outline" size={16} color={colors.primary} />
+                        <Ionicons name="shield-checkmark-outline" size={16} color={cardForeground} />
                         <Text style={styles.progressTitle} numberOfLines={1}>
                             Vaccination Progress
                         </Text>
@@ -1190,14 +1084,14 @@ export default function Dashboard({
                         <Pressable
                             style={({ pressed, hovered, focused }) => [
                                 styles.nextVaxRow,
-                                { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
-                                focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.primary, "59")}` } : null,
+                                { opacity: hovered ? 0.99 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
+                                focused ? { boxShadow: `0 0 0 3px ${cardForeground}` } : null,
                             ]}
                             onPress={() => nav("health", "immunizations")}
                             accessibilityRole="button"
                             accessibilityLabel={`Next vaccine: ${nextVax.vaccine_name || "Vaccination"}, due ${nextVax.due_date}`}
                         >
-                            <Ionicons name="medkit-outline" size={15} color={colors.recVaccine.on} />
+                            <Ionicons name="medkit-outline" size={15} color={cardForeground} />
                             <View style={{ flex: 1 }}>
                                 <Text style={styles.nextVaxLabel}>
                                     Next vaccine: {nextVax.vaccine_name || "Vaccination"}
@@ -1207,10 +1101,36 @@ export default function Dashboard({
                                     {nextVax.visit_name ? ` · ${nextVax.visit_name}` : ""}
                                 </Text>
                             </View>
-                            <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                            <Ionicons name="chevron-forward" size={16} color={cardForeground} />
                         </Pressable>
                     ) : null}
-                </View>
+                </Gradient>
+            ) : null}
+
+            {/* Upcoming appointment — the only way to Calendar from this screen. */}
+            {upcoming ? (
+                <Pressable
+                    style={({ pressed, hovered, focused }) => [
+                        styles.feedingCard,
+                        { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
+                        focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.primary, "59")}` } : null,
+                    ]}
+                    onPress={() => nav("calendar")}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Next: ${upcoming.title}, ${upcoming.date}`}
+                >
+                    <View style={styles.feedingIcon}>
+                        <Ionicons name="calendar" size={20} color={colors.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.feedingLabel}>Next: {upcoming.title}</Text>
+                        <Text style={styles.feedingSub}>
+                            {upcoming.date}
+                            {upcoming.subtitle ? ` · ${upcoming.subtitle}` : ""}
+                        </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                </Pressable>
             ) : null}
 
             {/* Today's feeding summary — reuses nutrition rows already loaded
@@ -1259,9 +1179,6 @@ export default function Dashboard({
                 <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </Pressable>
 
-            {/* Offline Summary, quiet slot — a current copy is already saved,
-                so this is a way back to it rather than a prompt. */}
-            {offlinePrompt ? null : renderOfflineCard()}
 
             {/* Square photo gallery. Adding lives in the floating log button's
                 menu, alongside Log Milk, Log Food, etc., instead of a second
@@ -1361,7 +1278,7 @@ export default function Dashboard({
     );
 }
 
-const makeStyles = (colors) => StyleSheet.create({
+const makeStyles = (colors, cardForeground) => StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: "transparent", // lets App.js's page gradient show through
@@ -1614,36 +1531,6 @@ const makeStyles = (colors) => StyleSheet.create({
     shareLabel: { ...type.bodyStrong, color: colors.info },
     shareSub: { ...type.caption, color: colors.info },
 
-    // Offline Summary entry point — primary-tinted so it reads as a normal
-    // navigation card, not an alert (it's always shown, unlike the two above).
-    offlineCard: {
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: withAlpha(colors.primary, "10"),
-        borderRadius: radius.lg,
-        borderCurve: "continuous",
-        borderWidth: 1,
-        borderColor: colors.primary,
-        padding: space.md,
-        marginBottom: space.lg,
-        gap: space.md,
-        ...shadow.card,
-    },
-    offlineIcon: {
-        width: 40,
-        height: 40,
-        borderRadius: radius.md,
-        borderCurve: "continuous",
-        backgroundColor: withAlpha(colors.primary, "18"),
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    // primaryDark, not primary. theme.js defines primaryDark as "the accessible
-    // text colour for a primarySoft chip", and this card's ground is primary at
-    // 6% alpha — the same pale wash. On `primary` this measured 4.14:1 even on
-    // the old flat page, under AA; the tinted page took it to 3.95. 5.64:1 now.
-    offlineLabel: { ...type.bodyStrong, color: colors.primaryDark },
-    offlineSub: { ...type.caption, color: colors.textMuted },
 
     // Setup checklist
     setupCard: {
@@ -1691,11 +1578,10 @@ const makeStyles = (colors) => StyleSheet.create({
 
     // Vaccination progress
     progressCard: {
-        backgroundColor: colors.surface,
         borderRadius: radius.lg,
         borderCurve: "continuous",
         borderWidth: 1,
-        borderColor: colors.hairline,
+        borderColor: cardForeground + "33",
         padding: space.md,
         marginBottom: space.md,
         ...shadow.card,
@@ -1709,16 +1595,16 @@ const makeStyles = (colors) => StyleSheet.create({
         gap: space.sm,
         marginBottom: space.sm,
     },
-    progressTitle: { ...type.label, color: colors.text, flex: 1, minWidth: 0 },
-    progressCount: { ...type.caption, color: colors.textMuted, flexShrink: 0 },
+    progressTitle: { ...type.label, color: cardForeground, flex: 1, minWidth: 0 },
+    progressCount: { ...type.caption, color: cardForeground, opacity: 0.95, flexShrink: 0 },
     progressTrack: {
         height: 8,
         borderRadius: 4,
         borderCurve: "continuous",
-        backgroundColor: colors.surfaceAlt,
+        backgroundColor: cardForeground + "33",
         overflow: "hidden",
     },
-    progressFill: { height: "100%", borderRadius: 4, borderCurve: "continuous", backgroundColor: colors.primary },
+    progressFill: { height: "100%", borderRadius: 4, borderCurve: "continuous", backgroundColor: cardForeground },
     nextVaxRow: {
         flexDirection: "row",
         alignItems: "center",
@@ -1726,36 +1612,11 @@ const makeStyles = (colors) => StyleSheet.create({
         marginTop: space.md,
         paddingTop: space.md,
         borderTopWidth: 1,
-        borderTopColor: colors.hairline,
+        borderTopColor: cardForeground + "33",
     },
-    nextVaxLabel: { ...type.label, color: colors.text },
-    nextVaxSub: { ...type.caption, color: colors.textSecondary, marginTop: 2 },
+    nextVaxLabel: { ...type.label, color: cardForeground },
+    nextVaxSub: { ...type.caption, color: cardForeground, opacity: 0.95, marginTop: 2 },
 
-    // Upcoming appointment
-    upcomingCard: {
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: colors.softGreen,
-        borderRadius: radius.lg,
-        borderCurve: "continuous",
-        borderWidth: 1,
-        borderColor: colors.borderStrong,
-        padding: space.md,
-        marginBottom: space.lg,
-        gap: space.md,
-        ...shadow.card,
-    },
-    upcomingIcon: {
-        width: 40,
-        height: 40,
-        borderRadius: radius.md,
-        borderCurve: "continuous",
-        backgroundColor: colors.surface,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    upcomingLabel: { ...type.bodyStrong, color: colors.text },
-    upcomingSub: { ...type.caption, color: colors.textSecondary, marginTop: space.xs },
 
     // Milestone Memories gallery — the tiles themselves are MemoryVisualCard
     // (common/Cards.js), whose photo frame is already a self-scaling square;

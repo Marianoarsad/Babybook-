@@ -12,10 +12,10 @@ const strip = (f) =>
 
 // feedingStats depends on dates.js, so both are evaluated in one scope.
 const M = new Function(
-    `${strip("dates.js")}\n${strip("feedingStats.js")}\n` +
+    `${strip("dates.js")}\n${strip("adapters.js")}\n${strip("feedingStats.js")}\n` +
         `return { byMoment, foodKey, inRangeOf, buildBuckets, milkDurations, longestGap,
                   nightStats, solidFoodStats, recentFoodNames, foodSuggestions,
-                  hasBreastDurations, STARTER_FOODS };`,
+                  hasBreastDurations, feedVolumeMl, STARTER_FOODS };`,
 )();
 
 let fail = 0;
@@ -57,6 +57,12 @@ eq("inRangeOf windows do not overlap",
 eq("inRangeOf all-time returns everything", M.inRangeOf(spread, RALL, 0, NOW).length, 5);
 eq("all-time has no previous window", M.inRangeOf(spread, RALL, 1, NOW).length, 0);
 
+const explicit = { from: "2026-08-09", to: "2026-08-15" };
+eq("explicit range includes both endpoints", M.inRangeOf(spread, explicit).length, 3);
+eq("explicit previous range has the same length", M.inRangeOf(spread, explicit, 1).length, 2);
+eq("explicit empty range keeps its selected-day denominator",
+    M.buildBuckets([], explicit, () => 1).days, 7);
+
 // ---- buildBuckets across measures ----
 const mixedDay = [
     breast(day(1), "07:00", 20),
@@ -65,20 +71,49 @@ const mixedDay = [
     bottle(day(0), "08:00", 150),
 ];
 const feedsOf = () => 1;
-const volOf = (e) => (e.feedMethod === "breast" ? 0 : e.quantity);
+const volOf = M.feedVolumeMl;
 const breastOf = (e) => (e.feedMethod === "breast" ? e.durationMinutes || 0 : 0);
 
 eq("feeds measure counts every feed", M.buildBuckets(mixedDay, R7, feedsOf, NOW).total, 4);
 eq("volume measure ignores breastfeeds", M.buildBuckets(mixedDay, R7, volOf, NOW).total, 270);
+eq("mixed volume includes formula and breastmilk", M.feedVolumeMl({
+    entryType: "milk", feedMethod: "bottle", milkType: "Mixed",
+    quantity: 90, breastmilkQuantity: 60, unit: "mL",
+}), 150);
 eq("breast measure sums minutes", M.buildBuckets(mixedDay, R7, breastOf, NOW).total, 35);
-eq("buckets split by day", M.buildBuckets(mixedDay, R7, feedsOf, NOW).bars.map((b) => b.value), [3, 1]);
+eq("daily histogram preserves empty periods", M.buildBuckets(mixedDay, R7, feedsOf, NOW).bars.map((b) => b.value), [0, 0, 0, 0, 0, 3, 1]);
+eq("short ranges use daily buckets", M.buildBuckets(mixedDay, R7, feedsOf, NOW).granularity, "day");
+
+const weekly = M.buildBuckets(
+    [bottle("2026-06-15", "08:00", 120)],
+    { from: "2026-06-01", to: "2026-06-30" },
+    feedsOf,
+);
+eq("month-sized ranges use weekly buckets", weekly.granularity, "week");
+eq("weekly histogram preserves every calendar slot", weekly.bars.map((b) => b.value), [0, 0, 1, 0, 0]);
+
+const monthly = M.buildBuckets(
+    [bottle("2026-04-15", "08:00", 120)],
+    { from: "2026-01-01", to: "2026-09-30" },
+    feedsOf,
+);
+eq("long ranges use monthly buckets", monthly.granularity, "month");
+eq("monthly histogram preserves every calendar slot", monthly.bars.map((b) => b.value), [0, 0, 0, 1, 0, 0, 0, 0, 0]);
+
+const foodEntries = [
+    solid(day(1), "Banana", "none"),
+    solid(day(1), "Lugaw", "none"),
+    solid(day(0), "Papaya", "none"),
+];
+eq("food histogram counts solid-food entries", M.buildBuckets(foodEntries, R7, feedsOf, NOW).total, 3);
+eq("food histogram preserves empty periods", M.buildBuckets(foodEntries, R7, feedsOf, NOW).bars.map((b) => b.value), [0, 0, 0, 0, 0, 2, 1]);
 
 // The bug the measure switch exists to prevent: a breastfeed-only day is
 // invisible under volume, and must NOT be invisible under feeds.
 const breastOnly = [breast(day(0), "07:00", 20), breast(day(0), "12:00", 18)];
 eq("breastfeed-only day totals 0 under volume", M.buildBuckets(breastOnly, R7, volOf, NOW).total, 0);
 eq("breastfeed-only day is visible under feeds", M.buildBuckets(breastOnly, R7, feedsOf, NOW).total, 2);
-eq("empty input yields no bars", M.buildBuckets([], R7, feedsOf, NOW), { bars: [], days: 0, total: 0 });
+eq("empty input yields no bars", M.buildBuckets([], R7, feedsOf, NOW), { bars: [], days: 0, total: 0, granularity: "day" });
 
 // ---- longestGap ----
 const gappy = [
@@ -162,11 +197,13 @@ const types = [
     { milkType: "Breastmilk", date: "2026-03-01" },
     { milkType: "Mixed", date: "2026-04-01" },
     { milkType: "Formula", date: "2026-06-01" },
+    { milkType: "Mixed", date: "2027-01-01" }, // simulated future row
 ];
 const dur = M.milkDurations(types, "2026-08-15");
 eq("milk runs group consecutive types", dur.periods.map((p) => p.type), ["Breastmilk", "Mixed", "Formula"]);
 eq("current run is the latest type", dur.current.type, "Formula");
 eq("current run counts to today", dur.current.days, 76);
+eq("future rows cannot become the current milk type", dur.periods.some((p) => p.start > "2026-08-15"), false);
 eq("no milk yields no current run", M.milkDurations([], "2026-08-15").current, null);
 
 console.log(fail ? `\n${fail} of ${ran} failed` : `\nall ${ran} passed`);

@@ -42,6 +42,7 @@ describe("BabyBook+ API", () => {
         });
         expect(res.status).toBe(201);
         expect(res.body.token).toBeTruthy();
+        expect(res.body.user.createdAt).toBeTruthy();
         token = res.body.token;
     });
 
@@ -72,6 +73,67 @@ describe("BabyBook+ API", () => {
             .send({ vaccine_name: "HepB", visit_name: "Birth Dose", status: "completed", date_given: "2025-12-16" });
         expect(res.status).toBe(201);
         expect(res.body.vaccine_name).toBe("HepB");
+    });
+
+    test("concurrent keyed creates share a receipt, reject changed payloads and cannot resurrect deleted records", async () => {
+        const path = `/api/children/${childId}/growth`;
+        const body = { weight: 8, height: 70, date_recorded: "2026-09-18" };
+        const create = (payload = body) => request(app).post(path)
+            .set("Authorization", `Bearer ${token}`).set("X-Operation-Key", "growth_retry_test").send(payload);
+        const [first, retry] = await Promise.all([create(), create()]);
+        expect(first.status).toBe(201);
+        expect(retry.status).toBe(201);
+        expect(retry.body.id).toBe(first.body.id);
+        expect((await create({ ...body, weight: 9 })).status).toBe(409);
+        const checked = await request(app).get(`${path}/operations/growth_retry_test`).set("Authorization", `Bearer ${token}`);
+        expect(checked.status).toBe(200);
+        expect(checked.body.id).toBe(first.body.id);
+        expect((await request(app).get(`${path}/operations/growth_retry_test`)).status).toBe(401);
+        expect((await request(app).delete(`${path}/${first.body.id}`).set("Authorization", `Bearer ${token}`)).status).toBe(204);
+        expect((await create()).status).toBe(410);
+    });
+
+    test("calendar checklist state syncs and is cleaned up with its clinical record", async () => {
+        const vaccination = await request(app)
+            .post(`/api/children/${childId}/vaccinations`)
+            .set("Authorization", `Bearer ${token}`)
+            .send({ vaccine_name: "MMR", due_date: "2026-09-15", status: "scheduled" });
+        const status = await request(app)
+            .post(`/api/children/${childId}/calendar-plan-statuses`)
+            .set("Authorization", `Bearer ${token}`)
+            .send({ source_type: "vaccination", source_id: vaccination.body.id, occurrence_date: "2026-09-15", completed: true });
+
+        expect(status.status).toBe(201);
+        expect(status.body.completed).toBe(true);
+
+        const unchanged = await request(app)
+            .get(`/api/children/${childId}/vaccinations/${vaccination.body.id}`)
+            .set("Authorization", `Bearer ${token}`);
+        expect(unchanged.body.status).toBe("scheduled");
+
+        const invalid = await request(app)
+            .post(`/api/children/${childId}/calendar-plan-statuses`)
+            .set("Authorization", `Bearer ${token}`)
+            .send({ source_type: "vaccination", source_id: vaccination.body.id, occurrence_date: "2026-02-31", completed: true });
+        expect(invalid.status).toBe(400);
+
+        await pool.query(
+            "INSERT INTO reminders (child_id, reminder_type, title, reminder_date, vaccination_id) VALUES ($1, 'Vaccination', 'MMR', '2026-09-15', $2)",
+            [childId, vaccination.body.id]
+        );
+        await pool.query(
+            "INSERT INTO record_attachments (child_id, record_type, record_id, file_url) VALUES ($1, 'vaccination', $2, 'legacy-test-file')",
+            [childId, vaccination.body.id]
+        );
+        const removed = await request(app)
+            .delete(`/api/children/${childId}/vaccinations/${vaccination.body.id}`)
+            .set("Authorization", `Bearer ${token}`);
+        expect(removed.status).toBe(204);
+        const leftovers = await pool.query(
+            "SELECT (SELECT count(*) FROM calendar_plan_statuses WHERE source_type = 'vaccination' AND source_id = $1) AS plans, (SELECT count(*) FROM reminders WHERE vaccination_id = $1) AS reminders, (SELECT count(*) FROM record_attachments WHERE record_type = 'vaccination' AND record_id = $1) AS attachments",
+            [vaccination.body.id]
+        );
+        expect(leftovers.rows[0]).toEqual({ plans: "0", reminders: "0", attachments: "0" });
     });
 
     // Nutrition branches on HOW the milk was given. Before feed_method
@@ -418,11 +480,31 @@ describe("BabyBook+ API", () => {
         test("saves a bottle feed with volume", async () => {
             const res = await post({
                 entry_type: "milk", milk_type: "Formula", feed_method: "bottle",
-                quantity: 120, unit: "mL", formula_brand: "Enfamil A+",
+                quantity: 120, unit: "mL", formula_brand: "Enfamil A+", formula_scoops: 4,
             });
             expect(res.status).toBe(201);
             expect(Number(res.body.quantity)).toBe(120);
             expect(res.body.formula_brand).toBe("Enfamil A+");
+            expect(Number(res.body.formula_scoops)).toBe(4);
+        });
+
+        test("saves formula and breastmilk amounts for a mixed feed", async () => {
+            const res = await post({
+                entry_type: "milk", milk_type: "Mixed", feed_method: "bottle",
+                quantity: 90, breastmilk_quantity: 60, unit: "mL",
+                formula_brand: "Enfamil A+", formula_scoops: 3,
+            });
+            expect(res.status).toBe(201);
+            expect(Number(res.body.quantity)).toBe(90);
+            expect(Number(res.body.breastmilk_quantity)).toBe(60);
+        });
+
+        test("rejects a non-positive formula scoop count", async () => {
+            const res = await post({
+                entry_type: "milk", milk_type: "Formula", feed_method: "bottle",
+                quantity: 120, unit: "mL", formula_scoops: 0,
+            });
+            expect(res.status).toBe(400);
         });
 
         test("rejects a bottle feed with no quantity", async () => {

@@ -1,18 +1,20 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, Modal, TextInput, TouchableOpacity, ScrollView } from "react-native";
+import { View, Text, StyleSheet, TextInput, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { radius, space, shadow, type, MIN_TOUCH } from "../../theme";
+import { radius, space, type, MIN_TOUCH } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
 import { useLanguage } from "../../context/LanguageContext";
 import { api } from "../../utils/api";
+import { useRecordSave } from "../../utils/useRecords";
 import { medHistoryToIllness } from "../../utils/adapters";
 import { todayLocal } from "../../utils/dates";
 import { suggestedConditions } from "../../utils/commonConditions";
 import { useToast } from "./Toast";
-import Button from "./Button";
+
 import { DateField } from "./DateField";
 import PhotoAttach from "./PhotoAttach";
-import KeyboardAvoider from "./KeyboardAvoider";
+
+import RecordFormSheet, { RecordFormGroup, RecordFormRow } from "./RecordFormSheet";
 
 // One form for the two things that go wrong: an illness, and a hospital stay.
 //
@@ -41,6 +43,7 @@ import KeyboardAvoider from "./KeyboardAvoider";
 const COPY = {
     illness: {
         modalTitle: "Log an illness",
+
         editTitle: "Edit illness",
         category: "Illness",
         attachType: "illness",
@@ -61,6 +64,7 @@ const COPY = {
     },
     hospitalization: {
         modalTitle: "Log a hospital stay",
+
         editTitle: "Edit hospital stay",
         category: "Hospitalization",
         attachType: "hospitalization",
@@ -98,6 +102,7 @@ export default function MedicalEventModal({
     previous = [],
     onClose,
     onSaved,
+    onDelete,
 }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -106,6 +111,7 @@ export default function MedicalEventModal({
     const copy = COPY[kind] || COPY.illness;
     const isIllness = kind === "illness";
     const editing = !!record;
+    const saveRecord = useRecordSave(visible, profile.id, "medical-history", record?.id);
 
     const [title, setTitle] = useState("");
     const [facility, setFacility] = useState("");
@@ -165,9 +171,7 @@ export default function MedicalEventModal({
                 care_level: isIllness ? careLevel || null : null,
                 facility: isIllness ? null : facility.trim() || null,
             };
-            const saved = editing
-                ? await api.updateRecord(profile.id, "medical-history", record.id, body)
-                : await api.createRecord(profile.id, "medical-history", body);
+            const saved = await saveRecord(body);
             // Optional now. A fever managed at home has no document to
             // photograph, and requiring one made the commonest illness in the
             // app unloggable. Posting replaces any existing image for the
@@ -180,7 +184,7 @@ export default function MedicalEventModal({
                         photoUri,
                     });
                 } catch (e) {
-                    console.log("upload attachment:", e.message);
+                    throw new Error(`Record saved, but its photo could not be saved: ${e.message}. Retry to finish without creating another record.`);
                 }
             }
             if (onSaved) onSaved(medHistoryToIllness(saved), kind, editing);
@@ -200,20 +204,14 @@ export default function MedicalEventModal({
     ];
 
     return (
-        <Modal visible={visible} transparent animationType="slide">
-            <KeyboardAvoider>
-                <View style={styles.modalBg}>
-                    <View style={styles.modalCard}>
-                        <Text style={styles.modalTitle}>
-                            {editing ? copy.editTitle : copy.modalTitle}
-                        </Text>
+        <RecordFormSheet visible={visible} title={editing ? copy.editTitle : copy.modalTitle}
+            onClose={onClose} onSubmit={handleSave} busy={saving}
+            cancelLabel={t("cancel")} submitLabel={t("save")} error={titleError}
+            record={record} onDelete={kind === "illness" && onDelete ? () => onDelete(record) : undefined} deleteTitle={"Delete illness record?"} deleteMessage={`Delete "${record?.title || ""}"? This cannot be undone.`}>
+            <RecordFormGroup>
 
-                        <ScrollView
-                            style={styles.scroll}
-                            keyboardShouldPersistTaps="handled"
-                            showsVerticalScrollIndicator={false}
-                        >
-                            <Text style={styles.label}>{copy.titleLabel}</Text>
+                            <RecordFormRow label={<Text style={styles.label}>{copy.titleLabel}</Text>}>
+
                             <TextInput
                                 style={[styles.input, titleError && styles.inputError]}
                                 placeholder={copy.titlePlaceholder}
@@ -225,6 +223,7 @@ export default function MedicalEventModal({
                                 }}
                                 accessibilityLabel={copy.titleLabel}
                             />
+                            </RecordFormRow>
 
                             {chips.length > 0 && (
                                 <View style={styles.chips}>
@@ -247,7 +246,8 @@ export default function MedicalEventModal({
 
                             {!isIllness && (
                                 <>
-                                    <Text style={styles.label}>Which hospital? (optional)</Text>
+                                    <RecordFormRow label={<Text style={styles.label}>Which hospital? (optional)</Text>}>
+
                                     <TextInput
                                         style={styles.input}
                                         placeholder="e.g. Cebu Doctors' University Hospital"
@@ -256,6 +256,7 @@ export default function MedicalEventModal({
                                         onChangeText={setFacility}
                                         accessibilityLabel="Hospital name"
                                     />
+                                    </RecordFormRow>
                                 </>
                             )}
 
@@ -380,7 +381,8 @@ export default function MedicalEventModal({
                                 </>
                             )}
 
-                            <Text style={styles.label}>{copy.notesLabel}</Text>
+                            <RecordFormRow stacked label={<Text style={styles.label}>{copy.notesLabel}</Text>}>
+
                             <TextInput
                                 style={[styles.input, styles.inputMultiline]}
                                 placeholder={copy.notesPlaceholder}
@@ -392,6 +394,7 @@ export default function MedicalEventModal({
                                 textAlignVertical="top"
                                 accessibilityLabel={copy.notesLabel}
                             />
+                            </RecordFormRow>
 
                             <PhotoAttach
                                 required={false}
@@ -400,71 +403,14 @@ export default function MedicalEventModal({
                                 label={copy.photoLabel}
                                 helper={copy.photoHelper}
                             />
-                        </ScrollView>
 
-                        {/* The message sits with the buttons, outside the
-                            ScrollView, because that is the only part of this
-                            form guaranteed to be on screen. The form is long
-                            enough that a parent filling in the notes box is
-                            nowhere near the first field, and an error rendered
-                            up there is a Save button that appears to do
-                            nothing. The coral border on the field says WHICH,
-                            this says WHAT. */}
-                        {titleError ? (
-                            <View style={styles.errorRow}>
-                                <Ionicons name="alert-circle" size={15} color={colors.danger} />
-                                <Text style={styles.errorText}>{titleError}</Text>
-                            </View>
-                        ) : null}
-
-                        <View style={styles.buttons}>
-                            <Button
-                                title={t("cancel")}
-                                variant="secondary"
-                                fullWidth={false}
-                                disabled={saving}
-                                onPress={onClose}
-                            />
-                            <Button
-                                title={t("save")}
-                                variant="accent"
-                                fullWidth={false}
-                                loading={saving}
-                                onPress={handleSave}
-                            />
-                        </View>
-                    </View>
-                </View>
-            </KeyboardAvoider>
-        </Modal>
+            </RecordFormGroup>
+        </RecordFormSheet>
     );
 }
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        modalBg: {
-            flex: 1,
-            backgroundColor: "rgba(28,25,23,0.55)",
-            justifyContent: "center",
-            alignItems: "center",
-            padding: space.xl,
-        },
-        modalCard: {
-            backgroundColor: colors.background,
-            borderRadius: radius.xl,
-            borderCurve: "continuous",
-            padding: space.xl,
-            width: "100%",
-            // 440, not 360 — the sheet was narrower than every reference
-            // phone width (390, 430), wasting room the fields needed.
-            maxWidth: 440,
-            maxHeight: "88%",
-            borderWidth: 1,
-            borderColor: colors.hairline,
-            ...shadow.raised,
-        },
-        modalTitle: { ...type.title, color: colors.text, marginBottom: space.lg },
-        scroll: { flexGrow: 0 },
 
         // Matches DateField's own label rather than the uppercase
         // `type.subheading` the older modals use: this form contains two
@@ -479,13 +425,14 @@ const makeStyles = (colors) =>
             marginBottom: space.sm,
         },
         input: {
-            backgroundColor: colors.surface,
-            borderWidth: 1,
+            backgroundColor: colors.surfaceAlt,
+            borderWidth: 0,
             borderColor: colors.border,
-            borderRadius: radius.md,
+            borderRadius: radius.lg,
             borderCurve: "continuous",
             paddingHorizontal: space.md,
-            height: 48,
+            minHeight: 52,
+            paddingVertical: space.sm,
             fontSize: type.body.fontSize,
             fontFamily: type.body.fontFamily,
             color: colors.text,
@@ -496,14 +443,7 @@ const makeStyles = (colors) =>
             paddingTop: space.md,
             paddingBottom: space.md,
         },
-        inputError: { borderColor: colors.danger },
-        errorRow: {
-            flexDirection: "row",
-            alignItems: "center",
-            gap: space.sm,
-            marginTop: space.md,
-        },
-        errorText: { ...type.caption, color: colors.danger, flex: 1 },
+        inputError: { borderWidth: 1, borderColor: colors.danger },
 
         chips: {
             flexDirection: "row",
@@ -560,10 +500,4 @@ const makeStyles = (colors) =>
         },
         noteText: { ...type.caption, color: colors.text, flex: 1 },
 
-        buttons: {
-            flexDirection: "row",
-            justifyContent: "flex-end",
-            gap: space.md,
-            marginTop: space.lg,
-        },
     });

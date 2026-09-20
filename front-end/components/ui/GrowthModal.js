@@ -1,16 +1,17 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, Modal, TextInput, TouchableOpacity, ScrollView } from "react-native";
+import { View, Text, StyleSheet, TextInput, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { radius, space, shadow, type, MIN_TOUCH } from "../../theme";
+import { radius, space, type, MIN_TOUCH } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
 import { useLanguage } from "../../context/LanguageContext";
 import { api } from "../../utils/api";
+import { useRecordSave } from "../../utils/useRecords";
 import { todayLocal } from "../../utils/dates";
-import { ageInDays, normalizeSex, zScore, WHO_MAX_DAY } from "../../utils/whoGrowth";
 import { useToast } from "./Toast";
-import Button from "./Button";
+
 import { DateField } from "./DateField";
-import KeyboardAvoider from "./KeyboardAvoider";
+
+import RecordFormSheet, { RecordFormGroup, RecordFormRow } from "./RecordFormSheet";
 
 // One form for recording a measurement, and for correcting one.
 //
@@ -26,16 +27,12 @@ import KeyboardAvoider from "./KeyboardAvoider";
 // delete a row afterwards, validation that only asked whether the number was
 // positive, and a success toast that fired whether or not the save worked.
 //
-// The date is the part that mattered most. Growth is the one record in this
-// app whose meaning IS the date-value pair: WHO's tables are indexed per day
-// of age, so a clinic weigh-in entered two days later was placed two days
-// wrong on the chart, and reached the healthcare professional's QR view with a
-// percentile computed for the wrong age. Same defect class the project already
-// fixed for vaccination `date_given` and for illness dates.
+// The date is the part that mattered most: a clinic weigh-in entered two days
+// later was placed two days wrong on the chart and shared record. This is the
+// same defect class already fixed for vaccination and illness dates.
 //
-// `record` absent means create; present means edit. Edit is what makes a typo
-// recoverable: before this, 72 kg entered for 7.2 poisoned the chart and every
-// percentile derived from it, permanently.
+// `record` absent means create; present means edit. Edit makes input mistakes
+// recoverable instead of leaving them in the chart permanently.
 //
 // `onSaved(row, editing)` hands the saved row back so the caller refreshes
 // without a second round trip.
@@ -67,18 +64,13 @@ const FIELDS = [
     { key: "head", label: "Head circumference", unit: "cm", indicator: "head", min: 20, max: 65, placeholder: "e.g. 45.2", optional: true },
 ];
 
-// Beyond this the number is almost certainly mistyped rather than unusual —
-// WHO's own charts stop drawing at ±3. The hint says "check what you typed",
-// never anything about the child; the save is still allowed, because a real
-// measurement the app finds surprising is still the parent's to record.
-const TYPO_Z = 6;
-
-export default function GrowthModal({ visible, profile, record = null, onClose, onSaved }) {
+export default function GrowthModal({ visible, profile, record = null, onClose, onSaved, onDelete }) {
     const { colors } = useTheme();
     const { t } = useLanguage();
     const toast = useToast();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const editing = !!record;
+    const saveRecord = useRecordSave(visible, profile.id, "growth", record?.id);
 
     const [date, setDate] = useState(todayLocal());
     const [values, setValues] = useState({ weight: "", height: "", head: "" });
@@ -113,20 +105,6 @@ export default function GrowthModal({ visible, profile, record = null, onClose, 
         setValues((prev) => ({ ...prev, [key]: v }));
         if (errors[key]) setErrors((prev) => ({ ...prev, [key]: "" }));
         if (formError) setFormError("");
-    };
-
-    const sexKey = normalizeSex(profile?.sex || profile?.gender);
-    const dayAtDate = ageInDays(profile?.dateOfBirth, date);
-
-    // Live "did you mean" hint per field. Reads the same WHO engine the chart
-    // uses, so the form and the chart can never disagree about a value.
-    const typoHint = (field) => {
-        const raw = parseFloat(values[field.key]);
-        if (!isFinite(raw) || !sexKey || dayAtDate == null || dayAtDate > WHO_MAX_DAY) return null;
-        if (raw < field.min || raw > field.max) return null; // already a hard error
-        const z = zScore(field.indicator, sexKey, dayAtDate, raw);
-        if (z == null || Math.abs(z) <= TYPO_Z) return null;
-        return `Double-check this — ${raw} ${field.unit} is far outside what WHO records at this age.`;
     };
 
     const validate = () => {
@@ -189,9 +167,7 @@ export default function GrowthModal({ visible, profile, record = null, onClose, 
                 measured_at: place || null,
                 notes: notes.trim() || null,
             };
-            const saved = editing
-                ? await api.updateRecord(profile.id, "growth", record.id, body)
-                : await api.createRecord(profile.id, "growth", body);
+            const saved = await saveRecord(body);
             if (onSaved) onSaved(saved, editing);
             toast.success(editing ? "Measurement updated" : "Measurement saved");
             // Only now. The old version closed the modal before awaiting and
@@ -208,15 +184,12 @@ export default function GrowthModal({ visible, profile, record = null, onClose, 
     };
 
     return (
-        <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-            <KeyboardAvoider>
-                <View style={styles.modalBg}>
-                    <View style={styles.modalCard}>
-                        <Text style={styles.modalTitle}>
-                            {editing ? "Edit Measurement" : "Add Measurement"}
-                        </Text>
+        <RecordFormSheet visible={visible} title={editing ? "Edit Measurement" : "Add Measurement"}
+            onClose={onClose} onSubmit={handleSave} busy={saving}
+            cancelLabel={t("cancel")} submitLabel={t("save")} error={formError}
+            record={record} onDelete={onDelete ? () => onDelete(record) : undefined} deleteTitle={"Delete measurement?"} deleteMessage={"Delete this measurement? This cannot be undone."}>
+            <RecordFormGroup>
 
-                        <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled">
                             {/* Asked, not assumed. A measurement taken at a
                                 clinic is usually entered later that day or the
                                 next — the old form filed it under whichever day
@@ -239,15 +212,15 @@ export default function GrowthModal({ visible, profile, record = null, onClose, 
                             />
 
                             {FIELDS.map((f) => {
-                                const hint = typoHint(f);
                                 return (
                                     <View key={f.key} style={styles.fieldBlock}>
-                                        <Text style={styles.label}>
+                                        <RecordFormRow label={<Text style={styles.label}>
                                             {f.label} ({f.unit})
                                             {f.optional ? (
                                                 <Text style={styles.optionalTag}> — optional</Text>
                                             ) : null}
-                                        </Text>
+                                        </Text>}>
+
                                         <TextInput
                                             style={[styles.input, errors[f.key] && styles.inputError]}
                                             keyboardType="numeric"
@@ -258,16 +231,7 @@ export default function GrowthModal({ visible, profile, record = null, onClose, 
                                             onChangeText={(v) => setValue(f.key, v)}
                                             accessibilityLabel={`${f.label} in ${f.unit}`}
                                         />
-                                        {hint ? (
-                                            <View style={styles.hintRow}>
-                                                <Ionicons
-                                                    name="help-circle-outline"
-                                                    size={14}
-                                                    color={colors.warning}
-                                                />
-                                                <Text style={styles.hintText}>{hint}</Text>
-                                            </View>
-                                        ) : null}
+                                        </RecordFormRow>
                                     </View>
                                 );
                             })}
@@ -305,7 +269,8 @@ export default function GrowthModal({ visible, profile, record = null, onClose, 
                                 clinic scale. It does not change anything the app shows you.
                             </Text>
 
-                            <Text style={styles.label}>Notes — optional</Text>
+                            <RecordFormRow stacked label={<Text style={styles.label}>Notes — optional</Text>}>
+
                             <TextInput
                                 style={[styles.input, styles.inputMultiline]}
                                 placeholder="e.g. weighed with clothes on, straight after a feed"
@@ -317,69 +282,18 @@ export default function GrowthModal({ visible, profile, record = null, onClose, 
                                 textAlignVertical="top"
                                 accessibilityLabel="Notes, optional"
                             />
+                            </RecordFormRow>
                             <Text style={styles.placeHelper}>
                                 Stays with you — notes are not included in a QR consultation.
                             </Text>
-                        </ScrollView>
 
-                        {/* Beside the buttons, outside the ScrollView: the same
-                            reasoning as MedicalEventModal. This form is taller
-                            than the sheet, so an error rendered at the first
-                            field is a Save button that appears to do nothing.
-                            The coral border says which, this says what. */}
-                        {formError ? (
-                            <View style={styles.errorRow}>
-                                <Ionicons name="alert-circle" size={15} color={colors.danger} />
-                                <Text style={styles.errorText}>{formError}</Text>
-                            </View>
-                        ) : null}
-
-                        <View style={styles.buttons}>
-                            <Button
-                                title={t("cancel")}
-                                variant="secondary"
-                                fullWidth={false}
-                                disabled={saving}
-                                onPress={onClose}
-                            />
-                            <Button
-                                title={t("save")}
-                                variant="accent"
-                                fullWidth={false}
-                                loading={saving}
-                                onPress={handleSave}
-                            />
-                        </View>
-                    </View>
-                </View>
-            </KeyboardAvoider>
-        </Modal>
+            </RecordFormGroup>
+        </RecordFormSheet>
     );
 }
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        modalBg: {
-            flex: 1,
-            backgroundColor: "rgba(28,25,23,0.55)",
-            justifyContent: "center",
-            alignItems: "center",
-            padding: space.xl,
-        },
-        modalCard: {
-            backgroundColor: colors.background,
-            borderRadius: radius.xl,
-            borderCurve: "continuous",
-            padding: space.xl,
-            width: "100%",
-            maxWidth: 440,
-            maxHeight: "88%",
-            borderWidth: 1,
-            borderColor: colors.hairline,
-            ...shadow.raised,
-        },
-        modalTitle: { ...type.title, color: colors.text, marginBottom: space.lg },
-        scroll: { flexGrow: 0 },
 
         label: { ...type.label, color: colors.textSecondary, marginBottom: space.xs },
         optionalTag: { ...type.caption, color: colors.textMuted, fontWeight: "400" },
@@ -387,7 +301,7 @@ const makeStyles = (colors) =>
         input: {
             minHeight: 52,
             backgroundColor: colors.surfaceAlt,
-            borderWidth: 1,
+            borderWidth: 0,
             borderColor: colors.border,
             borderRadius: radius.lg,
             borderCurve: "continuous",
@@ -396,14 +310,12 @@ const makeStyles = (colors) =>
             fontFamily: type.body.fontFamily,
             color: colors.text,
         },
-        inputError: { borderColor: colors.danger },
+        inputError: { borderWidth: 1, borderColor: colors.danger },
         inputMultiline: { paddingVertical: space.md, minHeight: 84, textAlignVertical: "top" },
 
         // Amber, not coral: DESIGN.md reserves coral for overdue / error /
         // destructive, and this is a question about a typed value, not a
         // rejection of it. The save still goes through.
-        hintRow: { flexDirection: "row", alignItems: "flex-start", gap: 6, marginTop: space.xs },
-        hintText: { ...type.caption, color: colors.warning, flex: 1, minWidth: 0 },
 
         chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginBottom: space.xs },
         chip: {
@@ -423,19 +335,4 @@ const makeStyles = (colors) =>
         chipTextOn: { color: colors.onPrimary },
         placeHelper: { ...type.caption, color: colors.textMuted, marginBottom: space.md },
 
-        errorRow: {
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 6,
-            marginTop: space.md,
-            marginBottom: space.xs,
-        },
-        errorText: { ...type.caption, color: colors.danger, flex: 1, minWidth: 0 },
-
-        buttons: {
-            flexDirection: "row",
-            justifyContent: "flex-end",
-            gap: space.md,
-            marginTop: space.md,
-        },
     });

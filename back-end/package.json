@@ -10,6 +10,7 @@
         "db:migrate:up": "node src/db/migrateUp.js",
         "db:seed": "node src/db/seed.js",
         "db:seed:demo": "node src/db/seedDemoYear.js",
+        "db:seed:demo:check": "node src/db/seedDemoYear.check.js",
         "db:reset": "node src/db/migrate.js && node src/db/seed.js",
         "test": "jest --runInBand"
     },
@@ -23,6 +24,7 @@
         "dotenv": "^16.4.5",
         "express": "^4.19.2",
         "express-validator": "^7.1.0",
+        "google-auth-library": "^11.0.2",
         "jsonwebtoken": "^9.0.2",
         "morgan": "^1.10.0",
         "multer": "^1.4.5-lts.1",

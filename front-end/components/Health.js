@@ -6,11 +6,12 @@ import {
     ScrollView,
     TouchableOpacity,
     TextInput,
-    Modal,
     Image,
     useWindowDimensions,
 } from "react-native";
+import Modal from "./ui/AppModal";
 import { api } from "../utils/api";
+import { useRecords, useRecordOperations, useRecordSave } from "../utils/useRecords";
 import {
     vaccinationToApp,
     medHistoryToIllness,
@@ -54,7 +55,9 @@ import OptionSheet from "./ui/OptionSheet";
 import MedicalEventModal from "./ui/MedicalEventModal";
 import MedicineModal from "./ui/MedicineModal";
 import TipStrip from "./ui/TipStrip";
-import KeyboardAvoider from "./ui/KeyboardAvoider";
+
+import RecordFormSheet, { DeleteConfirmation, RecordFormGroup, RecordFormRow } from "./ui/RecordFormSheet";
+import PlanDetail from "./ui/PlanDetail";
 import { shortDate, shortTime, overdueBy, todayLocal, nowLocalTime, spanText } from "../utils/dates";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
@@ -75,7 +78,7 @@ const CARE_LABELS = {
 // An unfilled slot is drawn as simply not filled. It is never coloured coral or
 // amber and never labelled late or missed: the app records what happened and
 // does not grade the parent (PRODUCT.md Principle 5).
-function MedicineCourseCard({ med, doses, treats, thumbnailUrl, onThumbnailPress, onEdit, onGive, onUndo }) {
+function MedicineCourseCard({ med, doses, treats, thumbnailUrl, onThumbnailPress, onEdit, onGive, onUndo, busyAction }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     // The footer holds a button and a status line side by side. Measured, so
@@ -134,20 +137,21 @@ function MedicineCourseCard({ med, doses, treats, thumbnailUrl, onThumbnailPress
                                 <TouchableOpacity
                                     key={`${tval}-${i}`}
                                     style={[styles.doseSlot, done && styles.doseSlotOn]}
-                                    disabled={!done}
+                                    disabled={!done || !!busyAction}
                                     onPress={() => done && onUndo(doses[i])}
                                     accessibilityRole="button"
+                                    accessibilityState={{ disabled: !done || !!busyAction, busy: busyAction === `undo:${doses[i]?.id}` }}
                                     accessibilityLabel={
                                         done
                                             ? `Dose at ${shortTime(tval)} given — tap to undo`
                                             : `Dose at ${shortTime(tval)} not given yet`
                                     }
                                 >
-                                    <Ionicons
-                                        name={done ? "checkmark-circle" : "ellipse-outline"}
-                                        size={14}
-                                        color={done ? colors.onPrimary : colors.textMuted}
-                                    />
+                                    {(<Ionicons
+                                            name={done ? "checkmark-circle" : "ellipse-outline"}
+                                            size={14}
+                                            color={done ? colors.onPrimary : colors.textMuted}
+                                        />)}
                                     <Text style={[styles.doseSlotText, done && styles.doseSlotTextOn]}>
                                         {shortTime(tval)}
                                     </Text>
@@ -170,10 +174,12 @@ function MedicineCourseCard({ med, doses, treats, thumbnailUrl, onThumbnailPress
                         <TouchableOpacity
                             onPress={onGive}
                             style={styles.giveBtn}
+                            disabled={!!busyAction}
                             accessibilityRole="button"
                             accessibilityLabel={`Record a dose of ${med.title}`}
+                            accessibilityState={{ disabled: !!busyAction, busy: busyAction === `give:${med.id}` }}
                         >
-                            <Ionicons name="add" size={15} color={colors.onPrimary} />
+                            {(<Ionicons name="add" size={15} color={colors.onPrimary} />)}
                             <Text style={styles.giveBtnText} numberOfLines={1}>
                                 Record a dose
                             </Text>
@@ -199,6 +205,7 @@ export default function Health({
     immunizations,
     setImmunizations,
     initialTab,
+    initialRecord,
     navKey,
 }) {
     const { language, t } = useLanguage();
@@ -253,7 +260,38 @@ export default function Health({
         };
         if (initialTab && tabFor[initialTab]) {
             setActiveTab(tabFor[initialTab]);
-            const open = modalFor[initialTab];
+            const raw = initialRecord?.record;
+            const open = raw && initialRecord.sourceType === "vaccination"
+                ? () => {
+                      const record = vaccinationToApp(raw);
+                      const base = String(record.vaccineName || "").replace(/\s+\d+$/, "").trim();
+                      setEditingVaccine(record);
+                      setVaxName(base);
+                      setVaxOtherName("");
+                      setVaxDose(record.doseNumber || 1);
+                      setVaxDue(record.dueDate || "");
+                      setShowVaxModal(true);
+                  }
+                : raw && initialRecord.sourceType === "checkup"
+                  ? () => {
+                        const record = checkupToApp(raw);
+                        setEditingAppointment(record);
+                        setApptTitle(record.title || "");
+                        setApptDoctor(record.provider || "");
+                        setApptDate(record.date || todayLocal());
+                        setApptTime(String(record.time || "").slice(0, 5));
+                        setApptNotes(record.notes || "");
+                        setShowApptModal(true);
+                    }
+                  : raw && initialRecord.sourceType === "medical-history"
+                    ? () => {
+                          if (raw.category === "Medication") setMedicineForm({ record: medHistoryToMed(raw) });
+                          else setMedEvent({
+                              kind: raw.category === "Hospitalization" ? "hospitalization" : "illness",
+                              record: medHistoryToIllness(raw),
+                          });
+                      }
+                    : modalFor[initialTab];
             if (open) {
                 resetAttach();
                 open();
@@ -270,7 +308,7 @@ export default function Health({
         setVaxLoading(true);
         (async () => {
             try {
-                const rows = await api.listRecords(profile.id, "vaccinations");
+                const rows = await api.listRecords(profile.id, "vaccinations", { loading: "nonblocking" });
                 if (active) setVaccines(rows.map(vaccinationToApp));
             } catch (e) {
                 console.log("load vaccines:", e.message);
@@ -293,7 +331,7 @@ export default function Health({
         setApptsLoading(true);
         (async () => {
             try {
-                const rows = await api.listRecords(profile.id, "checkups");
+                const rows = await api.listRecords(profile.id, "checkups", { loading: "nonblocking" });
                 if (active) setAppts(rows.map(checkupToApp));
             } catch (e) {
                 console.log("load checkups:", e.message);
@@ -386,15 +424,22 @@ export default function Health({
     // Medical conditions states
     const [allergies, setAllergies] = useState(profile.allergies || []);
     const [newAllergy, setNewAllergy] = useState("");
+    const [allergyBusy, setAllergyBusy] = useState(null);
 
     // Update the allergy list locally and persist it to the child record.
-    const persistAllergies = async (updated) => {
-        setAllergies(updated);
-        onUpdateProfile({ ...profile, allergies: updated });
+    const persistAllergies = async (updated, action) => {
+        if (allergyBusy) return;
+        setAllergyBusy(action);
         try {
-            await api.updateChild(profile.id, { allergies: updated });
+            const saved = await api.updateChild(profile.id, { allergies: updated });
+            setAllergies(saved.allergies || updated);
+            onUpdateProfile({ id: profile.id, allergies: saved.allergies || updated });
+            return true;
         } catch (e) {
-            console.log("save allergies:", e.message);
+            toast.error(e.message || "Could not save allergies");
+            return false;
+        } finally {
+            setAllergyBusy(null);
         }
     };
 
@@ -406,7 +451,9 @@ export default function Health({
     // { record } | null — absent record means "add". Same shape as medEvent.
     const [medicineForm, setMedicineForm] = useState(null);
     // One row per dose actually given, across every medicine for this child.
-    const [doses, setDoses] = useState([]);
+    const doseRows = useRecords(profile.id, "medication-doses");
+    const doses = useMemo(() => doseRows.map(medicationDoseToApp), [doseRows]);
+    const recordOperations = useRecordOperations();
 
     const [hospitalizations, setHospitalizations] = useState([]);
     const [hospVisible, setHospVisible] = useState(10);
@@ -421,7 +468,7 @@ export default function Health({
     const handleMedEventSaved = (saved, kind, wasEdit) => {
         const setList = kind === "illness" ? setIllnesses : setHospitalizations;
         setList((prev) =>
-            wasEdit ? prev.map((r) => (r.id === saved.id ? saved : r)) : [saved, ...prev],
+            wasEdit ? prev.map((r) => (r.id === saved.id ? saved : r)) : [saved, ...prev.filter((r) => r.id !== saved.id)],
         );
         // A newly attached photo is not in attachMap yet, and an edit may have
         // replaced the old one. Cheaper and more honest than guessing.
@@ -481,6 +528,12 @@ export default function Health({
 
     // Appointment (checkup) adding state
     const [showApptModal, setShowApptModal] = useState(false);
+    const [editingAppointment, setEditingAppointment] = useState(null);
+    const saveAppointment = useRecordSave(showApptModal, profile?.id, "checkups", editingAppointment?.id);
+    const saveAppointmentReminder = useRecordSave(showApptModal, profile?.id, "reminders");
+    const [detailHealthRecord, setDetailHealthRecord] = useState(null); // { kind, record }
+    const [healthDeleteCandidate, setHealthDeleteCandidate] = useState(null);
+    const [deletingHealthRecord, setDeletingHealthRecord] = useState(false);
     // Blank, except the date, which sensibly starts at today. These carried
     // prototype placeholders — "Developmental Assessment", "Dr. Sarah Chen",
     // and a hardcoded 2026-06-30 that is now in the past — so opening the form
@@ -491,6 +544,7 @@ export default function Health({
     const [apptDate, setApptDate] = useState(todayLocal());
     const [apptTime, setApptTime] = useState("");
     const [apptNotes, setApptNotes] = useState("");
+    const [addingAppointment, setAddingAppointment] = useState(false);
 
     // Medical history (illnesses + medications) loads from the backend.
     const [histLoading, setHistLoading] = useState(true);
@@ -499,7 +553,7 @@ export default function Health({
         setHistLoading(true);
         (async () => {
             try {
-                const rows = await api.listRecords(profile.id, "medical-history");
+                const rows = await api.listRecords(profile.id, "medical-history", { loading: "nonblocking" });
                 if (!active) return;
                 setIllnesses(rows.filter((r) => r.category === "Illness").map(medHistoryToIllness));
                 setMedications(rows.filter((r) => r.category === "Medication").map(medHistoryToMed));
@@ -523,8 +577,7 @@ export default function Health({
         let active = true;
         (async () => {
             try {
-                const rows = await api.listRecords(profile.id, "medication-doses");
-                if (active) setDoses(rows.map(medicationDoseToApp));
+                const rows = await api.listRecords(profile.id, "medication-doses", { loading: "nonblocking" });
             } catch (e) {
                 console.log("load medication doses:", e.message);
             }
@@ -539,12 +592,13 @@ export default function Health({
     const [attachUri, setAttachUri] = useState("");
     const [attachMap, setAttachMap] = useState({}); // `${type}:${id}` -> attachment row
     const [viewer, setViewer] = useState(null); // { uri, type, recordId, attachId }
+    const [attachmentAction, setAttachmentAction] = useState(null);
 
     const [attachLoading, setAttachLoading] = useState(true);
     const loadAttachments = useCallback(async () => {
         setAttachLoading(true);
         try {
-            const rows = await api.listAttachments(profile.id);
+            const rows = await api.listAttachments(profile.id, { loading: "nonblocking" });
             const map = {};
             for (const a of rows) map[`${a.record_type}:${a.record_id}`] = a;
             setAttachMap(map);
@@ -586,9 +640,8 @@ export default function Health({
             });
             setAttachMap((prev) => ({ ...prev, [`${recordType}:${recordId}`]: a }));
         } catch (e) {
-            console.log("upload attachment:", e.message);
+            throw new Error(`Record saved, but its photo could not be saved: ${e.message}. Retry to finish this record.`);
         }
-        resetAttach();
     };
     const attachUrlFor = (type, id) => {
         const a = attachMap[`${type}:${id}`];
@@ -599,9 +652,10 @@ export default function Health({
         if (a) setViewer({ uri: a.file_url, type, recordId: id, attachId: a.id });
     };
     const replaceInViewer = async () => {
-        if (!viewer || !pickerAvailable()) return;
+        if (!viewer || attachmentAction || !pickerAvailable()) return;
         const uri = await pickImage();
         if (!uri) return;
+        setAttachmentAction("replace");
         try {
             const a = await api.uploadAttachment(profile.id, {
                 recordType: viewer.type,
@@ -613,10 +667,13 @@ export default function Health({
             toast.success("Photo replaced");
         } catch (e) {
             toast.error(e.message || "Could not replace photo");
+        } finally {
+            setAttachmentAction(null);
         }
     };
     const deleteInViewer = async () => {
-        if (!viewer) return;
+        if (!viewer || attachmentAction) return;
+        setAttachmentAction("delete");
         try {
             await api.deleteAttachment(profile.id, viewer.attachId);
             setAttachMap((prev) => {
@@ -628,17 +685,35 @@ export default function Health({
             toast.success("Photo removed");
         } catch (e) {
             toast.error(e.message || "Could not delete photo");
+        } finally {
+            setAttachmentAction(null);
         }
+    };
+
+    const openAppointmentEditor = (record = null) => {
+        resetAttach();
+        setEditingAppointment(record);
+        setApptTitle(record?.title || "");
+        setApptDoctor(record?.provider || "");
+        setApptDate(record?.date || todayLocal());
+        setApptTime(String(record?.time || "").slice(0, 5));
+        setApptNotes(record?.notes || "");
+        setDetailHealthRecord(null);
+        setShowApptModal(true);
     };
 
     // Add-vaccine modal state.
     const OTHER_VACCINE = "__other__";
     const [showVaxModal, setShowVaxModal] = useState(false);
+    const [editingVaccine, setEditingVaccine] = useState(null);
+    const saveVaccine = useRecordSave(showVaxModal, profile?.id, "vaccinations", editingVaccine?.id);
+    const saveVaccineReminder = useRecordSave(showVaxModal, profile?.id, "reminders");
     const [vaxName, setVaxName] = useState("");
     const [vaxOtherName, setVaxOtherName] = useState("");
     const [vaxDose, setVaxDose] = useState(1);
     const [vaxDue, setVaxDue] = useState("");
     const [vaxPickerOpen, setVaxPickerOpen] = useState(false);
+    const [addingVaccine, setAddingVaccine] = useState(false);
 
     // The DOH vaccine list, fetched once. Falls back to the names already in
     // this child's own records if the request fails, so an offline parent can
@@ -647,7 +722,7 @@ export default function Health({
     const [catalogue, setCatalogue] = useState([]);
     useEffect(() => {
         let active = true;
-        api.vaccineCatalogue()
+        api.vaccineCatalogue({ loading: "nonblocking" })
             .then((r) => {
                 if (active && Array.isArray(r?.vaccines)) setCatalogue(r.vaccines);
             })
@@ -681,7 +756,7 @@ export default function Health({
     // Pre-select the lowest dose this child has no record of — the one they
     // are almost certainly here to add.
     useEffect(() => {
-        if (!vaxName || vaxIsOther) return;
+        if (!vaxName || vaxIsOther || editingVaccine) return;
         const taken = new Set(
             vaccines
                 .filter((v) => String(v.vaccineName || "").replace(/\s+\d+$/, "").trim() === vaxName)
@@ -690,57 +765,77 @@ export default function Health({
         );
         const next = vaxDoseOptions.find((d) => !taken.has(d));
         setVaxDose(next || vaxDoseOptions[0] || 1);
-    }, [vaxName, vaccines, vaxDoseOptions, vaxIsOther]);
+    }, [vaxName, vaccines, vaxDoseOptions, vaxIsOther, editingVaccine]);
 
     const resetVaxForm = () => {
+        setEditingVaccine(null);
         setVaxName("");
         setVaxOtherName("");
         setVaxDose(1);
         setVaxDue("");
     };
 
+    const openVaccineEditor = (record = null) => {
+        resetAttach();
+        if (!record) {
+            resetVaxForm();
+        } else {
+            const base = String(record.vaccineName || "").replace(/\s+\d+$/, "").trim();
+            setEditingVaccine(record);
+            setVaxName(base);
+            setVaxOtherName("");
+            setVaxDose(record.doseNumber || 1);
+            setVaxDue(record.dueDate || "");
+        }
+        setShowVaxModal(true);
+    };
+
     const handleAddVaccine = async () => {
+        if (addingVaccine) return;
         const picked = vaxIsOther ? vaxOtherName.trim() : vaxName;
         if (!picked) {
             toast.error(vaxIsOther ? "Please enter a vaccine name" : "Please choose a vaccine");
             return;
         }
-        if (!requireAttach()) return;
-        const multiDose = !vaxIsOther && vaxDoseOptions.length > 1;
+        const multiDose = !vaxIsOther && (vaxDoseOptions.length > 1 || !!editingVaccine?.doseNumber);
         // The dose stays in the name as well as its own column: every existing
         // row is named this way, and the dedupe that stops the DOH generator
         // duplicating doses compares on that name.
         const name = multiDose ? `${picked} ${vaxDose}` : picked;
         const dose = multiDose ? vaxDose : null;
         const due = vaxDue;
-        setShowVaxModal(false);
-        resetVaxForm();
+        setAddingVaccine(true);
         try {
-            const saved = await api.createRecord(profile.id, "vaccinations", {
+            const body = {
                 vaccine_name: name,
-                visit_name: null,
                 due_date: due || null,
-                status: "scheduled",
                 dose_number: dose,
-            });
-            setVaccines((prev) => [...prev, vaccinationToApp(saved)]);
-            await uploadAttachFor("vaccination", saved.id);
+                ...(editingVaccine ? {} : { visit_name: null, status: "scheduled" }),
+            };
+            const saved = await saveVaccine(body);
+            const adapted = vaccinationToApp(saved);
+            setVaccines((prev) => editingVaccine
+                ? prev.map((item) => item.id === editingVaccine.id ? adapted : item)
+                : [...prev.filter((item) => item.id !== saved.id), adapted]);
+            if (attachUri) await uploadAttachFor("vaccination", saved.id);
             // Set a reminder for the due date: notification + backend record.
             const when = morningOf(due);
-            if (when) {
-                scheduleReminder("Vaccination reminder", `${name} due`, when);
-                api
-                    .createRecord(profile.id, "reminders", {
+            if (when && !editingVaccine) {
+                await saveVaccineReminder({
                         reminder_type: "Vaccination",
                         title: name,
                         reminder_date: due,
                         status: "Pending",
                         vaccination_id: saved.id,
-                    })
-                    .catch(() => {});
+                    });
+                await scheduleReminder("Vaccination reminder", `${name} due`, when);
             }
+            setShowVaxModal(false);
+            resetVaxForm();
         } catch (e) {
-            toast.error(e.message || "Could not add vaccine");
+            toast.error(e.message || `Could not ${editingVaccine ? "update" : "add"} vaccine`);
+        } finally {
+            setAddingVaccine(false);
         }
     };
 
@@ -749,38 +844,13 @@ export default function Health({
     // so a dose given last week was filed as today's — and date_given is
     // exactly what the professional portal shows a clinician.
     const applyVaccineToggle = async (vax, nowCompleted, extra = {}) => {
-        const given = nowCompleted ? extra.dateGiven || todayLocal() : null;
-        // optimistic update
-        setVaccines((prev) =>
-            prev.map((v) =>
-                v.id === vax.id
-                    ? {
-                          ...v,
-                          isCompleted: nowCompleted,
-                          completedDate: nowCompleted ? given : undefined,
-                          reactionSeverity: nowCompleted ? extra.reactionSeverity || "" : "",
-                          reaction: nowCompleted ? extra.reaction || "" : "",
-                      }
-                    : v,
-            ),
-        );
-        try {
-            await api.updateRecord(profile.id, "vaccinations", vax.id, {
-                status: nowCompleted ? "completed" : "scheduled",
-                date_given: given,
-                reaction_severity: nowCompleted ? extra.reactionSeverity || null : null,
-                // The description only means anything alongside an actual
-                // reaction — same rule as the nutrition form.
-                reaction:
-                    nowCompleted && extra.reactionSeverity && extra.reactionSeverity !== "none"
-                        ? extra.reaction || null
-                        : null,
-            });
-        } catch (e) {
-            // revert on failure
-            setVaccines((prev) => prev.map((v) => (v.id === vax.id ? vax : v)));
-            toast.error(e.message || "Could not update vaccine");
-        }
+        const saved = await api.updateRecord(profile.id, "vaccinations", vax.id, {
+            status: nowCompleted ? "completed" : "scheduled",
+            date_given: nowCompleted ? extra.dateGiven || todayLocal() : null,
+            reaction_severity: nowCompleted ? extra.reactionSeverity || null : null,
+            reaction: nowCompleted && extra.reactionSeverity && extra.reactionSeverity !== "none" ? extra.reaction || null : null,
+        });
+        setVaccines((prev) => prev.map((v) => v.id === vax.id ? vaccinationToApp(saved) : v));
     };
 
     // Marking a dose "given" requires a supporting photo (vaccination card),
@@ -793,8 +863,11 @@ export default function Health({
     const [completeDate, setCompleteDate] = useState("");
     const [completeReaction, setCompleteReaction] = useState("");
     const [completeReactionNote, setCompleteReactionNote] = useState("");
+    const [vaccineBusyId, setVaccineBusyId] = useState(null);
+    const [completingVaccine, setCompletingVaccine] = useState(false);
 
     const handleToggleVaccine = async (id) => {
+        if (vaccineBusyId !== null) return;
         const vax = vaccines.find((v) => v.id === id);
         if (!vax) return;
         const nowCompleted = !vax.isCompleted;
@@ -806,34 +879,35 @@ export default function Health({
             setCompleteVaxTarget(vax);
             return;
         }
-        await applyVaccineToggle(vax, false);
+        setVaccineBusyId(id);
+        try {
+            await applyVaccineToggle(vax, false);
+        } catch (e) {
+            toast.error(e.message || "Could not update vaccination");
+        } finally {
+            setVaccineBusyId(null);
+        }
     };
 
     const handleConfirmCompleteWithPhoto = async () => {
+        if (completingVaccine) return;
         const alreadyAttached = !!attachUrlFor("vaccination", completeVaxTarget?.id);
         if (!completeAttachUri && !alreadyAttached) {
-            toast.error("A supporting photo is required to mark this dose given.");
-            return;
+            toast.error("A supporting photo is required to mark this dose given."); return;
         }
         const vax = completeVaxTarget;
-        setCompleteVaxTarget(null);
-        await applyVaccineToggle(vax, true, {
-            dateGiven: completeDate,
-            reactionSeverity: completeReaction,
-            reaction: completeReactionNote,
-        });
-        if (!completeAttachUri) return;
+        setCompletingVaccine(true);
         try {
-            const a = await api.uploadAttachment(profile.id, {
-                recordType: "vaccination",
-                recordId: vax.id,
-                photoUri: completeAttachUri,
-            });
-            setAttachMap((prev) => ({ ...prev, [`vaccination:${vax.id}`]: a }));
-        } catch (e) {
-            console.log("upload complete-dose attachment:", e.message);
-        }
-        setCompleteAttachUri("");
+            // Upload required evidence FIRST. A failed upload must not mark the dose given.
+            if (completeAttachUri) {
+                const a = await api.uploadAttachment(profile.id, { recordType: "vaccination", recordId: vax.id, photoUri: completeAttachUri });
+                setAttachMap((prev) => ({ ...prev, [`vaccination:${vax.id}`]: a }));
+                setCompleteAttachUri("");
+            }
+            await applyVaccineToggle(vax, true, { dateGiven: completeDate, reactionSeverity: completeReaction, reaction: completeReactionNote });
+            setCompleteVaxTarget(null);
+        } catch (e) { toast.error(e.message || "Could not complete vaccination. Your inputs have been retained."); }
+        finally { setCompletingVaccine(false); }
     };
 
     // DOH EPI schedule generation/backfill — for children created before this
@@ -845,7 +919,7 @@ export default function Health({
         try {
             const result = await api.generateEpiSchedule(profile.id, "fill-gaps");
             if (result.inserted > 0) {
-                const rows = await api.listRecords(profile.id, "vaccinations");
+                const rows = await api.listRecords(profile.id, "vaccinations", { loading: "nonblocking" });
                 setVaccines(rows.map(vaccinationToApp));
                 toast.success(`Added ${result.inserted} scheduled dose${result.inserted === 1 ? "" : "s"}.`);
             } else {
@@ -858,10 +932,9 @@ export default function Health({
         }
     };
 
-    const handleAddAllergy = () => {
+    const handleAddAllergy = async () => {
         if (!newAllergy.trim()) return;
-        persistAllergies([...allergies, newAllergy.trim()]);
-        setNewAllergy("");
+        if (await persistAllergies([...allergies, newAllergy.trim()], "add")) setNewAllergy("");
     };
 
     // Courses running today, and the ones already done.
@@ -916,7 +989,7 @@ export default function Health({
 
     const handleMedicineSaved = (saved, wasEdit) => {
         setMedications((prev) =>
-            wasEdit ? prev.map((m) => (m.id === saved.id ? saved : m)) : [saved, ...prev],
+            wasEdit ? prev.map((m) => (m.id === saved.id ? saved : m)) : [saved, ...prev.filter((m) => m.id !== saved.id)],
         );
         loadAttachments();
     };
@@ -925,78 +998,159 @@ export default function Health({
     // with a syringe should see the slot fill immediately, not after a round
     // trip on clinic wifi. Rolled back if the write fails.
     const handleGiveDose = async (med) => {
-        const optimistic = {
-            id: `tmp-${Date.now()}`,
-            medicationId: String(med.id),
-            date: todayLocal(),
-            time: nowLocalTime(),
-            notes: "",
-        };
-        setDoses((prev) => [optimistic, ...prev]);
         try {
-            const saved = await api.createRecord(profile.id, "medication-doses", {
-                medication_id: Number(med.id),
-                given_date: optimistic.date,
-                given_time: optimistic.time,
-            });
-            setDoses((prev) => prev.map((d) => (d.id === optimistic.id ? medicationDoseToApp(saved) : d)));
-        } catch (e) {
-            setDoses((prev) => prev.filter((d) => d.id !== optimistic.id));
-            toast.error(e.message || "Could not record the dose");
-        }
+            await api.optimisticRecord(profile.id, "medication-doses", "create", null,
+                { medication_id: Number(med.id), given_date: todayLocal(), given_time: nowLocalTime() },
+                { entity: `med:${med.id}`, label: "Dose record" });
+        } catch (e) { toast.error(e.message || "Could not save the dose record"); }
     };
 
-    // Undo a dose. Tapping a filled slot removes it, because a double-tap has
-    // to be correctable — and a record of a dose that was never given is worse
-    // than no record at all.
     const handleUndoDose = async (dose) => {
-        setDoses((prev) => prev.filter((d) => d.id !== dose.id));
         try {
-            await api.deleteRecord(profile.id, "medication-doses", dose.id);
-        } catch (e) {
-            setDoses((prev) => [dose, ...prev]);
-            toast.error(e.message || "Could not undo the dose");
-        }
+            await api.optimisticRecord(profile.id, "medication-doses", "delete", dose.id, {},
+                { entity: `med:${dose.medicationId}`, label: "Undo dose record" });
+        } catch (e) { toast.error(e.message || "Could not undo the dose record"); }
     };
 
     const handleAddAppointment = async () => {
+        if (addingAppointment) return;
         if (!apptTitle || !apptDoctor || !apptDate) {
             toast.error("Please fill out required fields");
             return;
         }
-        if (!requireAttach()) return;
-        setShowApptModal(false);
+        if (!editingAppointment && !requireAttach()) return;
+        setAddingAppointment(true);
         // Persist as a checkup (also feeds the QR consultation snapshot).
         try {
-            const saved = await api.createRecord(profile.id, "checkups", {
+            const body = {
                 title: apptTitle,
                 doctor_name: apptDoctor,
                 checkup_date: apptDate,
                 time_of_visit: apptTime || null,
                 notes: apptNotes || null,
-                status: "scheduled",
-            });
-            setAppts((prev) => [checkupToApp(saved), ...prev]);
-            await uploadAttachFor("checkup", saved.id);
+                ...(editingAppointment ? {} : { status: "scheduled" }),
+            };
+            const saved = await saveAppointment(body);
+            const adapted = checkupToApp(saved);
+            setAppts((prev) => editingAppointment
+                ? prev.map((item) => item.id === editingAppointment.id ? adapted : item)
+                : [adapted, ...prev.filter((item) => item.id !== saved.id)]);
+            if (attachUri) await uploadAttachFor("checkup", saved.id);
             // Set a reminder: local notification + backend reminder record.
             const when = morningOf(apptDate);
-            if (when) {
-                scheduleReminder("Checkup reminder", `${apptTitle} with ${apptDoctor}`, when);
-                api
-                    .createRecord(profile.id, "reminders", {
+            if (when && !editingAppointment) {
+                await saveAppointmentReminder({
                         reminder_type: "Checkup",
                         title: apptTitle,
                         reminder_date: apptDate,
                         status: "Pending",
                         checkup_id: saved.id,
-                    })
-                    .catch(() => {});
+                    });
+                await scheduleReminder("Checkup reminder", `${apptTitle} with ${apptDoctor}`, when);
             }
-            toast.success("Pediatric session scheduled successfully.");
+            setShowApptModal(false);
+            resetAttach();
+            toast.success(editingAppointment ? "Appointment updated." : "Pediatric session scheduled successfully.");
+            setEditingAppointment(null);
         } catch (e) {
             toast.error(e.message || "Could not save appointment");
+        } finally {
+            setAddingAppointment(false);
         }
     };
+
+    const deleteHealthRecord = async (candidate = null) => {
+        const target = candidate?.record ? candidate : healthDeleteCandidate;
+        if (!target || deletingHealthRecord) return false;
+        const { kind, record } = target;
+        const illness = kind === "illness";
+        const medication = kind === "medication";
+        const vaccination = kind === "vaccination";
+        const medicalHistory = illness || medication;
+        const recordLabel = vaccination ? "Vaccination" : medication ? "Medicine" : illness ? "Illness record" : "Appointment";
+        setDeletingHealthRecord(true);
+        try {
+            await api.deleteRecord(profile.id, vaccination ? "vaccinations" : medicalHistory ? "medical-history" : "checkups", record.id);
+            (vaccination ? setVaccines : medication ? setMedications : illness ? setIllnesses : setAppts)(
+                (prev) => prev.filter((item) => item.id !== record.id),
+            );
+            setAttachMap((prev) => {
+                const next = { ...prev };
+                delete next[`${vaccination ? "vaccination" : medicalHistory ? kind : "checkup"}:${record.id}`];
+                return next;
+            });
+            setHealthDeleteCandidate(null);
+            setDetailHealthRecord(null);
+            toast.success(`${recordLabel} deleted`);
+            return true;
+        } catch (e) {
+            toast.error(e.message || `Could not delete ${recordLabel.toLowerCase()}`);
+            return false;
+        } finally {
+            setDeletingHealthRecord(false);
+        }
+    };
+
+    const selectedHealthRecord = detailHealthRecord?.record;
+    const selectedIsIllness = detailHealthRecord?.kind === "illness";
+    const selectedIsMedication = detailHealthRecord?.kind === "medication";
+    const healthDetailPlan = selectedHealthRecord ? {
+        ...selectedHealthRecord,
+        categoryLabel: selectedIsMedication ? "Medicine" : selectedIsIllness ? "Illness / Condition" : "Checkup",
+        color: selectedIsMedication
+            ? colors.recMedication.on
+            : selectedIsIllness ? colors.recIllness.on : colors.recCheckup.on,
+        status: selectedIsMedication
+            ? "Finished"
+            : selectedIsIllness
+            ? selectedHealthRecord.resolved ? "Better" : "Ongoing"
+            : selectedHealthRecord.isCompleted
+              ? "Done"
+              : selectedHealthRecord.date < todayLocal() ? "Overdue" : "Scheduled",
+        details: selectedIsMedication
+            ? [
+                  selectedHealthRecord.resolvedDate
+                      ? { label: "Finished", value: shortDate(selectedHealthRecord.resolvedDate) }
+                      : null,
+                  selectedHealthRecord.doseAmount
+                      ? { label: "Dose", value: selectedHealthRecord.doseAmount }
+                      : null,
+                  selectedHealthRecord.frequencyPerDay
+                      ? {
+                            label: "Frequency",
+                            value: `${selectedHealthRecord.frequencyPerDay} ${selectedHealthRecord.frequencyPerDay === 1 ? "time" : "times"} a day`,
+                        }
+                      : null,
+                  selectedHealthRecord.courseDays
+                      ? { label: "Course", value: `${selectedHealthRecord.courseDays} days` }
+                      : null,
+                  selectedHealthRecord.prescribedBy
+                      ? { label: "Prescribed by", value: selectedHealthRecord.prescribedBy }
+                      : null,
+                  conditionTitle(selectedHealthRecord.treatsId)
+                      ? { label: "For", value: conditionTitle(selectedHealthRecord.treatsId) }
+                      : null,
+              ].filter(Boolean)
+            : selectedIsIllness
+            ? [
+                  selectedHealthRecord.resolvedDate
+                      ? { label: "Ended", value: shortDate(selectedHealthRecord.resolvedDate) }
+                      : null,
+                  selectedHealthRecord.careLevel
+                      ? { label: "Care", value: CARE_LABELS[selectedHealthRecord.careLevel] || selectedHealthRecord.careLevel }
+                      : null,
+              ].filter(Boolean)
+            : selectedHealthRecord.provider
+              ? [{ label: "Provider", value: selectedHealthRecord.provider }]
+              : [],
+        notes: selectedIsMedication
+            ? selectedHealthRecord.instructions
+            : selectedIsIllness ? selectedHealthRecord.desc : selectedHealthRecord.notes,
+        showReminder: false,
+        deleteLabel: selectedIsMedication
+            ? "Delete medicine"
+            : selectedIsIllness ? "Delete illness record" : "Delete appointment",
+    } : null;
 
     // The PDF export used to live here. It moved to Share Records, where the
     // printout is generated from the SAME record selection as the QR code —
@@ -1130,15 +1284,17 @@ export default function Health({
                                         onPress={handleGenerateSchedule}
                                         style={[styles.actionBtn, styles.actionBtnAlt]}
                                         disabled={generatingSchedule}
+                                        accessibilityRole="button"
+                                        accessibilityState={{ disabled: generatingSchedule, busy: generatingSchedule }}
                                     >
-                                        <Ionicons name="calendar" size={16} color={colors.primary} />
+                                        {(<Ionicons name="calendar" size={16} color={colors.primary} />)}
                                         <Text style={styles.actionBtnAltText}>
-                                            {generatingSchedule ? "Generating…" : "Generate schedule"}
+                                            Generate schedule
                                         </Text>
                                     </TouchableOpacity>
                                 )}
                                 <TouchableOpacity
-                                    onPress={() => { resetAttach(); setShowVaxModal(true); }}
+                                    onPress={() => openVaccineEditor()}
                                     style={styles.actionBtn}
                                     accessibilityRole="button"
                                     accessibilityLabel="Add vaccination"
@@ -1262,6 +1418,12 @@ export default function Health({
                                         key={vax.id}
                                         onPress={() => handleToggleVaccine(vax.id)}
                                         style={styles.vaxRow}
+                                        disabled={vaccineBusyId !== null}
+                                        accessibilityRole="button"
+                                        accessibilityState={{
+                                            disabled: vaccineBusyId !== null,
+                                            busy: vaccineBusyId === vax.id,
+                                        }}
                                     >
                                         <View
                                             style={[
@@ -1270,13 +1432,13 @@ export default function Health({
                                                     styles.checkboxChecked,
                                             ]}
                                         >
-                                            {vax.isCompleted && (
+                                            {(vax.isCompleted ? (
                                                 <Ionicons
                                                     name="checkmark"
                                                     size={14}
                                                     color="#FFFFFF"
                                                 />
-                                            )}
+                                            ) : null)}
                                         </View>
                                         <View style={{ flex: 1, marginLeft: 12 }}>
                                             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -1504,6 +1666,8 @@ export default function Health({
                                     onEdit={() => setMedicineForm({ record: med })}
                                     onGive={() => handleGiveDose(med)}
                                     onUndo={handleUndoDose}
+                                    busyAction={recordOperations.some((op) => op.child === String(profile.id) && op.resource === "medication-doses"
+                                        && op.entity === `med:${med.id}` && ["saving", "uncertain"].includes(op.status)) ? `give:${med.id}` : null}
                                 />
                             ))}
                     </SectionContainerCard>
@@ -1522,28 +1686,9 @@ export default function Health({
                                     label={statusPill(true, "Finished")}
                                     subtitle={medicineSubtitle(med)}
                                     notes={med.instructions}
-                                    icon={
-                                        <Ionicons
-                                            name="flask-outline"
-                                            size={18}
-                                            color={colors.recMedication.on}
-                                        />
-                                    }
-                                    iconBg={colors.recMedication.bg}
-                                    actions={
-                                        <TouchableOpacity
-                                            onPress={() => setMedicineForm({ record: med })}
-                                            style={styles.rowEditBtn}
-                                            accessibilityRole="button"
-                                            accessibilityLabel={`Edit ${med.title}`}
-                                        >
-                                            <Ionicons
-                                                name="create-outline"
-                                                size={16}
-                                                color={colors.primary}
-                                            />
-                                        </TouchableOpacity>
-                                    }
+                                    onPress={() => setDetailHealthRecord({ kind: "medication", record: med })}
+                                    showChevron
+                                    accessibilityLabel={`View ${med.title} details`}
                                 />
                             ))}
                             <ShowMore
@@ -1567,7 +1712,7 @@ export default function Health({
                     >
                         <View style={styles.allergyInputRow}>
                             <TextInput
-                                style={styles.inlineInput}
+                                style={[styles.inlineInput, { backgroundColor: colors.surfaceAlt, borderWidth: 0, borderRadius: radius.lg, minHeight: 52 }]}
                                 placeholder="Add new allergy target..."
                                 placeholderTextColor={colors.placeholder}
                                 value={newAllergy}
@@ -1576,8 +1721,11 @@ export default function Health({
                             <TouchableOpacity
                                 onPress={handleAddAllergy}
                                 style={styles.addInlineBtn}
+                                disabled={allergyBusy}
+                                accessibilityRole="button"
+                                accessibilityState={{ disabled: allergyBusy, busy: allergyBusy }}
                             >
-                                <Text style={styles.addInlineBtnText}>Add</Text>
+                                {(<Text style={styles.addInlineBtnText}>Add</Text>)}
                             </TouchableOpacity>
                         </View>
                         <View style={styles.allergyChips}>
@@ -1595,18 +1743,21 @@ export default function Health({
                                         onPress={() =>
                                             persistAllergies(
                                                 allergies.filter((_, i) => i !== index),
+                                                `remove:${index}`,
                                             )
                                         }
                                         hitSlop={{ top: 12, bottom: 12, left: 10, right: 14 }}
+                                        disabled={allergyBusy}
                                         accessibilityRole="button"
                                         accessibilityLabel={`Remove allergy ${all}`}
+                                        accessibilityState={{ disabled: allergyBusy, busy: allergyBusy }}
                                     >
-                                        <Ionicons
-                                            name="close"
-                                            size={14}
-                                            color={colors.danger}
-                                            style={{ marginLeft: 4 }}
-                                        />
+                                        {(<Ionicons
+                                                name="close"
+                                                size={14}
+                                                color={colors.danger}
+                                                style={{ marginLeft: 4 }}
+                                            />)}
                                     </TouchableOpacity>
                                 </View>
                             ))}
@@ -1646,32 +1797,9 @@ export default function Health({
                                 label={statusPill(ill.resolved, "Better")}
                                 subtitle={medEventSubtitle(ill)}
                                 notes={ill.desc}
-                                icon={
-                                    <Ionicons
-                                        name="pulse-outline"
-                                        size={18}
-                                        color={colors.recIllness.on}
-                                    />
-                                }
-                                iconBg={colors.recIllness.bg}
-                                actions={
-                                    <TouchableOpacity
-                                        onPress={() => setMedEvent({ kind: "illness", record: ill })}
-                                        style={styles.rowEditBtn}
-                                        accessibilityRole="button"
-                                        accessibilityLabel={
-                                            ill.resolved
-                                                ? `Edit ${ill.title}`
-                                                : `Mark ${ill.title} better`
-                                        }
-                                    >
-                                        <Ionicons
-                                            name={ill.resolved ? "create-outline" : "checkmark-done"}
-                                            size={16}
-                                            color={colors.primary}
-                                        />
-                                    </TouchableOpacity>
-                                }
+                                onPress={() => setDetailHealthRecord({ kind: "illness", record: ill })}
+                                showChevron
+                                accessibilityLabel={`View ${ill.title} details`}
                             />
                         ))}
                         {!histLoading && (
@@ -1690,11 +1818,11 @@ export default function Health({
             {activeTab === "appointments" && (
                 <View>
                     <SectionContainerCard
-                        title="Clinical Consults & Appointments"
+                        title="Consultations & Appointments"
                         subtitle="Manage scheduled wellness checks and specialist visits"
                         action={
                             <TouchableOpacity
-                                onPress={() => { resetAttach(); setShowApptModal(true); }}
+                                onPress={() => openAppointmentEditor()}
                                 style={styles.actionBtn}
                                 accessibilityRole="button"
                                 accessibilityLabel="Add appointment"
@@ -1729,14 +1857,9 @@ export default function Health({
                                     </Text>
                                 }
                                 notes={appt.notes}
-                                icon={
-                                    <Ionicons
-                                        name="calendar-outline"
-                                        size={18}
-                                        color={colors.recCheckup.on}
-                                    />
-                                }
-                                iconBg={colors.recCheckup.bg}
+                                onPress={() => setDetailHealthRecord({ kind: "checkup", record: appt })}
+                                showChevron
+                                accessibilityLabel={`View ${appt.title} details`}
                             />
                         ))}
                         {!apptsLoading && (
@@ -1817,6 +1940,29 @@ export default function Health({
                 </View>
             )}
 
+            <PlanDetail
+                visible={!!detailHealthRecord}
+                plan={healthDetailPlan}
+                onClose={() => setDetailHealthRecord(null)}
+                onEdit={() => {
+                    if (selectedIsMedication) {
+                        setDetailHealthRecord(null);
+                        setMedicineForm({ record: selectedHealthRecord });
+                    } else if (selectedIsIllness) {
+                        setDetailHealthRecord(null);
+                        setMedEvent({ kind: "illness", record: selectedHealthRecord });
+                    } else {
+                        openAppointmentEditor(selectedHealthRecord);
+                    }
+                }}
+                onDelete={() => setHealthDeleteCandidate(detailHealthRecord)}
+                deleting={deletingHealthRecord}
+            />
+
+            <DeleteConfirmation visible={!!healthDeleteCandidate} title={healthDeleteCandidate?.kind === "medication" ? "Delete medicine?" : healthDeleteCandidate?.kind === "illness" ? "Delete illness record?" : "Delete appointment?"}
+ message={healthDeleteCandidate ? `Delete "${healthDeleteCandidate.record.title}"? This cannot be undone.` : ""} busy={deletingHealthRecord}
+ onCancel={() => setHealthDeleteCandidate(null)} onConfirm={() => deleteHealthRecord()} />
+
             {/* One form for illnesses and hospital stays — same record type,
                 same bugs, so one implementation keeps them fixed together. */}
             <MedicalEventModal
@@ -1827,6 +1973,7 @@ export default function Health({
                 previous={illnesses}
                 onClose={() => setMedEvent(null)}
                 onSaved={handleMedEventSaved}
+                onDelete={(record) => deleteHealthRecord({ kind: "illness", record })}
             />
 
             <MedicineModal
@@ -1837,23 +1984,15 @@ export default function Health({
                 conditions={linkableConditions}
                 onClose={() => setMedicineForm(null)}
                 onSaved={handleMedicineSaved}
+                onDelete={(record) => deleteHealthRecord({ kind: "medication", record })}
             />
 
             {/* Add Vaccine Modal */}
-            <Modal visible={showVaxModal} transparent animationType="slide">
-                <KeyboardAvoider>
-                <View style={styles.modalBg}>
-                    {/* This sheet had no ScrollView. Vaccine picker + dose chips
-                        + date field + photo attach is taller than a 360x640
-                        screen, so Save sat below the fold with no way to reach
-                        it — the form could be filled in but not submitted. */}
-                    <ScrollView
-                        style={styles.modalSheet}
-                        contentContainerStyle={styles.modalSheetContent}
-                        keyboardShouldPersistTaps="handled"
-                    >
-                    <View style={styles.modalCard}>
-                        <Text style={styles.modalTitle}>Add Vaccination</Text>
+            <RecordFormSheet visible={showVaxModal} title={editingVaccine ? "Edit Vaccination" : "Add Vaccination"}
+                onClose={() => { setShowVaxModal(false); resetVaxForm(); }} onSubmit={handleAddVaccine} busy={addingVaccine}
+                cancelLabel={t("cancel")} submitLabel={t("save")}
+                record={editingVaccine} onDelete={editingVaccine ? () => deleteHealthRecord({ kind: "vaccination", record: editingVaccine }) : undefined} deleteTitle={"Delete vaccination?"} deleteMessage={`Delete "${editingVaccine?.vaccineName || ""}"? This cannot be undone.`}>
+                <RecordFormGroup>
 
                         {/* Picked from the DOH list, not typed. A blank box
                             asking a parent to name a vaccine is close to
@@ -1916,126 +2055,87 @@ export default function Health({
                         <DateField label="Due Date" value={vaxDue} onChange={setVaxDue} />
 
                         <PhotoAttach
-                            required
+                            required={false}
+                            label="Supporting Photo (optional)"
                             uri={attachUri}
                             onChangeUri={setAttachUri}
                         />
 
-                        <View style={styles.modalButtons}>
-                            <TouchableOpacity
-                                onPress={() => setShowVaxModal(false)}
-                                style={styles.modalCancelBtn}
-                            >
-                                <Text style={styles.modalCancelText}>
-                                    {t("cancel")}
-                                </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                onPress={handleAddVaccine}
-                                style={styles.modalSaveBtn}
-                            >
-                                <Text style={styles.modalSaveText}>
-                                    {t("save")}
-                                </Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                    </ScrollView>
-                </View>
-                </KeyboardAvoider>
-            </Modal>
+                </RecordFormGroup>
+            </RecordFormSheet>
 
             {/* New Appointment Modal */}
-            <Modal visible={showApptModal} transparent animationType="slide">
-                <KeyboardAvoider>
-                <View style={styles.modalBg}>
-                    <ScrollView
-                        style={styles.modalSheet}
-                        contentContainerStyle={styles.modalSheetContent}
-                        keyboardShouldPersistTaps="handled"
-                    >
-                    <View style={styles.modalCard}>
-                        <Text style={styles.modalTitle}>New Appointment</Text>
+            <RecordFormSheet visible={showApptModal} title={editingAppointment ? "Edit Appointment" : "New Appointment"}
+                onClose={() => { setShowApptModal(false); setEditingAppointment(null); }} onSubmit={handleAddAppointment} busy={addingAppointment}
+                cancelLabel={t("cancel")} submitLabel={editingAppointment ? "Save" : "Schedule"}
+                record={editingAppointment} onDelete={editingAppointment ? () => deleteHealthRecord({ kind: "checkup", record: editingAppointment }) : undefined} deleteTitle={"Delete appointment?"} deleteMessage={`Delete "${editingAppointment?.title || ""}"? This cannot be undone.`}>
+                <RecordFormGroup>
 
-                        <Text style={styles.modalLabel}>Appointment Title</Text>
+                        <RecordFormRow label={<Text style={styles.modalLabel}>Appointment Title</Text>}>
+
                         <TextInput
                             style={styles.modalInput}
                             value={apptTitle}
                             onChangeText={setApptTitle}
                         />
+                        </RecordFormRow>
 
-                        <Text style={styles.modalLabel}>
+                        <RecordFormRow label={<Text style={styles.modalLabel}>
                             Pediatrician / Provider
-                        </Text>
+                        </Text>}>
+
                         <TextInput
                             style={styles.modalInput}
                             value={apptDoctor}
                             onChangeText={setApptDoctor}
                         />
+                        </RecordFormRow>
 
                         <View style={modalTwoCol ? styles.formRow : styles.formStack}>
                             <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
-                                <Text style={styles.modalLabel}>Date</Text>
+                                <RecordFormRow label={<Text style={styles.modalLabel}>Date</Text>}>
+
                                 <DateField value={apptDate} onChange={setApptDate} />
+                                </RecordFormRow>
                             </View>
                             <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
-                                <Text style={styles.modalLabel}>Time</Text>
+                                <RecordFormRow label={<Text style={styles.modalLabel}>Time</Text>}>
+
                                 <TimeField value={apptTime} onChange={setApptTime} />
+                                </RecordFormRow>
                             </View>
                         </View>
 
-                        <Text style={styles.modalLabel}>
+                        <RecordFormRow label={<Text style={styles.modalLabel}>
                             Clinic Guidelines / Notes
-                        </Text>
+                        </Text>}>
+
                         <TextInput
                             style={styles.modalInput}
                             value={apptNotes}
                             onChangeText={setApptNotes}
                         />
+                        </RecordFormRow>
 
                         <PhotoAttach
-                            required
+                            required={!editingAppointment}
+                            label={editingAppointment ? "Replace Supporting Photo (optional)" : undefined}
                             uri={attachUri}
                             onChangeUri={setAttachUri}
                         />
 
-                        <View style={styles.modalButtons}>
-                            <TouchableOpacity
-                                onPress={() => setShowApptModal(false)}
-                                style={styles.modalCancelBtn}
-                            >
-                                <Text style={styles.modalCancelText}>
-                                    {t("cancel")}
-                                </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                onPress={handleAddAppointment}
-                                style={styles.modalSaveBtn}
-                            >
-                                <Text style={styles.modalSaveText}>
-                                    Schedule
-                                </Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                    </ScrollView>
-                </View>
-                </KeyboardAvoider>
-            </Modal>
+                </RecordFormGroup>
+            </RecordFormSheet>
 
-            <Modal visible={!!completeVaxTarget} transparent animationType="slide">
-                <KeyboardAvoider>
-                <View style={styles.modalBg}>
-                    <View style={styles.modalCard}>
-                        <Text style={styles.modalTitle}>Mark Dose Given</Text>
-                        <Text style={styles.modalLabel}>
+            <RecordFormSheet visible={!!completeVaxTarget} title={"Mark Dose Given"}
+                onClose={() => setCompleteVaxTarget(null)} onSubmit={handleConfirmCompleteWithPhoto} busy={completingVaccine}
+                cancelLabel={t("cancel")} submitLabel={"Confirm"}>
+                <RecordFormGroup>
+
+                        <RecordFormRow label={<Text style={styles.modalLabel}>
                             {completeVaxTarget ? completeVaxTarget.vaccineName : ""}
-                        </Text>
+                        </Text>}>
 
-                        <ScrollView
-                            style={[styles.modalScroll, { maxHeight: windowHeight * 0.5 }]}
-                            keyboardShouldPersistTaps="handled"
-                        >
                             {/* Editable, not assumed. A parent recording a dose
                                 a week after the clinic visit was previously
                                 forced to file it as today's. */}
@@ -2045,6 +2145,7 @@ export default function Health({
                                 onChange={setCompleteDate}
                                 maximumDate={todayLocal()}
                             />
+                        </RecordFormRow>
 
                             <Text style={styles.modalLabel}>Any reaction afterwards?</Text>
                             <View style={styles.doseRow}>
@@ -2108,26 +2209,9 @@ export default function Health({
                                 label="Vaccination Card Photo"
                                 helper="Required to confirm this dose was given"
                             />
-                        </ScrollView>
 
-                        <View style={styles.modalButtons}>
-                            <TouchableOpacity
-                                onPress={() => setCompleteVaxTarget(null)}
-                                style={styles.modalCancelBtn}
-                            >
-                                <Text style={styles.modalCancelText}>{t("cancel")}</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                onPress={handleConfirmCompleteWithPhoto}
-                                style={styles.modalSaveBtn}
-                            >
-                                <Text style={styles.modalSaveText}>Confirm</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
-                </KeyboardAvoider>
-            </Modal>
+                </RecordFormGroup>
+            </RecordFormSheet>
 
             {/* The DOH vaccine list. "Something else" sits first so a
                 private-sector or overseas dose — the one case the list cannot
@@ -2158,6 +2242,7 @@ export default function Health({
                 onClose={() => setViewer(null)}
                 onReplace={replaceInViewer}
                 onDelete={deleteInViewer}
+                busyAction={attachmentAction}
             />
         </Animated.ScrollView>
     );
@@ -2583,38 +2668,15 @@ const makeStyles = (colors) => StyleSheet.create({
         ...type.caption,
         color: colors.danger,
     },
-    modalBg: {
-        flex: 1,
-        backgroundColor: "rgba(0,0,0,0.5)",
-        justifyContent: "center",
-        alignItems: "center",
-        padding: 20,
-    },
+
     // The scroller that lets a tall sheet reach its own Save button.
-    modalSheet: { width: "100%" },
-    modalSheetContent: { flexGrow: 1, justifyContent: "center", alignItems: "center" },
-    modalCard: {
-        backgroundColor: colors.background,
-        borderRadius: radius.xl,
-        borderCurve: "continuous",
-        padding: 20,
-        width: "100%",
-        // 440, not 340 — at 340 the sheet was narrower than the phone under it
-        // on every reference width, wasting room the fields needed.
-        maxWidth: 440,
-        borderWidth: 1,
-        borderColor: colors.border,
-    },
+
     // Paired form fields; `formStack` is the same fields one per line.
     formRow: { flexDirection: "row", gap: space.sm },
     formStack: { flexDirection: "column" },
     formCell: { flex: 1, minWidth: 0 },
     formCellFull: { width: "100%" },
-    modalTitle: {
-        ...type.heading,
-        color: colors.primary,
-        marginBottom: 16,
-    },
+
     modalLabel: {
         ...type.subheading,
         color: colors.textMuted,
@@ -2622,28 +2684,24 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     modalInput: {
         backgroundColor: colors.surfaceAlt,
-        borderWidth: 1,
+        borderWidth: 0,
         borderColor: colors.border,
-        borderRadius: radius.md,
+        borderRadius: radius.lg,
         borderCurve: "continuous",
         paddingHorizontal: 12,
-        height: 44,
+        minHeight: 52,
+        paddingVertical: space.sm,
         fontSize: type.body.fontSize,
         fontFamily: type.body.fontFamily,
         color: colors.text,
         marginBottom: 16,
     },
-    modalButtons: {
-        flexDirection: "row",
-        justifyContent: "flex-end",
-        gap: 12,
-    },
+
     // The Mark Dose Given step now carries a date, a reaction and a photo, so
     // it scrolls rather than growing past the screen on a small phone.
     // maxHeight is applied inline as a fraction of the window — a hardcoded
     // 380 was taller than the usable area on a short phone and did not move
     // when the OS font scale grew the fields inside it.
-    modalScroll: { flexGrow: 0 },
 
     // Opens the vaccine picker. Reads like an input so it is obviously a field,
     // not a button that navigates away.
@@ -2652,9 +2710,9 @@ const makeStyles = (colors) => StyleSheet.create({
         alignItems: "center",
         justifyContent: "space-between",
         backgroundColor: colors.surfaceAlt,
-        borderWidth: 1,
+        borderWidth: 0,
         borderColor: colors.border,
-        borderRadius: radius.md,
+        borderRadius: radius.lg,
         borderCurve: "continuous",
         paddingHorizontal: 12,
         minHeight: MIN_TOUCH,
@@ -2712,26 +2770,5 @@ const makeStyles = (colors) => StyleSheet.create({
 
     reactionRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3 },
     reactionText: { ...type.caption, flex: 1 },
-    modalCancelBtn: {
-        paddingVertical: 10,
-        paddingHorizontal: 16,
-        borderRadius: radius.md,
-        borderCurve: "continuous",
-        backgroundColor: colors.surfaceAlt,
-    },
-    modalCancelText: {
-        ...type.caption,
-        color: colors.textMuted,
-    },
-    modalSaveBtn: {
-        paddingVertical: 10,
-        paddingHorizontal: 16,
-        borderRadius: radius.md,
-        borderCurve: "continuous",
-        backgroundColor: colors.accentStrong,
-    },
-    modalSaveText: {
-        ...type.label,
-        color: "#FFFFFF",
-    },
+
 });

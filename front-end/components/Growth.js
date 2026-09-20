@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
     Animated,View,
     Text,
@@ -6,8 +6,11 @@ import {
     ScrollView,
     TouchableOpacity,
     Image,
-} from "react-native";
+    } from "react-native";
+import Modal from "./ui/AppModal";
+import { Calendar } from "react-native-calendars";
 import { api } from "../utils/api";
+import { useRecords } from "../utils/useRecords";
 import { milestoneToApp, memoryToApp } from "../utils/adapters";
 import { useToast } from "./ui/Toast";
 import { useLanguage } from "../context/LanguageContext";
@@ -24,24 +27,32 @@ import {
 import { MemoriesSkeleton, AppointmentsSkeleton, SkeletonBlock } from "./ui/Skeleton";
 import { useRefreshControl } from "./ui/useRefreshControl";
 import ShowMore from "./ui/ShowMore";
+import Button from "./ui/Button";
 import MemoryDetail from "./MemoryDetail";
 import PercentileChart from "./PercentileChart";
-import {
-    WHO_MAX_DAY,
-    ageInDays,
-    describeZ,
-    formatPercentile,
-    normalizeSex,
-    percentileFromZ,
-    unitFor,
-    zScore,
-} from "../utils/whoGrowth";
+import { ageInDays, wholeNumberLabel } from "../utils/whoGrowth";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import TipStrip from "./ui/TipStrip";
-import { todayLocal, shortDate, monthLabel, monthsBetween, spanText, ageLabel } from "../utils/dates";
+import Gradient from "./ui/Gradient";
+import {
+    todayLocal,
+    shortDate,
+    numericDateRange,
+    monthLabel,
+    monthsBetween,
+    ageLabel,
+    setRangeEndpoint,
+    dateRangePreset,
+    dateEndpointBounds,
+    shiftMonthClamped,
+    weekOfMonth,
+    weekRangeFromSelection,
+    monthRangeFromSelection,
+} from "../utils/dates";
 import AddMemoryModal from "./ui/AddMemoryModal";
 import GrowthModal from "./ui/GrowthModal";
 import OptionSheet from "./ui/OptionSheet";
+import AnchoredMenu, { AnchoredMenuItem } from "./ui/AnchoredMenu";
 import {
     CHECKPOINTS,
     DOMAINS,
@@ -61,10 +72,54 @@ const PLACE_LABELS = {
 };
 
 const METRIC_TABS = [
-    { key: "weight", label: "Weight", field: "weight" },
-    { key: "height", label: "Height", field: "height" },
-    { key: "head", label: "Head", field: "head_circumference" },
+    { key: "weight", labelKey: "growthWeight", field: "weight", unit: "kg" },
+    { key: "height", labelKey: "growthHeight", field: "height", unit: "cm" },
+    { key: "head", labelKey: "growthHeadCirc", filterLabelKey: "growthHeadFilter", field: "head_circumference", unit: "cm" },
 ];
+const METRIC_FILTERS = [{ key: "all", labelKey: "growthAll" }, ...METRIC_TABS];
+const QUICK_DATE_ACTIONS = [
+    { key: "week", labelKey: "growthThisWeek", shortLabelKey: "growthWeekShort" },
+    { key: "month", labelKey: "growthThisMonth", shortLabelKey: "growthMonthShort" },
+    { key: "year", labelKey: "growthThisYear", shortLabelKey: "growthYearShort" },
+];
+const MONTHS = Array.from({ length: 12 }, (_, month) =>
+    new Date(2026, month, 1).toLocaleDateString("en-GB", { month: "short" }),
+);
+
+const currentMonthRange = (dateOfBirth) => dateRangePreset("month", dateOfBirth);
+const yearRangeToDates = (range) => ({
+    from: `${range.from}-01-01`,
+    to: `${range.to}-12-31`,
+});
+const monthSelectionFromRange = (range) => ({
+    from: range?.from?.slice(0, 7) || null,
+    to: range?.to?.slice(0, 7) || null,
+});
+const weekSelectionFromRange = (range) => {
+    const month = range?.to?.slice(0, 7) || todayLocal().slice(0, 7);
+    const to = weekOfMonth(range?.to) || 1;
+    return {
+        month,
+        from: range?.from?.startsWith(month) ? weekOfMonth(range.from) : to,
+        to,
+    };
+};
+const normalizeDateView = (saved, dateOfBirth) => {
+    const today = todayLocal();
+    const currentYear = Number(today.slice(0, 4));
+    const yearRange = saved?.yearRange || (saved?.selectedYear
+        ? { from: saved.selectedYear, to: saved.selectedYear }
+        : { from: currentYear, to: currentYear });
+    const savedPreset = saved?.appliedDatePreset;
+    const preset = savedPreset === "all"
+        ? "year"
+        : ["week", "month", "year"].includes(savedPreset)
+          ? savedPreset
+          : saved ? null : "month";
+    const dateRange = saved?.dateRange
+        || (preset === "year" ? yearRangeToDates(yearRange) : currentMonthRange(dateOfBirth));
+    return { dateRange, preset, yearRange };
+};
 
 // ageLabel now lives in utils/dates.js -- the Dashboard's Growth Chart needs
 // the same string, and a second copy is how formatters drift apart.
@@ -78,11 +133,14 @@ export default function Growth({
     setMilestones,
     initialTab,
     navKey,
+    savedDateView,
+    onDateViewChange,
 }) {
     const { language, t } = useLanguage();
     const toast = useToast();
-    const { colors } = useTheme();
-    const styles = useMemo(() => makeStyles(colors), [colors]);
+    const { colors, scheme } = useTheme();
+    const cardForeground = scheme === "dark" ? colors.background : colors.onPrimary;
+    const styles = useMemo(() => makeStyles(colors, cardForeground), [colors, cardForeground]);
     const padBottom = useScreenPadBottom();
     const padTop = useScreenPadTop();
     const { scrollProps } = useScroll();
@@ -149,7 +207,9 @@ export default function Growth({
     // Milestones load from / persist to the backend. Nutrition moved to its
     // own top-level screen (App.js) — see NutritionTracker.js. Checkups moved
     // to the Health screen — see Health.js.
-    const [mstones, setMstones] = useState([]);
+    const milestoneRows = useRecords(profile.id, "milestones");
+    const mstones = useMemo(() => milestoneRows.map(milestoneToApp), [milestoneRows]);
+    const [milestoneBusy, setMilestoneBusy] = useState(null);
     // How many of this band's items the parent has recorded. Declared here
     // rather than beside `bandItems` because it needs `mstones`, which is
     // initialised below the band state.
@@ -157,7 +217,8 @@ export default function Growth({
         () => bandItems.filter((i) => findRecorded(mstones, i.title)?.isCompleted).length,
         [bandItems, mstones],
     );
-    const [memories, setMemories] = useState([]);
+    const memoryRows = useRecords(profile.id, "memories");
+    const memories = useMemo(() => memoryRows.map(memoryToApp), [memoryRows]);
     const [memoriesVisible, setMemoriesVisible] = useState(10);
     // Gallery filter: "all" | "memory" | "milestone".
     const [galleryFilter, setGalleryFilter] = useState("all");
@@ -166,9 +227,34 @@ export default function Growth({
     const [detailMemory, setDetailMemory] = useState(null);
     // Raw growth_records rows. The Metrics tab used to show only the two values
     // cached on the profile, so there was no history and nothing to plot.
-    const [growthRows, setGrowthRows] = useState([]);
+    const growthRows = useRecords(profile.id, "growth");
     const [metricsVisible, setMetricsVisible] = useState(10);
-    const [metricKey, setMetricKey] = useState("weight");
+    const [metricKey, setMetricKey] = useState("all");
+    const [metricMenuOpen, setMetricMenuOpen] = useState(false);
+    const [metricMenuAnchor, setMetricMenuAnchor] = useState(null);
+    const metricTriggerRef = useRef(null);
+    const initialDateView = normalizeDateView(savedDateView, profile.dateOfBirth);
+    const savedYearRange = initialDateView.yearRange;
+    const [yearRange, setYearRange] = useState(savedYearRange);
+    const [draftYearRange, setDraftYearRange] = useState(savedYearRange);
+    const [dateRange, setDateRange] = useState(initialDateView.dateRange);
+    const [appliedDatePreset, setAppliedDatePreset] = useState(initialDateView.preset);
+    const [draftDateRange, setDraftDateRange] = useState(initialDateView.dateRange);
+    const [draftDatePreset, setDraftDatePreset] = useState(initialDateView.preset);
+    const [draftMonthRange, setDraftMonthRange] = useState(
+        monthSelectionFromRange(initialDateView.dateRange),
+    );
+    const [draftWeekRange, setDraftWeekRange] = useState(
+        weekSelectionFromRange(initialDateView.dateRange),
+    );
+    const [datePickerOpen, setDatePickerOpen] = useState(false);
+    const [datePickerStep, setDatePickerStep] = useState("form");
+    const [editingDate, setEditingDate] = useState(null);
+    const [editingYear, setEditingYear] = useState(null);
+    const [editingMonth, setEditingMonth] = useState(null);
+    const [editingWeek, setEditingWeek] = useState(null);
+    const [pendingDate, setPendingDate] = useState(null);
+    const [visibleMonth, setVisibleMonth] = useState(`${todayLocal().slice(0, 7)}-01`);
     const [reloadTick, setReloadTick] = useState(0);
     useEffect(() => {
         let active = true;
@@ -176,18 +262,15 @@ export default function Growth({
         (async () => {
             try {
                 const [mRows, gRows, memRows] = await Promise.all([
-                    api.listRecords(profile.id, "milestones"),
-                    api.listRecords(profile.id, "growth").catch(() => []),
+                    api.listRecords(profile.id, "milestones", { loading: "nonblocking" }),
+                    api.listRecords(profile.id, "growth", { loading: "nonblocking" }).catch(() => []),
                     // The Gallery tab's photo memories. This screen never
                     // fetched them, which is why that tab was showing
                     // completed milestones under a "Memories" heading while
                     // the Dashboard's "See all photo memories" pointed here.
-                    api.listRecords(profile.id, "memories").catch(() => []),
+                    api.listRecords(profile.id, "memories", { loading: "nonblocking" }).catch(() => []),
                 ]);
                 if (!active) return;
-                setMstones(mRows.map(milestoneToApp));
-                setGrowthRows(Array.isArray(gRows) ? gRows : []);
-                setMemories((Array.isArray(memRows) ? memRows : []).map(memoryToApp));
             } catch (e) {
                 console.log("load growth records:", e.message);
             } finally {
@@ -199,15 +282,23 @@ export default function Growth({
         };
     }, [profile.id, reloadTick]);
 
+    useEffect(() => {
+        const restored = normalizeDateView(savedDateView, profile.dateOfBirth);
+        const initial = { ...restored.dateRange };
+        setDateRange(initial);
+        setAppliedDatePreset(restored.preset);
+        setDraftDateRange(initial);
+        setDraftDatePreset(restored.preset);
+        setDraftMonthRange(monthSelectionFromRange(initial));
+        setDraftWeekRange(weekSelectionFromRange(initial));
+        const restoredYears = restored.yearRange;
+        setYearRange(restoredYears);
+        setDraftYearRange(restoredYears);
+    }, [profile.id, profile.dateOfBirth]);
+
     const refreshControl = useRefreshControl(growthLoading, () => setReloadTick((n) => n + 1));
 
-    // WHO publishes separate curves per sex and none for an unrecorded sex.
-    // adapters.js quietly defaults an unknown sex to girl for theming; that
-    // default must not decide which growth curve a child is measured against,
-    // so this reads the recorded value and yields null when it is absent.
-    const sexKey = useMemo(() => normalizeSex(profile.sex || profile.gender), [profile.sex, profile.gender]);
-
-    const activeMetric = METRIC_TABS.find((m) => m.key === metricKey) || METRIC_TABS[0];
+    const selectedMetricFilter = METRIC_FILTERS.find((m) => m.key === metricKey) || METRIC_FILTERS[0];
 
     const measurements = useMemo(() => {
         return (growthRows || [])
@@ -233,93 +324,260 @@ export default function Growth({
             .sort((a, b) => b.date.localeCompare(a.date));
     }, [growthRows, profile.dateOfBirth]);
 
-    // The profile's cached currentHeight/currentWeight are only written when
-    // someone saves through this screen's form, so for a seeded or imported
-    // child they fall back to birth values — which read as a contradiction next
-    // to a chart plotting the real latest measurement. Prefer the record.
-    // Head joins Height and Weight: the form collects it, the chart has a tab
-    // for it, and it was the one measurement you could not see without
-    // switching charts.
-    //
-    // Birth weight and birth length are deliberately NOT a fallback here. They
-    // answer a different question from "how big is the baby now", and showing
-    // one under a "latest measurement" heading misreports it — the same call
-    // already recorded for the Dashboard's Health ID card. With nothing
-    // recorded the strip shows a dash and the prompt below it says so.
-    const latestVitals = useMemo(() => {
-        const pick = (field) => {
-            const row = measurements.find((m) => m[field] != null);
-            return row ? { value: row[field], date: row.date } : null;
-        };
-        return {
-            height: pick("height"),
-            weight: pick("weight"),
-            head: pick("head_circumference"),
-        };
+    // A shared date must describe one visit, so this strip is the newest log as
+    // a snapshot rather than a mix of values taken on different dates.
+    const latestMeasurement = measurements[0] || null;
+    const availableWeeksByMonth = useMemo(() => {
+        const available = {};
+        measurements.forEach((measurement) => {
+            if (!METRIC_TABS.some((metric) => Number(measurement[metric.field]) > 0)) return;
+            const month = measurement.date.slice(0, 7);
+            const week = weekOfMonth(measurement.date);
+            if (!available[month]) available[month] = new Set();
+            if (week) available[month].add(week);
+        });
+        return available;
     }, [measurements]);
+    const measurementYears = useMemo(
+        () => [...new Set(measurements.map((m) => Number(m.date.slice(0, 4))))].sort((a, b) => b - a),
+        [measurements],
+    );
+    const today = todayLocal();
+    const currentYear = Number(today.slice(0, 4));
+    const birthYear = Number(String(profile.dateOfBirth || "").slice(0, 4));
+    const fallbackStartYear = Number.isInteger(birthYear) && birthYear >= 1900 && birthYear <= currentYear
+        ? birthYear
+        : currentYear;
+    const historyYearRange = useMemo(() => ({
+        from: measurementYears[measurementYears.length - 1] || fallbackStartYear,
+        to: measurementYears[0] || currentYear,
+    }), [currentYear, fallbackStartYear, measurementYears]);
+    const yearOptions = useMemo(
+        () => Array.from(
+            { length: Math.max(1, historyYearRange.to - historyYearRange.from + 1) },
+            (_, index) => historyYearRange.from + index,
+        ),
+        [historyYearRange],
+    );
+    const effectiveDateRange = dateRange;
+    const filteredMeasurements = useMemo(
+        () => measurements.filter((m) => m.date >= effectiveDateRange.from && m.date <= effectiveDateRange.to),
+        [measurements, effectiveDateRange],
+    );
+    const filteredGrowthRows = useMemo(
+        () => growthRows.filter((r) => {
+            const date = r.date_recorded ? String(r.date_recorded).slice(0, 10) : "";
+            return date >= effectiveDateRange.from && date <= effectiveDateRange.to;
+        }),
+        [growthRows, effectiveDateRange],
+    );
+    const sharedChartWindow = useMemo(() => {
+        const dates = filteredGrowthRows
+            .filter((row) => METRIC_TABS.some((metric) => Number(row[metric.field]) > 0))
+            .map((row) => String(row.date_recorded).slice(0, 10))
+            .sort();
+        return dates.length ? { from: dates[0], to: dates[dates.length - 1] } : null;
+    }, [filteredGrowthRows]);
+    // The API returns growth rows by date DESC, id DESC, so the first valid
+    // value is also the last plotted value for that metric in this filter.
+    const latestChartValues = useMemo(
+        () => Object.fromEntries(METRIC_TABS.map((metric) => {
+            const row = filteredGrowthRows.find(
+                (item) => item[metric.field] != null && item[metric.field] !== "",
+            );
+            const value = row ? Number(row[metric.field]) : null;
+            return [
+                metric.key,
+                Number.isFinite(value) ? `${wholeNumberLabel(value)} ${metric.unit}` : null,
+            ];
+        })),
+        [filteredGrowthRows],
+    );
+    const chartDateWindow = dateRange;
+    const dateLabel = appliedDatePreset
+        ? t({ week: "dateFilterWeekly", month: "dateFilterMonthly", year: "dateFilterYearly" }[appliedDatePreset])
+        : numericDateRange(dateRange.from, dateRange.to);
+    const calendarMarks = pendingDate ? {
+        [pendingDate]: { selected: true, selectedColor: colors.primary, selectedTextColor: colors.onPrimary },
+    } : {};
+    const selectedQuickAction = draftDatePreset;
+    const draftDateReady = !!draftDateRange?.from && !!draftDateRange?.to
+        && draftDateRange.from <= draftDateRange.to;
+    const datePickerMin = profile.dateOfBirth && String(profile.dateOfBirth).slice(0, 10) <= today
+        ? String(profile.dateOfBirth).slice(0, 10)
+        : null;
+    const visibleYear = Number(visibleMonth.slice(0, 4));
+    const selectedMonth = visibleMonth.slice(0, 7);
+    const activeDateBounds = dateEndpointBounds(draftDateRange, editingDate, datePickerMin, today);
+    const earliestMonth = datePickerMin?.slice(0, 7)
+        || measurements[measurements.length - 1]?.date?.slice(0, 7)
+        || today.slice(0, 7);
+    const latestMonth = today.slice(0, 7);
+    const activeMonthMin = editingMonth === "to" && draftMonthRange?.from > earliestMonth
+        ? draftMonthRange.from
+        : earliestMonth;
+    const activeMonthMax = editingMonth === "from" && draftMonthRange?.to < latestMonth
+        ? draftMonthRange.to
+        : latestMonth;
+    const calendarTheme = useMemo(() => ({
+        calendarBackground: colors.surface,
+        textSectionTitleColor: colors.textMuted,
+        selectedDayBackgroundColor: colors.primary,
+        selectedDayTextColor: colors.onPrimary,
+        todayTextColor: colors.primary,
+        dayTextColor: colors.text,
+        textDisabledColor: colors.border,
+        arrowColor: colors.primary,
+        monthTextColor: colors.text,
+        textMonthFontWeight: "800",
+        textDayFontWeight: "600",
+        textDayHeaderFontWeight: "700",
+    }), [colors]);
 
-    // "Last measured 4 months ago" — a plain statement of the gap. It does not
-    // say how often a child should be measured; the app has no standing to.
-    const lastMeasured = useMemo(() => {
-        const newest = measurements[0];
-        if (!newest) return null;
-        const span = spanText(newest.date, todayLocal());
-        return {
-            date: newest.date,
-            text: span === "Same day" ? "Last measured today" : `Last measured ${span} ago`,
-            // A visit that recorded one value but not the other leaves a hole
-            // in the other chart. Worth naming, once, without nagging.
-            missing:
-                newest.weight == null && newest.height != null
-                    ? "weight"
-                    : newest.height == null && newest.weight != null
-                      ? "height"
-                      : null,
-        };
-    }, [measurements]);
+    const openMetricMenu = () => {
+        metricTriggerRef.current?.measureInWindow((x, y, width, height) => {
+            setMetricMenuAnchor({ x, y, width, height });
+            setMetricMenuOpen(true);
+        });
+    };
 
-    // Where the most recent measurement of the selected metric falls.
-    const reading = useMemo(() => {
-        if (!sexKey || !profile.dateOfBirth) return null;
-        const usable = measurements
-            .filter((m) => m.day != null && m.day <= WHO_MAX_DAY && m[activeMetric.field] > 0)
-            .sort((a, b) => a.day - b.day);
-        const latest = usable[usable.length - 1];
-        if (!latest) return null;
-        const value = latest[activeMetric.field];
-        const z = zScore(metricKey, sexKey, latest.day, value);
-        if (z == null) return null;
+    const openDateField = (endpoint) => {
+        const value = draftDateRange?.[endpoint] || null;
+        const fallback = endpoint === "to" ? draftDateRange?.from : draftDateRange?.to;
+        const focusDate = value || fallback || today;
+        setEditingDate(endpoint);
+        setPendingDate(value);
+        setVisibleMonth(`${focusDate.slice(0, 7)}-01`);
+        setDatePickerStep("calendar");
+    };
 
-        // The position at the previous measurement, so the two can be read
-        // together.
-        //
-        // REGISTER, deliberately: this states both published reference
-        // positions and their dates and stops. No arrow, no delta, no
-        // "up"/"down"/"rising"/"dropping", no colour, no icon, no alert.
-        // Movement between centiles is a clinical signal and reading it is the
-        // health worker's job, not this app's — PRODUCT.md Principle 5, the
-        // same reason the Dashboard's growth-pace verdict was deleted. Do not
-        // "improve" this into a trend indicator.
-        const prevRow = usable[usable.length - 2] || null;
-        let previous = null;
-        if (prevRow) {
-            const pz = zScore(metricKey, sexKey, prevRow.day, prevRow[activeMetric.field]);
-            if (pz != null) {
-                previous = { percentile: percentileFromZ(pz), date: prevRow.date };
-            }
+    const openYearField = (endpoint) => {
+        setEditingYear(endpoint);
+        setDatePickerStep("years");
+    };
+
+    const openMonthField = (endpoint) => {
+        setEditingMonth(endpoint);
+        setVisibleMonth(`${draftMonthRange?.[endpoint] || today.slice(0, 7)}-01`);
+        setDatePickerStep("rangeMonths");
+    };
+
+    const openWeekField = (endpoint) => {
+        setEditingWeek(endpoint);
+        setVisibleMonth(`${draftWeekRange?.month || today.slice(0, 7)}-01`);
+        setDatePickerStep("weeks");
+    };
+
+    const applyWeekSelection = (selection) => {
+        setDraftWeekRange(selection);
+        setDraftDateRange(selection.from && selection.to
+            ? weekRangeFromSelection(
+                selection.month,
+                selection.from,
+                selection.to,
+                datePickerMin,
+                today,
+            )
+            : { from: null, to: null });
+    };
+
+    const selectQuickAction = (key) => {
+        if (draftDatePreset === key) {
+            setDraftDatePreset(null);
+            return;
         }
-        return { latest, value, z, percentile: percentileFromZ(z), previous, ...describeZ(z) };
-    }, [measurements, activeMetric.field, metricKey, sexKey, profile.dateOfBirth]);
+        setDraftDatePreset(key);
+        if (key === "week") {
+            let anchor = draftDateRange?.to || today;
+            if (datePickerMin && anchor < datePickerMin) anchor = datePickerMin;
+            if (anchor > today) anchor = today;
+            const month = anchor.slice(0, 7);
+            const available = [...(availableWeeksByMonth[month] || [])].sort((a, b) => a - b);
+            const preferred = weekOfMonth(anchor);
+            const week = available.includes(preferred) ? preferred : available[available.length - 1] || null;
+            applyWeekSelection({ month, from: week, to: week });
+            setVisibleMonth(`${month}-01`);
+            return;
+        }
+        if (key === "month") {
+            const minMonth = earliestMonth;
+            const maxMonth = today.slice(0, 7);
+            const current = monthSelectionFromRange(draftDateRange);
+            let from = current.from && current.from >= minMonth ? current.from : minMonth;
+            let to = current.to && current.to <= maxMonth ? current.to : maxMonth;
+            if (from > to) from = to;
+            const next = { from, to };
+            setDraftMonthRange(next);
+            setDraftDateRange(monthRangeFromSelection(next, datePickerMin, today));
+            return;
+        }
+        const from = Math.max(
+            historyYearRange.from,
+            Math.min(historyYearRange.to, Number(draftDateRange?.from?.slice(0, 4)) || historyYearRange.to),
+        );
+        const to = Math.max(
+            from,
+            Math.min(historyYearRange.to, Number(draftDateRange?.to?.slice(0, 4)) || from),
+        );
+        const next = { from, to };
+        setDraftYearRange(next);
+        setDraftDateRange(yearRangeToDates(next));
+    };
 
-    // Where each past measurement sat, at the age it was taken. Restates a
-    // published reference position per row — the same thing the chart draws,
-    // in words, for the rows the chart cannot label.
-    const percentileFor = (m, field, indicator) => {
-        if (!sexKey || m.day == null || m.day > WHO_MAX_DAY) return null;
-        const v = m[field];
-        if (v == null || !(v > 0)) return null;
-        const z = zScore(indicator, sexKey, m.day, v);
-        return z == null ? null : formatPercentile(percentileFromZ(z));
+    const stepBack = () => {
+        if (["years", "rangeMonths", "weeks"].includes(datePickerStep)) setDatePickerStep("form");
+        else if (datePickerStep === "months") setDatePickerStep("calendar");
+        else if (datePickerStep === "calendar") setDatePickerStep("form");
+        else setDatePickerOpen(false);
+    };
+
+    const filterFieldKeys = draftDatePreset === "week"
+        ? [["from", "growthStartingWeek"], ["to", "growthEndingWeek"]]
+        : draftDatePreset === "month"
+          ? [["from", "growthStartingMonth"], ["to", "growthEndingMonth"]]
+          : draftDatePreset === "year"
+            ? [["from", "growthStartingYear"], ["to", "growthEndingYear"]]
+            : [["from", "growthStartingDate"], ["to", "growthEndingDate"]];
+    const filterTitleKey = draftDatePreset === "week"
+        ? "growthChooseWeeks"
+        : draftDatePreset === "month"
+          ? "growthChooseMonths"
+          : draftDatePreset === "year" ? "growthChooseYears" : "growthChooseDates";
+    const filterHelpKey = draftDatePreset === "week"
+        ? "growthWeekFormHelp"
+        : draftDatePreset === "month"
+          ? "growthMonthFormHelp"
+          : draftDatePreset === "year" ? "growthYearFormHelp" : "growthDateFormHelp";
+    const filterFieldValue = (endpoint) => {
+        if (draftDatePreset === "week") {
+            const value = draftWeekRange?.[endpoint];
+            return value
+                ? `${t("growthWeekNumber").replace("{week}", value)} · ${monthLabel(`${draftWeekRange.month}-01`)}`
+                : t("growthSelectWeek");
+        }
+        if (draftDatePreset === "month") {
+            const value = draftMonthRange?.[endpoint];
+            return value ? monthLabel(`${value}-01`) : t("growthSelectMonth");
+        }
+        if (draftDatePreset === "year") {
+            return draftYearRange?.[endpoint] || t("growthSelectYear");
+        }
+        return draftDateRange?.[endpoint]
+            ? shortDate(draftDateRange[endpoint])
+            : t("growthSelectDate");
+    };
+    const filterFieldHasValue = (endpoint) => draftDatePreset === "week"
+        ? !!draftWeekRange?.[endpoint]
+        : draftDatePreset === "month"
+          ? !!draftMonthRange?.[endpoint]
+          : draftDatePreset === "year"
+            ? !!draftYearRange?.[endpoint]
+            : !!draftDateRange?.[endpoint];
+    const openFilterField = (endpoint) => {
+        if (draftDatePreset === "week") openWeekField(endpoint);
+        else if (draftDatePreset === "month") openMonthField(endpoint);
+        else if (draftDatePreset === "year") openYearField(endpoint);
+        else openDateField(endpoint);
     };
 
     // Achieved milestones the parent actually authored — one carrying a photo
@@ -378,37 +636,14 @@ export default function Growth({
 
     const todayStr = () => todayLocal();
     const handleToggleMilestone = async (title) => {
-        // Matched through normalizeTitle, never `===`. Titles now come from
-        // the parent's own typing as well as this checklist, so a stray
-        // capital or double space must not create a second record for a
-        // milestone that already exists.
         const existing = findRecorded(mstones, title);
-        if (existing) {
-            const now = !existing.isCompleted;
-            setMstones((prev) =>
-                prev.map((m) => (m.id === existing.id ? { ...m, isCompleted: now, date: todayStr() } : m)),
-            );
-            try {
-                await api.updateRecord(profile.id, "milestones", existing.id, {
-                    is_completed: now,
-                    date_recorded: todayStr(),
-                });
-            } catch (e) {
-                setMstones((prev) => prev.map((m) => (m.id === existing.id ? existing : m)));
-                toast.error(e.message || "Could not update milestone");
-            }
-        } else {
-            try {
-                const saved = await api.createRecord(profile.id, "milestones", {
-                    title,
-                    is_completed: true,
-                    date_recorded: todayStr(),
-                });
-                setMstones((prev) => [milestoneToApp(saved), ...prev]);
-            } catch (e) {
-                toast.error(e.message || "Could not add milestone");
-            }
-        }
+        setMilestoneBusy(title);
+        try {
+            await api.optimisticRecord(profile.id, "milestones", existing ? "update" : "create", existing?.id,
+                { ...(existing ? {} : { title }), is_completed: existing ? !existing.isCompleted : true, date_recorded: todayStr() },
+                { entity: existing?.id || title.trim().toLowerCase().replace(/\s+/g, " "), label: "Milestone" });
+        } catch (e) { toast.error(e.message || "Could not save milestone"); }
+        finally { setMilestoneBusy((current) => current === title ? null : current); }
     };
 
     // Metric adding state
@@ -418,35 +653,25 @@ export default function Growth({
     // native alert: CLAUDE.md records that RN `Alert` is unreliable on the web
     // build, and settings/PrivacySettings.js is the pattern that works there.
     const [editingGrowth, setEditingGrowth] = useState(null);
+    const [detailGrowth, setDetailGrowth] = useState(null);
     const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+    const [deletingGrowthId, setDeletingGrowthId] = useState(null);
 
     // The form owns validation, the save, and the toast now — see
-    // ui/GrowthModal.js. All this has to do is refresh the list so the chart,
-    // the percentile read-out and the history include what just changed.
-    const handleGrowthSaved = (saved) => {
-        setReloadTick((n) => n + 1);
-        // Keeps the profile's cached "current" values in step with the newest
-        // measurement, as the old inline handler did. These duplicate the
-        // latest growth row onto the child record and other screens read them;
-        // untangling that is its own piece of work.
-        if (!editingGrowth && (saved?.height != null || saved?.weight != null)) {
-            onUpdateProfile({
-                ...profile,
-                currentHeight: saved.height != null ? Number(saved.height) : profile.currentHeight,
-                currentWeight: saved.weight != null ? Number(saved.weight) : profile.currentWeight,
-            });
-        }
-    };
+    // ui/GrowthModal.js. All this has to do is refresh the list so the chart
+    // and history include what just changed.
+    const handleGrowthSaved = () => {}; // Confirmed rows are published by the shared client.
 
     const handleDeleteGrowth = async (id) => {
+        if (deletingGrowthId === id) return false;
+        setDeletingGrowthId(id);
+        setConfirmDeleteId(null); setDetailGrowth(null); setShowMetricsModal(false);
         try {
-            await api.deleteRecord(profile.id, "growth", id);
-            setConfirmDeleteId(null);
-            setReloadTick((n) => n + 1);
-            toast.success("Measurement removed");
-        } catch (e) {
-            toast.error(e.message || "Could not remove the measurement");
-        }
+            await api.optimisticRecord(profile.id, "growth", "delete", id, {}, { label: "Measurement" });
+            toast.success(t("growthMeasurementRemoved"));
+            return true;
+        } catch (e) { toast.error(e.message || t("growthMeasurementRemoveFailed")); return false; }
+        finally { setDeletingGrowthId((current) => current === id ? null : current); }
     };
 
     return (
@@ -458,8 +683,7 @@ export default function Growth({
             keyboardShouldPersistTaps="handled"
         >
             <TipStrip tipKey="tip_growth">
-                Measurements plot against WHO growth curves, so you can see where your child sits versus the
-                standard for their age.
+                {t("growthTip")}
             </TipStrip>
 
             {/* Tab Switcher */}
@@ -572,8 +796,13 @@ export default function Growth({
                                                 key={item.id}
                                                 style={styles.checklistRow}
                                                 onPress={() => handleToggleMilestone(item.title)}
+                                                disabled={rec?._pending || milestoneBusy === item.title}
                                                 accessibilityRole="checkbox"
-                                                accessibilityState={{ checked: isDone }}
+                                                accessibilityState={{
+                                                    checked: isDone,
+                                                    disabled: rec?._pending || milestoneBusy === item.title,
+                                                    busy: rec?._pending || milestoneBusy === item.title,
+                                                }}
                                                 accessibilityLabel={item.title}
                                             >
                                                 {/* The parent's own photo is the
@@ -615,11 +844,11 @@ export default function Growth({
                                                         isDone && styles.checkBtnActive,
                                                     ]}
                                                 >
-                                                    <Ionicons
-                                                        name={isDone ? "checkmark" : "square-outline"}
-                                                        size={18}
-                                                        color={isDone ? colors.onPrimary : colors.primary}
-                                                    />
+                                                    {(<Ionicons
+                                                            name={isDone ? "checkmark" : "square-outline"}
+                                                            size={18}
+                                                            color={isDone ? colors.onPrimary : colors.primary}
+                                                        />)}
                                                 </View>
                                             </TouchableOpacity>
                                         );
@@ -628,9 +857,8 @@ export default function Growth({
                             );
                         })}
 
-                        {/* Principle 5 surface. Same register as the growth
-                            percentile note further down this screen: state the
-                            reference, hand the reading to a health worker. */}
+                        {/* Principle 5 surface: state the recorded facts and
+                            hand the reading to a health worker. */}
                         <View style={styles.promptBox}>
                             <Ionicons
                                 name="chatbubble-ellipses-outline"
@@ -785,162 +1013,213 @@ export default function Growth({
             {growthTab === "metrics" && (
                 <View>
                     <SectionContainerCard
-                        title="Physical Metrics Logs"
-                        subtitle="Record parameters to track baby's physical development indices"
+                        title={t("growthMetricsTitle")}
+                        subtitle={t("growthMetricsSub")}
                         action={
                             <TouchableOpacity
                                 onPress={() => {
                                     setEditingGrowth(null);
                                     setShowMetricsModal(true);
                                 }}
-                                style={styles.addApptBtn}
+                                style={styles.addBtn}
+                                accessibilityRole="button"
+                                accessibilityLabel={t("growthAddMetrics")}
                             >
-                                <Ionicons
-                                    name="add"
-                                    size={16}
-                                    color="#FFFFFF"
-                                    style={{ marginRight: 4 }}
-                                />
-                                <Text style={styles.addApptBtnText}>
-                                    {t("growthAddMetrics")}
-                                </Text>
+                                <Ionicons name="add" size={22} color={colors.onPrimary} />
                             </TouchableOpacity>
                         }
                     >
                         {growthLoading ? (
                             <>
-                                <SkeletonBlock width="100%" height={64} radius={radius.md} style={{ marginBottom: 16 }} />
+                                <SkeletonBlock width="100%" height={96} radius={radius.md} style={{ marginBottom: 16 }} />
                                 <SkeletonBlock width="100%" height={200} radius={radius.lg} />
                             </>
                         ) : (
                             <>
-                        {/* Three across, always. The columns use flexShrink /
-                            minWidth longhand rather than any `flex` shorthand:
-                            `flex: 0` collapses a box on react-native-web
-                            (Dashboard.js) and `min-width: auto` stops one
-                            shrinking (NutritionTracker.js). Both traps live in
-                            exactly this shape. */}
-                        <View style={styles.metricsHeaderBox}>
-                            {[
-                                { key: "weight", label: "Weight", unit: "kg" },
-                                { key: "height", label: "Height", unit: "cm" },
-                                { key: "head", label: "Head", unit: "cm" },
-                            ].map((col, i) => (
-                                <React.Fragment key={col.key}>
-                                    {i > 0 ? <View style={styles.metricsHeaderDivider} /> : null}
-                                    <View style={styles.metricsHeaderCol}>
-                                        <Text style={styles.metricsHeaderLabel} numberOfLines={1}>
-                                            {col.label}
-                                        </Text>
-                                        <Text style={styles.metricsHeaderValue} numberOfLines={1}>
-                                            {latestVitals[col.key]
-                                                ? `${latestVitals[col.key].value} ${col.unit}`
-                                                : "—"}
-                                        </Text>
-                                    </View>
-                                </React.Fragment>
-                            ))}
-                        </View>
-
-                        {lastMeasured ? (
-                            <Text style={styles.lastMeasured}>
-                                {lastMeasured.text} · {shortDate(lastMeasured.date)}
-                                {lastMeasured.missing
-                                    ? ` · no ${lastMeasured.missing} recorded that day`
-                                    : ""}
-                            </Text>
-                        ) : null}
-
-                        <View style={styles.metricSwitch}>
-                            {METRIC_TABS.map((m) => {
-                                const on = metricKey === m.key;
-                                return (
-                                    <TouchableOpacity
-                                        key={m.key}
-                                        onPress={() => setMetricKey(m.key)}
-                                        style={[styles.metricChip, on && styles.metricChipOn]}
-                                        accessibilityRole="button"
-                                        accessibilityState={{ selected: on }}
-                                        accessibilityLabel={`Show ${m.label} chart`}
-                                    >
-                                        <Text style={[styles.metricChipText, on && styles.metricChipTextOn]}>
-                                            {m.label}
-                                        </Text>
-                                    </TouchableOpacity>
-                                );
-                            })}
-                        </View>
-
-                        <PercentileChart
-                            indicator={metricKey}
-                            sex={sexKey}
-                            dateOfBirth={profile.dateOfBirth}
-                            rows={growthRows}
-                        />
-
-                        {reading ? (
-                            <View style={styles.readingBox}>
-                                <View style={styles.readingTop}>
-                                    <Text style={styles.readingValue}>
-                                        {reading.value} {unitFor(metricKey)}
-                                    </Text>
-                                    <Text style={styles.readingPct}>
-                                        {formatPercentile(reading.percentile)} percentile
-                                    </Text>
-                                </View>
-                                <Text style={styles.readingText}>
-                                    {reading.text} — measured at {ageLabel(reading.latest.day)}.
+                        <Gradient colors={[colors.primaryDark, colors.primary]} style={styles.metricsHeaderBox}>
+                            <View style={styles.metricsHeaderHeading}>
+                                <Text style={styles.metricsHeaderTitle} numberOfLines={1}>
+                                    {t("growthLatestMeasurements")}
                                 </Text>
-                                {/* Both positions, both dates, nothing else.
-                                    See the note on `previous` above before
-                                    adding an arrow or a difference here. */}
-                                {reading.previous ? (
-                                    <Text style={styles.readingPrev}>
-                                        Previously {formatPercentile(reading.previous.percentile)} on{" "}
-                                        {shortDate(reading.previous.date)}.
+                                {latestMeasurement ? (
+                                    <Text selectable style={styles.metricsHeaderDate} numberOfLines={1}>
+                                        {shortDate(latestMeasurement.date)}
                                     </Text>
                                 ) : null}
                             </View>
-                        ) : null}
-
-                        {reading && reading.flag ? (
-                            <View style={styles.promptBox}>
-                                <Ionicons
-                                    name="chatbubble-ellipses-outline"
-                                    size={16}
-                                    color={colors.info}
-                                    style={{ marginTop: 1 }}
-                                />
-                                <Text style={styles.promptText}>
-                                    Worth mentioning at the next check-up. Children grow at different rates
-                                    and a single measurement outside the range is common — your health
-                                    worker can tell you whether it means anything.
-                                </Text>
+                            <View style={styles.metricsHeaderRow}>
+                                {[
+                                    { key: "weight", field: "weight", labelKey: "growthWeight", unit: "kg" },
+                                    { key: "height", field: "height", labelKey: "growthHeight", unit: "cm" },
+                                    { key: "head", field: "head_circumference", labelKey: "growthHeadCirc", unit: "cm" },
+                                ].map((col, i) => {
+                                    const value = latestMeasurement?.[col.field];
+                                    return (
+                                        <React.Fragment key={col.key}>
+                                            {i > 0 ? <View style={styles.metricsHeaderDivider} /> : null}
+                                            <View style={styles.metricsHeaderCol}>
+                                                <Text style={styles.metricsHeaderLabel} numberOfLines={1}>
+                                                    {t(col.labelKey)}
+                                                </Text>
+                                                {value != null ? (
+                                                    <>
+                                                        <Text selectable style={styles.metricsHeaderValue} numberOfLines={1}>
+                                                            {value}
+                                                        </Text>
+                                                        <Text style={styles.metricsHeaderUnit} numberOfLines={1}>
+                                                            {col.unit}
+                                                        </Text>
+                                                    </>
+                                                ) : (
+                                                    <Text style={styles.metricsHeaderEmpty}>
+                                                        {latestMeasurement ? "—" : t("growthNoRecordYet")}
+                                                    </Text>
+                                                )}
+                                            </View>
+                                        </React.Fragment>
+                                    );
+                                })}
                             </View>
-                        ) : null}
+                        </Gradient>
 
-                        <Text style={styles.sourceNote}>
-                            {sexKey
-                                ? `Shaded bands are the WHO Child Growth Standards for ${sexKey}, birth to 5 years. This compares your child with a reference population — it is not a medical assessment.`
-                                : "Reference bands come from the WHO Child Growth Standards, birth to 5 years. They compare a child with a reference population and are not a medical assessment."}
-                        </Text>
+                        <View style={styles.chartControls}>
+                            <TouchableOpacity
+                                onPress={() => {
+                                    setDraftDateRange({ ...dateRange });
+                                    setDraftYearRange({ ...yearRange });
+                                    setDraftMonthRange(monthSelectionFromRange(dateRange));
+                                    setDraftWeekRange(weekSelectionFromRange(dateRange));
+                                    setDraftDatePreset(appliedDatePreset);
+                                    setDatePickerStep("form");
+                                    setEditingDate(null);
+                                    setEditingYear(null);
+                                    setEditingMonth(null);
+                                    setEditingWeek(null);
+                                    setPendingDate(null);
+                                    setDatePickerOpen(true);
+                                }}
+                                style={styles.dateSelect}
+                                accessibilityRole="button"
+                                accessibilityLabel={`${t("growthDateFilter")}: ${dateLabel}`}
+                            >
+                                <Ionicons name="calendar-outline" size={19} color={colors.primary} />
+                                <Text style={styles.dateSelectText} numberOfLines={1}>{dateLabel}</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                ref={metricTriggerRef}
+                                onPress={openMetricMenu}
+                                style={styles.metricSelect}
+                                accessibilityRole="button"
+                                accessibilityState={{ expanded: metricMenuOpen }}
+                                accessibilityLabel={t("growthShowChart").replace(
+                                    "{metric}",
+                                    t(selectedMetricFilter.labelKey),
+                                )}
+                            >
+                                <View style={styles.metricSelectValue}>
+                                    {metricKey !== "all" ? (
+                                        <View
+                                            style={[
+                                                styles.metricDot,
+                                                { backgroundColor: colors.growthMetric[metricKey] },
+                                            ]}
+                                        />
+                                    ) : null}
+                                    <Text style={styles.metricSelectText} numberOfLines={1}>
+                                        {t(selectedMetricFilter.filterLabelKey || selectedMetricFilter.labelKey)}
+                                    </Text>
+                                </View>
+                                <Ionicons
+                                    name={metricMenuOpen ? "chevron-up" : "chevron-down"}
+                                    size={20}
+                                    color={colors.textSecondary}
+                                />
+                            </TouchableOpacity>
+                        </View>
+
+                        <Text style={styles.chartHelp}>{t("growthAllChartHelp")}</Text>
+
+                        {metricKey === "all" ? (
+                            <View style={styles.allCharts}>
+                                {METRIC_TABS.map((metric, index) => (
+                                    <View key={metric.key} style={[styles.allChart, index > 0 && styles.allChartDivider]}>
+                                        <View style={styles.allChartTitleRow}>
+                                            <Text style={styles.allChartTitle}>{t(metric.labelKey)}</Text>
+                                            {latestChartValues[metric.key] ? (
+                                                <Text selectable style={styles.allChartLatest}>
+                                                    {latestChartValues[metric.key]}
+                                                </Text>
+                                            ) : null}
+                                        </View>
+                                        <PercentileChart
+                                            indicator={metric.key}
+                                            dateOfBirth={profile.dateOfBirth}
+                                            rows={filteredGrowthRows}
+                                            compact
+                                            name={t(metric.labelKey)}
+                                            showReference={false}
+                                            seriesColor={colors.growthMetric[metric.key]}
+                                            areaFill
+                                            dateWindow={chartDateWindow}
+                                            datePreset={appliedDatePreset}
+                                            yearRange={appliedDatePreset === "year" ? yearRange : null}
+                                            axisWindow={sharedChartWindow}
+                                            pointAlignedShortRange
+                                            emptyMessage={appliedDatePreset === "year"
+                                                ? t("growthNoMeasurementsYears").replace("{from}", yearRange.from).replace("{to}", yearRange.to)
+                                                : t("growthNoMeasurementsRange")}
+                                        />
+                                    </View>
+                                ))}
+                            </View>
+                        ) : (
+                            <>
+                                <View style={styles.allChartTitleRow}>
+                                    <Text style={styles.allChartTitle}>{t(selectedMetricFilter.labelKey)}</Text>
+                                    {latestChartValues[metricKey] ? (
+                                        <Text selectable style={styles.allChartLatest}>
+                                            {latestChartValues[metricKey]}
+                                        </Text>
+                                    ) : null}
+                                </View>
+                                <PercentileChart
+                                    indicator={metricKey}
+                                    dateOfBirth={profile.dateOfBirth}
+                                    rows={filteredGrowthRows}
+                                    name={t("growthLegendSaved")}
+                                    simple
+                                    showReference={false}
+                                    seriesColor={colors.growthMetric[metricKey]}
+                                    areaFill
+                                    dateWindow={chartDateWindow}
+                                    datePreset={appliedDatePreset}
+                                    yearRange={appliedDatePreset === "year" ? yearRange : null}
+                                    pointAlignedShortRange
+                                    emptyMessage={appliedDatePreset === "year"
+                                        ? t("growthNoMeasurementsYears").replace("{from}", yearRange.from).replace("{to}", yearRange.to)
+                                        : t("growthNoMeasurementsRange")}
+                                />
+                            </>
+                        )}
+
                             </>
                         )}
                     </SectionContainerCard>
 
                     <SectionContainerCard
-                        title="Measurement History"
+                        title={t("growthMeasurementHistory")}
                         subtitle={
                             measurements.length
-                                ? `${measurements.length} recorded, newest first`
-                                : "Every measurement you record appears here"
+                                ? t("growthMeasurementCount").replace("{count}", measurements.length)
+                                : t("growthMeasurementHistoryEmptyHelp")
                         }
                     >
                         {growthLoading ? (
                             <AppointmentsSkeleton count={3} />
                         ) : measurements.length === 0 ? (
                             <EmptyStateCard
-                                message="No measurements recorded yet. Add one to start the chart."
+                                message={t("growthMeasurementHistoryEmpty")}
                                 icon="analytics-outline"
                             />
                         ) : (
@@ -951,99 +1230,39 @@ export default function Growth({
                                     if (m.height != null) parts.push(`${m.height} cm`);
                                     if (m.head_circumference != null)
                                         parts.push(`head ${m.head_circumference} cm`);
-                                    // Where this row sat against WHO at the age it was
-                                    // taken, for the metric currently on screen.
-                                    const pct = percentileFor(m, activeMetric.field, metricKey);
                                     const place = PLACE_LABELS[m.measured_at] || null;
-                                    const armed = confirmDeleteId === m.id;
                                     return (
-                                        <ListEntryCard
+                                        <TouchableOpacity
                                             key={m.id ?? m.date}
-                                            title={parts.join("  ·  ") || "No values recorded"}
-                                            subtitle={[
-                                                shortDate(m.date),
-                                                m.day != null ? ageLabel(m.day) : null,
-                                                place,
-                                            ]
-                                                .filter(Boolean)
-                                                .join(" · ")}
-                                            label={pct ? `${pct} ${activeMetric.label.toLowerCase()}` : null}
-                                            notes={m.notes || null}
-                                            icon={
-                                                <MaterialCommunityIcons
-                                                    name="scale"
-                                                    size={18}
-                                                    color={colors.recGrowth.on}
-                                                />
-                                            }
-                                            iconBg={colors.recGrowth.bg}
-                                            actions={
-                                                <View style={styles.rowActions}>
-                                                    {armed ? (
-                                                        <>
-                                                            {/* Two-step, in place. A growth row
-                                                                feeds the chart and the
-                                                                healthcare professional's
-                                                                percentile, so it must not
-                                                                vanish on a single tap. */}
-                                                            <TouchableOpacity
-                                                                onPress={() => handleDeleteGrowth(m.id)}
-                                                                style={styles.confirmDeleteBtn}
-                                                                accessibilityRole="button"
-                                                                accessibilityLabel="Confirm delete measurement"
-                                                            >
-                                                                <Text style={styles.confirmDeleteText}>
-                                                                    Delete?
-                                                                </Text>
-                                                            </TouchableOpacity>
-                                                            <TouchableOpacity
-                                                                onPress={() => setConfirmDeleteId(null)}
-                                                                style={styles.rowIconBtn}
-                                                                accessibilityRole="button"
-                                                                accessibilityLabel="Keep measurement"
-                                                            >
-                                                                <Ionicons
-                                                                    name="close"
-                                                                    size={18}
-                                                                    color={colors.textMuted}
-                                                                />
-                                                            </TouchableOpacity>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <TouchableOpacity
-                                                                onPress={() => {
-                                                                    setConfirmDeleteId(null);
-                                                                    setEditingGrowth(m.raw);
-                                                                    setShowMetricsModal(true);
-                                                                }}
-                                                                style={styles.rowIconBtn}
-                                                                accessibilityRole="button"
-                                                                accessibilityLabel="Edit measurement"
-                                                            >
-                                                                <Ionicons
-                                                                    name="create-outline"
-                                                                    size={18}
-                                                                    color={colors.primary}
-                                                                />
-                                                            </TouchableOpacity>
-                                                            <TouchableOpacity
-                                                                onPress={() => setConfirmDeleteId(m.id)}
-                                                                style={styles.rowIconBtn}
-                                                                accessibilityRole="button"
-                                                                accessibilityLabel="Delete measurement"
-                                                            >
-                                                                <Ionicons
-                                                                    name="trash-outline"
-                                                                    size={18}
-                                                                    color={colors.danger}
-                                                                />
-                                                            </TouchableOpacity>
-                                                        </>
-                                                    )}
-                                                </View>
-                                            }
-                                        />
+                                            activeOpacity={0.82}
+                                            onPress={() => {
+                                                setConfirmDeleteId(null);
+                                                setDetailGrowth(m);
+                                            }}
+                                            accessibilityRole="button"
+                                            accessibilityLabel={`${t("growthViewMeasurement")}: ${shortDate(m.date)}`}
+                                        >
+                                            <ListEntryCard
+                                                title={parts.join("  ·  ") || t("growthNoValues")}
+                                                subtitle={[
+                                                    shortDate(m.date),
+                                                    m.day != null ? ageLabel(m.day) : null,
+                                                    place,
+                                                ]
+                                                    .filter(Boolean)
+                                                    .join(" · ")}
+                                                notes={m.notes || null}
+                                                icon={
+                                                    <MaterialCommunityIcons
+                                                        name="scale"
+                                                        size={18}
+                                                        color={colors.recGrowth.on}
+                                                    />
+                                                }
+                                                iconBg={colors.recGrowth.bg}
+                                                actions={<Ionicons name="chevron-forward" size={20} color={colors.textMuted} />}
+                                            />
+                                        </TouchableOpacity>
                                     );
                                 })}
                                 <ShowMore
@@ -1058,6 +1277,113 @@ export default function Growth({
                 </View>
             )}
 
+            <Modal
+                visible={!!detailGrowth}
+                transparent
+                animationType="slide"
+                onRequestClose={() => {
+                    setConfirmDeleteId(null);
+                    setDetailGrowth(null);
+                }}
+            >
+                <View style={styles.detailBackdrop}>
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        style={StyleSheet.absoluteFill}
+                        onPress={() => {
+                            setConfirmDeleteId(null);
+                            setDetailGrowth(null);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={t("close")}
+                    />
+                    <View style={styles.detailSheet} accessibilityViewIsModal>
+                        <View style={styles.detailGrabber} />
+                        <View style={styles.detailHeader}>
+                            <View style={styles.detailHeading}>
+                                <Text style={styles.detailTitle}>{t("growthMeasurementDetails")}</Text>
+                                <Text style={styles.detailSubtitle}>
+                                    {detailGrowth ? shortDate(detailGrowth.date) : ""}
+                                </Text>
+                            </View>
+                            <TouchableOpacity
+                                style={styles.detailClose}
+                                onPress={() => {
+                                    setConfirmDeleteId(null);
+                                    setDetailGrowth(null);
+                                }}
+                                accessibilityRole="button"
+                                accessibilityLabel={t("close")}
+                            >
+                                <Ionicons name="close" size={22} color={colors.textSecondary} />
+                            </TouchableOpacity>
+                        </View>
+                        <ScrollView showsVerticalScrollIndicator={false}>
+                            <View style={styles.detailGrid}>
+                                {detailGrowth ? [
+                                    [t("growthDetailAge"), detailGrowth.day != null ? ageLabel(detailGrowth.day) : "—"],
+                                    [t("growthWeight"), detailGrowth.weight != null ? `${detailGrowth.weight} kg` : "—"],
+                                    [t("growthHeight"), detailGrowth.height != null ? `${detailGrowth.height} cm` : "—"],
+                                    [t("growthHeadCirc"), detailGrowth.head_circumference != null ? `${detailGrowth.head_circumference} cm` : "—"],
+                                    [t("growthDetailLocation"), PLACE_LABELS[detailGrowth.measured_at] || "—"],
+                                    [t("growthDetailNotes"), detailGrowth.notes || "—"],
+                                ].map(([label, value]) => (
+                                    <View key={label} style={styles.detailRow}>
+                                        <Text style={styles.detailLabel}>{label}</Text>
+                                        <Text style={styles.detailValue}>{value}</Text>
+                                    </View>
+                                )) : null}
+                            </View>
+
+                            {detailGrowth && confirmDeleteId === detailGrowth.id ? (
+                                <View style={styles.deleteConfirmBox}>
+                                    <Text style={styles.deleteConfirmText}>{t("growthDeleteConfirm")}</Text>
+                                    <View style={styles.detailActions}>
+                                        <Button loadingIndicator={false}
+                                            title={t("growthKeepMeasurement")}
+                                            variant="secondary"
+                                            fullWidth={false}
+                                            style={styles.detailAction}
+                                            onPress={() => setConfirmDeleteId(null)}
+                                        />
+                                        <Button
+                                            title={t("delete")}
+                                            variant="danger"
+                                            fullWidth={false}
+                                            style={styles.detailAction}
+                                            loading={deletingGrowthId === detailGrowth.id}
+                                            onPress={() => handleDeleteGrowth(detailGrowth.id)}
+                                        />
+                                    </View>
+                                </View>
+                            ) : (
+                                <View style={styles.detailActions}>
+                                    <Button
+                                        title={t("growthUpdateMeasurement")}
+                                        icon="create-outline"
+                                        fullWidth={false}
+                                        style={styles.detailAction}
+                                        onPress={() => {
+                                            setEditingGrowth(detailGrowth?.raw || null);
+                                            setDetailGrowth(null);
+                                            setShowMetricsModal(true);
+                                        }}
+                                    />
+                                    <Button
+                                        title={t("delete")}
+                                        icon="trash-outline"
+                                        variant="danger"
+                                        fullWidth={false}
+                                        style={styles.detailAction}
+                                        onPress={() => setConfirmDeleteId(detailGrowth?.id)}
+                                    />
+                                </View>
+                            )}
+                        </ScrollView>
+                    </View>
+                </View>
+            </Modal>
+
             {/* One form for adding a measurement and for correcting one.
                 It owns its own validation, save and toast now: the old
                 inline version announced success from outside its try/catch
@@ -1066,6 +1392,7 @@ export default function Growth({
                 visible={showMetricsModal}
                 profile={profile}
                 record={editingGrowth}
+                onDelete={(record) => handleDeleteGrowth(record.id)}
                 onClose={() => {
                     setShowMetricsModal(false);
                     setEditingGrowth(null);
@@ -1085,6 +1412,421 @@ export default function Growth({
 
             {/* The age menu. Every band stays freely selectable; the child's
                 own is marked rather than forced. */}
+            <Modal
+                visible={datePickerOpen}
+                transparent
+                animationType="fade"
+                onRequestClose={stepBack}
+            >
+                <TouchableOpacity
+                    activeOpacity={1}
+                    style={styles.datePickerBackdrop}
+                    onPress={() => setDatePickerOpen(false)}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("cancel")}
+                >
+                    <TouchableOpacity activeOpacity={1} style={styles.datePickerCard} onPress={() => {}}>
+                        {datePickerStep === "form" ? (
+                            <>
+                                <View style={styles.datePickerHeading}>
+                                    <Text style={styles.datePickerTitle}>{t(filterTitleKey)}</Text>
+                                    <Text style={styles.datePickerRange}>{t(filterHelpKey)}</Text>
+                                </View>
+                                <View style={styles.dateForm}>
+                                    <View style={styles.quickActions}>
+                                        <Text style={styles.quickActionsTitle}>{t("growthQuickActions")}</Text>
+                                        <View style={styles.quickActionChips}>
+                                            {QUICK_DATE_ACTIONS.map(({ key, labelKey, shortLabelKey }) => {
+                                                const selected = selectedQuickAction === key;
+                                                return (
+                                                    <TouchableOpacity
+                                                        key={key}
+                                                        style={[styles.quickActionChip, selected && styles.quickActionChipSelected]}
+                                                        onPress={() => selectQuickAction(key)}
+                                                        accessibilityRole="button"
+                                                        accessibilityState={{ selected }}
+                                                        accessibilityLabel={t(labelKey)}
+                                                        hitSlop={{ top: 4, bottom: 4, left: 0, right: 0 }}
+                                                    >
+                                                        <Text
+                                                            style={[styles.quickActionText, selected && styles.quickActionTextSelected]}
+                                                            numberOfLines={1}
+                                                        >
+                                                            {t(shortLabelKey)}
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                );
+                                            })}
+                                        </View>
+                                    </View>
+                                    {filterFieldKeys.map(([endpoint, labelKey]) => (
+                                        <View key={endpoint} style={styles.dateFieldGroup}>
+                                            <Text style={styles.dateFieldLabel}>{t(labelKey)}</Text>
+                                            <TouchableOpacity
+                                                style={styles.dateField}
+                                                onPress={() => openFilterField(endpoint)}
+                                                accessibilityRole="button"
+                                                accessibilityLabel={`${t(labelKey)}: ${filterFieldValue(endpoint)}`}
+                                            >
+                                                <Text style={[styles.dateFieldText, !filterFieldHasValue(endpoint) && styles.dateFieldPlaceholder]}>
+                                                    {filterFieldValue(endpoint)}
+                                                </Text>
+                                                <Ionicons name="calendar-outline" size={19} color={colors.textMuted} />
+                                            </TouchableOpacity>
+                                        </View>
+                                    ))}
+                                </View>
+                                <View style={[styles.datePickerActions, styles.datePickerActionsEnd]}>
+                                    <View style={styles.datePickerRightActions}>
+                                        <TouchableOpacity style={styles.datePickerTextButton} onPress={() => setDatePickerOpen(false)} accessibilityRole="button">
+                                            <Text style={styles.datePickerCancel}>{t("cancel")}</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={[styles.datePickerApply, !draftDateReady && styles.datePickerApplyDisabled]}
+                                            disabled={!draftDateReady}
+                                            onPress={() => {
+                                                const nextRange = { from: draftDateRange.from, to: draftDateRange.to };
+                                                const nextPreset = draftDatePreset;
+                                                setDateRange(nextRange);
+                                                setAppliedDatePreset(nextPreset);
+                                                if (nextPreset === "year") setYearRange({ ...draftYearRange });
+                                                onDateViewChange?.({
+                                                    dateRange: nextRange,
+                                                    appliedDatePreset: nextPreset,
+                                                    yearRange: nextPreset === "year" ? { ...draftYearRange } : { ...yearRange },
+                                                });
+                                                setDatePickerOpen(false);
+                                            }}
+                                            accessibilityRole="button"
+                                            accessibilityState={{ disabled: !draftDateReady }}
+                                        >
+                                            <Text style={styles.datePickerApplyLabel}>{t("growthDone")}</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            </>
+                        ) : datePickerStep === "calendar" ? (
+                            <>
+                                <View style={styles.datePickerHeading}>
+                                    <Text style={styles.datePickerTitle}>
+                                        {t(editingDate === "to" ? "growthEndingDate" : "growthStartingDate")}
+                                    </Text>
+                                    <Text style={styles.datePickerRange}>
+                                        {pendingDate ? shortDate(pendingDate) : t("growthTapDate")}
+                                    </Text>
+                                </View>
+                                <Calendar
+                                    key={visibleMonth}
+                                    current={visibleMonth}
+                                    minDate={activeDateBounds.min || undefined}
+                                    maxDate={activeDateBounds.max || undefined}
+                                    markedDates={calendarMarks}
+                                    theme={calendarTheme}
+                                    disableArrowLeft={!!activeDateBounds.min && selectedMonth <= activeDateBounds.min.slice(0, 7)}
+                                    disableArrowRight={!!activeDateBounds.max && selectedMonth >= activeDateBounds.max.slice(0, 7)}
+                                    onMonthChange={({ dateString }) => setVisibleMonth(`${dateString.slice(0, 7)}-01`)}
+                                    renderHeader={(month) => (
+                                        <TouchableOpacity
+                                            style={styles.calendarMonthButton}
+                                            onPress={() => {
+                                                const monthDate = month?.toString("yyyy-MM-dd") || visibleMonth;
+                                                setVisibleMonth(`${monthDate.slice(0, 7)}-01`);
+                                                setDatePickerStep("months");
+                                            }}
+                                            accessibilityRole="button"
+                                            accessibilityLabel={t("growthChooseMonth")}
+                                        >
+                                            <Text style={styles.calendarMonthText}>{month?.toString("MMMM yyyy")}</Text>
+                                            <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
+                                        </TouchableOpacity>
+                                    )}
+                                    onDayPress={({ dateString }) => setPendingDate(dateString)}
+                                />
+                                <View style={[styles.datePickerActions, styles.datePickerActionsEnd]}>
+                                    <TouchableOpacity style={styles.datePickerTextButton} onPress={stepBack} accessibilityRole="button">
+                                        <Text style={styles.datePickerCancel}>{t("back")}</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[styles.datePickerApply, !pendingDate && styles.datePickerApplyDisabled]}
+                                        disabled={!pendingDate}
+                                        onPress={() => {
+                                            const next = setRangeEndpoint(draftDateRange, editingDate, pendingDate);
+                                            setDraftDateRange(next);
+                                            setDraftMonthRange(monthSelectionFromRange(next));
+                                            setDraftWeekRange(weekSelectionFromRange(next));
+                                            setDraftDatePreset(null);
+                                            setDatePickerStep("form");
+                                        }}
+                                        accessibilityRole="button"
+                                        accessibilityState={{ disabled: !pendingDate }}
+                                    >
+                                        <Text style={styles.datePickerApplyLabel}>{t("growthConfirmDate")}</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </>
+                        ) : datePickerStep === "weeks" ? (
+                            <>
+                                <View style={styles.datePickerHeading}>
+                                    <Text style={styles.datePickerTitle}>
+                                        {t(editingWeek === "to" ? "growthEndingWeek" : "growthStartingWeek")}
+                                    </Text>
+                                    <Text style={styles.datePickerRange}>{t("growthChooseWeek")}</Text>
+                                </View>
+                                <View style={styles.monthPickerHeader}>
+                                    <TouchableOpacity
+                                        style={[styles.monthPickerArrow, selectedMonth <= earliestMonth && styles.controlDisabled]}
+                                        disabled={selectedMonth <= earliestMonth}
+                                        onPress={() => setVisibleMonth(shiftMonthClamped(visibleMonth, -1))}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={t("growthPreviousMonth")}
+                                    >
+                                        <Ionicons name="chevron-back" size={20} color={colors.textSecondary} />
+                                    </TouchableOpacity>
+                                    <Text style={styles.monthPickerTitle}>{monthLabel(visibleMonth)}</Text>
+                                    <TouchableOpacity
+                                        style={[styles.monthPickerArrow, selectedMonth >= latestMonth && styles.controlDisabled]}
+                                        disabled={selectedMonth >= latestMonth}
+                                        onPress={() => setVisibleMonth(shiftMonthClamped(visibleMonth, 1))}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={t("growthNextMonth")}
+                                    >
+                                        <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+                                    </TouchableOpacity>
+                                </View>
+                                <View style={styles.monthGrid}>
+                                    {[1, 2, 3, 4].map((week) => {
+                                        const sameMonth = draftWeekRange?.month === selectedMonth;
+                                        const hasData = availableWeeksByMonth[selectedMonth]?.has(week);
+                                        const conflicts = sameMonth && (
+                                            (editingWeek === "from" && draftWeekRange.to && week > draftWeekRange.to)
+                                            || (editingWeek === "to" && draftWeekRange.from && week < draftWeekRange.from)
+                                        );
+                                        const disabled = !hasData || conflicts;
+                                        const selected = sameMonth && draftWeekRange?.[editingWeek] === week;
+                                        const label = t("growthWeekNumber").replace("{week}", week);
+                                        return (
+                                            <TouchableOpacity
+                                                key={week}
+                                                style={[styles.monthOption, styles.weekOption, selected && styles.monthOptionSelected]}
+                                                disabled={disabled}
+                                                onPress={() => {
+                                                    let next = sameMonth
+                                                        ? { ...draftWeekRange, [editingWeek]: week }
+                                                        : { month: selectedMonth, from: week, to: week };
+                                                    if (next.from > next.to) {
+                                                        next = editingWeek === "from"
+                                                            ? { ...next, to: week }
+                                                            : { ...next, from: week };
+                                                    }
+                                                    applyWeekSelection(next);
+                                                    setDatePickerStep("form");
+                                                }}
+                                                accessibilityRole="button"
+                                                accessibilityState={{ selected, disabled }}
+                                                accessibilityLabel={label}
+                                            >
+                                                <Text style={[
+                                                    styles.monthOptionText,
+                                                    selected && styles.monthOptionTextSelected,
+                                                    disabled && styles.monthOptionTextDisabled,
+                                                ]}>{label}</Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                                <View style={[styles.datePickerActions, styles.datePickerActionsEnd]}>
+                                    <TouchableOpacity style={styles.datePickerTextButton} onPress={stepBack} accessibilityRole="button">
+                                        <Text style={styles.datePickerCancel}>{t("back")}</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </>
+                        ) : datePickerStep === "rangeMonths" ? (
+                            <>
+                                <View style={styles.datePickerHeading}>
+                                    <Text style={styles.datePickerTitle}>
+                                        {t(editingMonth === "to" ? "growthEndingMonth" : "growthStartingMonth")}
+                                    </Text>
+                                    <Text style={styles.datePickerRange}>{t("growthChooseMonthRange")}</Text>
+                                </View>
+                                <View style={styles.monthPickerHeader}>
+                                    <TouchableOpacity
+                                        style={[styles.monthPickerArrow, visibleYear <= Number(activeMonthMin.slice(0, 4)) && styles.controlDisabled]}
+                                        disabled={visibleYear <= Number(activeMonthMin.slice(0, 4))}
+                                        onPress={() => setVisibleMonth(`${visibleYear - 1}-${visibleMonth.slice(5, 7)}-01`)}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={t("growthPreviousYear")}
+                                    >
+                                        <Ionicons name="chevron-back" size={20} color={colors.textSecondary} />
+                                    </TouchableOpacity>
+                                    <Text style={styles.monthPickerTitle}>{monthLabel(visibleMonth)}</Text>
+                                    <TouchableOpacity
+                                        style={[styles.monthPickerArrow, visibleYear >= Number(activeMonthMax.slice(0, 4)) && styles.controlDisabled]}
+                                        disabled={visibleYear >= Number(activeMonthMax.slice(0, 4))}
+                                        onPress={() => setVisibleMonth(`${visibleYear + 1}-${visibleMonth.slice(5, 7)}-01`)}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={t("growthNextYear")}
+                                    >
+                                        <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+                                    </TouchableOpacity>
+                                </View>
+                                <View style={styles.monthGrid}>
+                                    {MONTHS.map((label, index) => {
+                                        const month = `${visibleYear}-${String(index + 1).padStart(2, "0")}`;
+                                        const disabled = month < activeMonthMin || month > activeMonthMax;
+                                        const selected = draftMonthRange?.[editingMonth] === month;
+                                        return (
+                                            <TouchableOpacity
+                                                key={month}
+                                                style={[styles.monthOption, selected && styles.monthOptionSelected]}
+                                                disabled={disabled}
+                                                onPress={() => {
+                                                    let next = { ...draftMonthRange, [editingMonth]: month };
+                                                    if (next.from > next.to) {
+                                                        next = editingMonth === "from"
+                                                            ? { ...next, to: month }
+                                                            : { ...next, from: month };
+                                                    }
+                                                    setDraftMonthRange(next);
+                                                    setDraftDateRange(monthRangeFromSelection(next, datePickerMin, today));
+                                                    setDatePickerStep("form");
+                                                }}
+                                                accessibilityRole="button"
+                                                accessibilityState={{ selected, disabled }}
+                                                accessibilityLabel={`${label} ${visibleYear}`}
+                                            >
+                                                <Text style={[
+                                                    styles.monthOptionText,
+                                                    selected && styles.monthOptionTextSelected,
+                                                    disabled && styles.monthOptionTextDisabled,
+                                                ]}>{label}</Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                                <View style={[styles.datePickerActions, styles.datePickerActionsEnd]}>
+                                    <TouchableOpacity style={styles.datePickerTextButton} onPress={stepBack} accessibilityRole="button">
+                                        <Text style={styles.datePickerCancel}>{t("back")}</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </>
+                        ) : datePickerStep === "months" ? (
+                            <>
+                                <View style={styles.monthPickerHeader}>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.monthPickerArrow,
+                                            !!activeDateBounds.min && visibleYear <= Number(activeDateBounds.min.slice(0, 4)) && styles.controlDisabled,
+                                        ]}
+                                        disabled={!!activeDateBounds.min && visibleYear <= Number(activeDateBounds.min.slice(0, 4))}
+                                        onPress={() => setVisibleMonth(`${visibleYear - 1}-${visibleMonth.slice(5, 7)}-01`)}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={t("growthPreviousYear")}
+                                    >
+                                        <Ionicons name="chevron-back" size={20} color={colors.textSecondary} />
+                                    </TouchableOpacity>
+                                    <Text style={styles.monthPickerTitle}>
+                                        {new Date(`${visibleMonth}T00:00:00`).toLocaleDateString("en-GB", { month: "long", year: "numeric" })}
+                                    </Text>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.monthPickerArrow,
+                                            !!activeDateBounds.max && visibleYear >= Number(activeDateBounds.max.slice(0, 4)) && styles.controlDisabled,
+                                        ]}
+                                        disabled={!!activeDateBounds.max && visibleYear >= Number(activeDateBounds.max.slice(0, 4))}
+                                        onPress={() => setVisibleMonth(`${visibleYear + 1}-${visibleMonth.slice(5, 7)}-01`)}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={t("growthNextYear")}
+                                    >
+                                        <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+                                    </TouchableOpacity>
+                                </View>
+                                <View style={styles.monthGrid}>
+                                    {MONTHS.map((label, index) => {
+                                        const month = `${visibleYear}-${String(index + 1).padStart(2, "0")}`;
+                                        const disabled = (activeDateBounds.min && month < activeDateBounds.min.slice(0, 7))
+                                            || (activeDateBounds.max && month > activeDateBounds.max.slice(0, 7));
+                                        const selected = month === selectedMonth;
+                                        return (
+                                            <TouchableOpacity
+                                                key={month}
+                                                style={[styles.monthOption, selected && styles.monthOptionSelected]}
+                                                disabled={disabled}
+                                                onPress={() => {
+                                                    setVisibleMonth(`${month}-01`);
+                                                    setDatePickerStep("calendar");
+                                                }}
+                                                accessibilityRole="button"
+                                                accessibilityState={{ selected, disabled }}
+                                                accessibilityLabel={`${label} ${visibleYear}`}
+                                            >
+                                                <Text style={[
+                                                    styles.monthOptionText,
+                                                    selected && styles.monthOptionTextSelected,
+                                                    disabled && styles.monthOptionTextDisabled,
+                                                ]}>{label}</Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                                <View style={[styles.datePickerActions, styles.datePickerActionsEnd]}>
+                                    <TouchableOpacity style={styles.datePickerTextButton} onPress={stepBack} accessibilityRole="button">
+                                        <Text style={styles.datePickerCancel}>{t("back")}</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </>
+                        ) : (
+                            <>
+                                <View style={styles.datePickerHeading}>
+                                    <Text style={styles.datePickerTitle}>
+                                        {t(editingYear === "to" ? "growthEndingYear" : "growthStartingYear")}
+                                    </Text>
+                                    <Text style={styles.datePickerRange}>{t("growthChooseYear")}</Text>
+                                </View>
+                                <View style={styles.monthGrid}>
+                                    {yearOptions.map((year) => {
+                                        const disabled = editingYear === "from"
+                                            ? year > draftYearRange.to
+                                            : year < draftYearRange.from;
+                                        const selected = draftYearRange?.[editingYear] === year;
+                                        return (
+                                            <TouchableOpacity
+                                                key={year}
+                                                style={[styles.monthOption, selected && styles.monthOptionSelected]}
+                                                disabled={disabled}
+                                                onPress={() => {
+                                                    const next = { ...draftYearRange, [editingYear]: year };
+                                                    if (next.from > next.to) {
+                                                        if (editingYear === "from") next.to = year;
+                                                        else next.from = year;
+                                                    }
+                                                    setDraftYearRange(next);
+                                                    setDraftDateRange(yearRangeToDates(next));
+                                                    setDatePickerStep("form");
+                                                }}
+                                                accessibilityRole="button"
+                                                accessibilityState={{ selected, disabled }}
+                                                accessibilityLabel={String(year)}
+                                            >
+                                                <Text style={[
+                                                    styles.monthOptionText,
+                                                    selected && styles.monthOptionTextSelected,
+                                                    disabled && styles.monthOptionTextDisabled,
+                                                ]}>{year}</Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                                <View style={[styles.datePickerActions, styles.datePickerActionsEnd]}>
+                                    <TouchableOpacity style={styles.datePickerTextButton} onPress={stepBack} accessibilityRole="button">
+                                        <Text style={styles.datePickerCancel}>{t("back")}</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </>
+                        )}
+                    </TouchableOpacity>
+                </TouchableOpacity>
+            </Modal>
+
             <OptionSheet
                 visible={bandSheetOpen}
                 title="Choose an age"
@@ -1097,6 +1839,39 @@ export default function Growth({
                 onClose={() => setBandSheetOpen(false)}
             />
 
+            <AnchoredMenu
+                visible={metricMenuOpen}
+                anchor={metricMenuAnchor}
+                onClose={() => setMetricMenuOpen(false)}
+                minWidth={Math.min(metricMenuAnchor?.width || 240, 300)}
+            >
+                {METRIC_FILTERS.map((metric) => (
+                    <AnchoredMenuItem
+                        key={metric.key}
+                        label={t(metric.filterLabelKey || metric.labelKey)}
+                        selected={metricKey === metric.key}
+                        leading={
+                            metric.key === "all" ? null : (
+                                <View
+                                    style={[
+                                        styles.metricDot,
+                                        { backgroundColor: colors.growthMetric[metric.key] },
+                                    ]}
+                                />
+                            )
+                        }
+                        onPress={() => {
+                            setMetricKey(metric.key);
+                            setMetricMenuOpen(false);
+                        }}
+                        accessibilityLabel={t("growthShowChart").replace(
+                            "{metric}",
+                            t(metric.labelKey),
+                        )}
+                    />
+                ))}
+            </AnchoredMenu>
+
             {/* One form for both kinds. `milestones` feeds its suggestion
                 chips, which offer only checklist items this child has not
                 recorded yet — so tapping one cannot create a duplicate. */}
@@ -1105,17 +1880,13 @@ export default function Growth({
                 profile={profile}
                 milestones={mstones}
                 onClose={() => setShowAddMemory(false)}
-                onSaved={(record, kind) =>
-                    kind === "milestone"
-                        ? setMstones((prev) => [record, ...prev])
-                        : setMemories((prev) => [record, ...prev])
-                }
+                onSaved={() => {}}
             />
         </Animated.ScrollView>
     );
 }
 
-const makeStyles = (colors) => StyleSheet.create({
+const makeStyles = (colors, cardForeground) => StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: "transparent", // lets App.js's page gradient show through
@@ -1251,53 +2022,21 @@ const makeStyles = (colors) => StyleSheet.create({
     checkBtnActive: {
         backgroundColor: colors.primary,
     },
-    addApptBtn: {
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: colors.accentStrong,
-        borderRadius: radius.md,
-        borderCurve: "continuous",
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-    },
-    addApptBtnText: {
-        ...type.label,
-        color: "#FFFFFF",
-    },
-    lastMeasured: {
-        ...type.caption,
-        color: colors.textMuted,
-        marginTop: -8,
-        marginBottom: 16,
-    },
-    rowActions: { flexDirection: "row", alignItems: "center", gap: space.xs },
-    rowIconBtn: {
-        width: MIN_TOUCH,
-        height: MIN_TOUCH,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    confirmDeleteBtn: {
-        minHeight: MIN_TOUCH,
-        justifyContent: "center",
-        paddingHorizontal: space.md,
-        borderRadius: radius.pill,
-        borderCurve: "continuous",
-        backgroundColor: colors.dangerBg,
-        borderWidth: 1,
-        borderColor: colors.danger,
-    },
-    confirmDeleteText: { ...type.caption, fontWeight: "800", color: colors.danger },
-    readingPrev: { ...type.caption, color: colors.textMuted, marginTop: space.xs },
     metricsHeaderBox: {
-        flexDirection: "row",
-        backgroundColor: colors.surfaceAlt,
         borderRadius: radius.md,
         borderCurve: "continuous",
         padding: 16,
-        alignItems: "center",
         marginBottom: 16,
     },
+    metricsHeaderHeading: {
+        flexDirection: "row",
+        alignItems: "baseline",
+        justifyContent: "space-between",
+        gap: space.sm,
+        marginBottom: space.md,
+    },
+    metricsHeaderTitle: { ...type.bodyStrong, color: cardForeground, flexShrink: 1 },
+    metricsHeaderRow: { flexDirection: "row", alignItems: "stretch" },
     metricsHeaderCol: {
         // Longhand, and minWidth: 0 explicitly. Three columns in a row is
         // the exact shape both react-native-web flex traps live in --
@@ -1311,41 +2050,308 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     metricsHeaderLabel: {
         ...type.subheading,
-        color: colors.textMuted,
+        color: cardForeground,
+        opacity: 0.95,
     },
     metricsHeaderValue: {
         ...type.heading,
-        color: colors.primary,
+        color: cardForeground,
         marginTop: 4,
+        fontVariant: ["tabular-nums"],
+    },
+    metricsHeaderUnit: { ...type.caption, color: cardForeground, opacity: 0.95 },
+    metricsHeaderDate: {
+        ...type.caption,
+        fontFamily: "PublicSans_400Regular",
+        fontWeight: "400",
+        color: cardForeground,
+        opacity: 0.95,
+        flexShrink: 0,
+        textAlign: "right",
+    },
+    metricsHeaderEmpty: {
+        ...type.caption,
+        color: cardForeground,
+        opacity: 0.95,
+        textAlign: "center",
+        marginTop: space.sm,
     },
     metricsHeaderDivider: {
         width: 1,
         height: "100%",
-        backgroundColor: colors.border,
+        backgroundColor: cardForeground + "33",
     },
-    metricSwitch: {
+    chartControls: {
         flexDirection: "row",
-        flexWrap: "wrap",
-        gap: 8,
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: space.sm,
         marginBottom: 12,
     },
-    metricChip: {
+    dateSelect: {
         minHeight: MIN_TOUCH,
-        justifyContent: "center",
-        paddingHorizontal: 14,
-        paddingVertical: 7,
-        borderRadius: radius.pill,
-        borderCurve: "continuous",
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.xs,
+        flex: 1,
+        minWidth: 0,
+        paddingHorizontal: space.sm,
         borderWidth: 1,
         borderColor: colors.border,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
         backgroundColor: colors.surface,
     },
-    metricChipOn: {
-        backgroundColor: colors.softGreen,
+    dateSelectText: { ...type.label, color: colors.text, flexShrink: 1 },
+    metricSelect: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        minHeight: MIN_TOUCH,
+        paddingHorizontal: space.md,
+        borderWidth: 1,
         borderColor: colors.primary,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
+        backgroundColor: colors.surface,
+        flex: 1,
+        minWidth: 0,
     },
-    metricChipText: { ...type.label, color: colors.textMuted },
-    metricChipTextOn: { color: colors.primaryDark },
+    metricSelectValue: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.sm,
+        flex: 1,
+        minWidth: 0,
+    },
+    metricSelectText: { ...type.body, flexShrink: 1, color: colors.text },
+    metricDot: { width: 8, height: 8, borderRadius: 4 },
+    chartHelp: { ...type.body, color: colors.textSecondary, marginBottom: space.md },
+    allCharts: { gap: space.md },
+    allChart: { paddingTop: space.sm },
+    allChartDivider: {
+        borderTopWidth: 1,
+        borderTopColor: colors.hairline,
+        paddingTop: space.lg,
+    },
+    allChartTitleRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.xs,
+        paddingBottom: space.xs,
+    },
+    allChartTitle: { ...type.bodyStrong, color: colors.text },
+    allChartLatest: {
+        ...type.caption,
+        color: colors.textMuted,
+        fontVariant: ["tabular-nums"],
+    },
+    detailBackdrop: {
+        flex: 1,
+        justifyContent: "flex-end",
+        backgroundColor: "rgba(0,0,0,0.48)",
+    },
+    detailSheet: {
+        width: "100%",
+        maxHeight: "86%",
+        paddingHorizontal: space.lg,
+        paddingBottom: space.xl,
+        borderTopLeftRadius: radius.xl,
+        borderTopRightRadius: radius.xl,
+        borderCurve: "continuous",
+        backgroundColor: colors.surface,
+        ...shadow.raised,
+    },
+    detailGrabber: {
+        width: 42,
+        height: 4,
+        alignSelf: "center",
+        marginTop: space.sm,
+        marginBottom: space.md,
+        borderRadius: radius.pill,
+        backgroundColor: colors.border,
+    },
+    detailHeader: {
+        flexDirection: "row",
+        alignItems: "flex-start",
+        justifyContent: "space-between",
+        gap: space.md,
+        marginBottom: space.md,
+    },
+    detailHeading: { flex: 1, minWidth: 0 },
+    detailTitle: { ...type.heading, color: colors.text },
+    detailSubtitle: { ...type.caption, color: colors.textMuted, marginTop: 2 },
+    detailClose: {
+        width: MIN_TOUCH,
+        height: MIN_TOUCH,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    detailGrid: {
+        borderWidth: 1,
+        borderColor: colors.hairline,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
+        overflow: "hidden",
+    },
+    detailRow: {
+        flexDirection: "row",
+        alignItems: "flex-start",
+        justifyContent: "space-between",
+        gap: space.lg,
+        paddingHorizontal: space.md,
+        paddingVertical: space.sm,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.hairline,
+    },
+    detailLabel: { ...type.caption, color: colors.textMuted, flexShrink: 0 },
+    detailValue: { ...type.body, color: colors.text, textAlign: "right", flex: 1 },
+    detailActions: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.sm,
+        marginTop: space.lg,
+    },
+    detailAction: { flex: 1 },
+    deleteConfirmBox: {
+        marginTop: space.lg,
+        padding: space.md,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
+        backgroundColor: colors.dangerBg,
+        borderWidth: 1,
+        borderColor: colors.danger,
+    },
+    deleteConfirmText: { ...type.bodyStrong, color: colors.danger },
+    datePickerBackdrop: {
+        flex: 1,
+        justifyContent: "center",
+        padding: space.lg,
+        backgroundColor: "rgba(0,0,0,0.48)",
+    },
+    datePickerCard: {
+        width: "100%",
+        maxWidth: 380,
+        alignSelf: "center",
+        padding: space.md,
+        borderRadius: radius.xl,
+        borderCurve: "continuous",
+        backgroundColor: colors.surface,
+        ...shadow.raised,
+    },
+    datePickerHeading: { paddingHorizontal: space.sm, paddingTop: space.sm, gap: 2 },
+    datePickerTitle: { ...type.heading, color: colors.text },
+    datePickerRange: { ...type.caption, color: colors.textMuted, minHeight: 18 },
+    dateForm: { gap: space.md, paddingHorizontal: space.sm, paddingVertical: space.lg },
+    quickActions: { gap: space.sm, paddingBottom: space.xs },
+    quickActionsTitle: { ...type.label, color: colors.textSecondary },
+    quickActionChips: {
+        flexDirection: "row",
+        gap: space.xs,
+    },
+    quickActionChip: {
+        height: 36,
+        flexGrow: 1,
+        flexShrink: 1,
+        flexBasis: 0,
+        minWidth: 0,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: space.xs,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radius.pill,
+        backgroundColor: colors.surface,
+    },
+    quickActionChipSelected: {
+        borderColor: colors.primary,
+        backgroundColor: colors.primarySoft,
+    },
+    quickActionText: { ...type.caption, color: colors.textSecondary, textAlign: "center" },
+    quickActionTextSelected: { color: colors.primaryDark },
+    dateFieldGroup: { gap: space.xs },
+    dateFieldLabel: { ...type.label, color: colors.textSecondary },
+    dateField: {
+        minHeight: 48,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: space.sm,
+        paddingHorizontal: space.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
+        backgroundColor: colors.surfaceAlt,
+    },
+    dateFieldText: { ...type.body, color: colors.text, flexShrink: 1 },
+    dateFieldPlaceholder: { color: colors.placeholder },
+    calendarMonthButton: {
+        minHeight: MIN_TOUCH,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: space.xs,
+        paddingHorizontal: space.sm,
+    },
+    calendarMonthText: { ...type.label, color: colors.text },
+    datePickerActions: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: space.sm,
+        paddingTop: space.sm,
+    },
+    datePickerActionsEnd: { justifyContent: "flex-end" },
+    datePickerRightActions: { flexDirection: "row", alignItems: "center", gap: space.xs },
+    datePickerTextButton: { minHeight: MIN_TOUCH, justifyContent: "center", paddingHorizontal: space.sm },
+    datePickerCancel: { ...type.label, color: colors.textSecondary },
+    datePickerApply: {
+        minHeight: MIN_TOUCH,
+        justifyContent: "center",
+        paddingHorizontal: space.lg,
+        borderRadius: radius.pill,
+        backgroundColor: colors.primary,
+    },
+    datePickerApplyLabel: { ...type.label, color: colors.onPrimary },
+    datePickerApplyDisabled: { opacity: 0.45 },
+    monthPickerHeader: {
+        minHeight: 56,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        paddingHorizontal: space.xs,
+    },
+    monthPickerArrow: {
+        width: MIN_TOUCH,
+        height: MIN_TOUCH,
+        alignItems: "center",
+        justifyContent: "center",
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radius.md,
+        borderCurve: "continuous",
+    },
+    controlDisabled: { opacity: 0.35 },
+    monthPickerTitle: { ...type.label, color: colors.text },
+    monthGrid: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        paddingVertical: space.md,
+    },
+    monthOption: {
+        width: "33.333%",
+        minHeight: 52,
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: radius.md,
+        borderCurve: "continuous",
+    },
+    weekOption: { width: "50%" },
+    monthOptionSelected: { backgroundColor: colors.primary },
+    monthOptionText: { ...type.label, color: colors.textSecondary },
+    monthOptionTextSelected: { color: colors.onPrimary },
+    monthOptionTextDisabled: { color: colors.placeholder, opacity: 0.55 },
 
     // Gallery tab
     addBtn: {
@@ -1376,25 +2382,6 @@ const makeStyles = (colors) => StyleSheet.create({
     galleryMonth: { ...type.subheading, color: colors.textMuted, marginTop: space.sm, marginBottom: space.sm },
     galleryGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
     galleryTile: { width: "48%" },
-    readingBox: {
-        marginTop: 14,
-        padding: 14,
-        borderRadius: radius.lg,
-        borderCurve: "continuous",
-        backgroundColor: colors.surfaceAlt,
-        borderWidth: 1,
-        borderColor: colors.hairline,
-    },
-    readingTop: {
-        flexDirection: "row",
-        alignItems: "baseline",
-        justifyContent: "space-between",
-        gap: 8,
-        marginBottom: 4,
-    },
-    readingValue: { ...type.title, color: colors.text },
-    readingPct: { ...type.bodyStrong, color: colors.primary },
-    readingText: { ...type.bodyStrong, color: colors.textSecondary },
     promptBox: {
         flexDirection: "row",
         gap: 10,

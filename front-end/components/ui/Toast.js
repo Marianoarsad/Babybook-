@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useCallback, useMemo, useRef, useState } from "react";
+import React, { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Text, View, StyleSheet, Easing, Modal, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { radius, space, shadow, type } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
+import { useDatabaseLoading } from "../../context/DatabaseLoadingContext";
 
 // Guarded expo-haptics, same pattern as ui/Button.js — a no-op if the
 // module isn't available rather than a crash.
@@ -58,6 +59,10 @@ export function useToast() {
 
 export function ToastProvider({ children }) {
     const { colors } = useTheme();
+    const { busy } = useDatabaseLoading();
+    const busyRef = useRef(busy);
+    busyRef.current = busy;
+    const pendingToasts = useRef([]);
     // KIND must be built from the live palette, not the static default — a
     // toast previously always rendered girl-pink regardless of the selected
     // child's theme because this read the module-scope `colors` import.
@@ -78,11 +83,15 @@ export function ToastProvider({ children }) {
         Animated.parallel([
             Animated.timing(opacity, { toValue: 0, duration: 180, useNativeDriver: true }),
             Animated.timing(translateY, { toValue: 20, duration: 180, useNativeDriver: true }),
-        ]).start(() => setToast(null));
+        ]).start(({ finished }) => { if (finished) setToast(null); });
     }, [opacity, translateY]);
 
     const show = useCallback(
         (message, kind = "info", duration = 2600) => {
+            if (busyRef.current) {
+                pendingToasts.current.push({ message, kind, duration });
+                return;
+            }
             if (hideTimer.current) clearTimeout(hideTimer.current);
             if (Haptics && Haptics.notificationAsync) {
                 const feedback =
@@ -93,7 +102,7 @@ export function ToastProvider({ children }) {
                           : null;
                 if (feedback) Haptics.notificationAsync(feedback).catch(() => {});
             }
-            setToast({ message, kind });
+            setToast({ message, kind, duration });
             opacity.setValue(0);
             translateY.setValue(20);
             Animated.parallel([
@@ -109,6 +118,22 @@ export function ToastProvider({ children }) {
         },
         [opacity, translateY, hide]
     );
+
+    useEffect(() => {
+        if (busy) {
+            clearTimeout(hideTimer.current);
+            opacity.stopAnimation();
+            translateY.stopAnimation();
+            if (toast) {
+                pendingToasts.current.unshift({ ...toast, duration: toast.duration ?? 2600 });
+                setToast(null);
+            }
+        } else if (!toast && pendingToasts.current.length) {
+            const next = pendingToasts.current.shift();
+            show(next.message, next.kind, next.duration);
+        }
+    }, [busy, toast, show, opacity, translateY]);
+    useEffect(() => () => clearTimeout(hideTimer.current), []);
 
     const api = {
         show,
@@ -134,7 +159,7 @@ export function ToastProvider({ children }) {
     ) : null;
 
     let overlayNode = null;
-    if (toast) {
+    if (toast && !busy) {
         if (Platform.OS === "web") {
             overlayNode =
                 createPortal && typeof document !== "undefined"

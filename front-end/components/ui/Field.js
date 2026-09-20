@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { radius, space, type, MIN_TOUCH } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
+import { useRecordForm } from "./RecordFormSheet";
 
 // Accessible labelled text field with inline error + helper text.
 // Replaces bare TextInputs and alert()-based validation.
@@ -28,25 +29,32 @@ export default function Field({
     textContentType,
     inputMode,
     maxLength,
+    editable = true,
     // Suppresses the reveal control on a secure field. The sign-in password box
     // does not need it — you are typing a string you already know — while a
     // confirm box on a signup form very much does.
     hideReveal = false,
 }) {
     const { colors } = useTheme();
+    const recordForm = useRecordForm();
+    const [fieldWidth, setFieldWidth] = useState(0);
+    const row = recordForm && !multiline && (fieldWidth === 0 || fieldWidth >= 280);
     // A secure field a parent cannot read is how a mismatch between Password
     // and Confirm survives to the submit button. Starts hidden, always.
     const [revealed, setRevealed] = useState(false);
     const canReveal = !!secureTextEntry && !hideReveal;
 
     return (
-        <View style={[{ gap: space.xs, marginBottom: space.md }, style]}>
+        <View onLayout={recordForm ? (event) => setFieldWidth(event.nativeEvent.layout.width) : undefined}
+            style={[{ gap: recordForm ? space.sm : space.xs, marginBottom: space.md },
+                recordForm && { flexDirection: row ? "row" : "column", flexWrap: "wrap", alignItems: row ? "center" : "stretch",
+                    paddingVertical: space.sm, borderBottomWidth: 0.5, borderBottomColor: colors.hairline }, style]}>
             {label ? (
-                <Text style={{ ...type.label, color: colors.textSecondary }}>
+                <Text style={{ ...type.label, color: recordForm ? colors.text : colors.textSecondary, ...(row ? { flex: 1 } : {}) }}>
                     {label}
                 </Text>
             ) : null}
-            <View style={{ justifyContent: "center" }}>
+            <View style={{ justifyContent: "center", ...(row ? { flex: 1.35, minWidth: 0 } : {}) }}>
                 <TextInput
                     value={value}
                     onChangeText={onChangeText}
@@ -60,15 +68,16 @@ export default function Field({
                     textContentType={textContentType}
                     inputMode={inputMode}
                     maxLength={maxLength}
+                    editable={editable}
                     accessibilityLabel={label}
                     style={{
                         minHeight: 52,
                         backgroundColor: colors.surfaceAlt,
-                        borderWidth: 1,
+                        borderWidth: recordForm && !error ? 0 : 1,
                         borderColor: error ? colors.danger : colors.border,
                         borderRadius: radius.lg,
                         borderCurve: "continuous",
-                        paddingLeft: space.lg,
+                        paddingLeft: recordForm ? space.md : space.lg,
                         // Room for the reveal button so a long password never
                         // runs underneath it.
                         paddingRight: canReveal ? MIN_TOUCH + space.xs : space.lg,
@@ -76,6 +85,7 @@ export default function Field({
                         fontSize: type.body.fontSize,
                         fontFamily: type.body.fontFamily,
                         color: colors.text,
+                        opacity: editable ? 1 : 0.72,
                         textAlignVertical: multiline ? "top" : "center",
                     }}
                 />
@@ -104,11 +114,11 @@ export default function Field({
                 ) : null}
             </View>
             {error ? (
-                <Text selectable style={{ ...type.caption, color: colors.danger }}>
+                <Text selectable style={{ ...type.caption, color: colors.danger, ...(row ? { flexBasis: "100%" } : {}) }}>
                     {error}
                 </Text>
             ) : helper ? (
-                <Text style={{ ...type.caption, color: colors.textMuted }}>{helper}</Text>
+                <Text style={{ ...type.caption, color: colors.textMuted, ...(row ? { flexBasis: "100%" } : {}) }}>{helper}</Text>
             ) : null}
         </View>
     );

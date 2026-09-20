@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Animated } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SectionContainerCard } from "../common/Cards";
 import { api } from "../../utils/api";
@@ -11,6 +11,7 @@ import { SkeletonBlock } from "../ui/Skeleton";
 import { space, radius, type, shadow, MIN_TOUCH } from "../../theme";
 import { exportChildRecordsPdf, pdfExportAvailable } from "../../utils/exportPdf";
 import { CATEGORY_LABELS } from "../../utils/pdfTemplate";
+import PulseLoader from "../ui/PulseLoader";
 
 // Consent status/retention + the existing withdraw-and-delete flow, surfaced
 // as its own destination instead of only appearing in the annual reminder.
@@ -27,6 +28,7 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
     const [loading, setLoading] = useState(true);
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [renewing, setRenewing] = useState(false);
+    const [deleting, setDeleting] = useState(false);
 
     const exportKeys = Object.keys(CATEGORY_LABELS);
     const [exportSelected, setExportSelected] = useState(() => new Set(exportKeys));
@@ -86,11 +88,15 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
     };
 
     const handleDelete = async () => {
+        if (deleting) return;
+        setDeleting(true);
         try {
             await api.deleteAccount();
             onAccountDeleted && onAccountDeleted();
         } catch (e) {
             toast.error(e.message || "Could not delete account");
+        } finally {
+            setDeleting(false);
         }
     };
 
@@ -165,8 +171,9 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
                     disabled={renewing || loading}
                     accessibilityRole="button"
                     accessibilityLabel="Renew data retention for another year"
+                    accessibilityState={{ disabled: renewing || loading, busy: renewing }}
                 >
-                    <Text style={styles.renewBtnText}>Renew data retention for another year</Text>
+                    {(<Text style={styles.renewBtnText}>Renew data retention for another year</Text>)}
                 </TouchableOpacity>
             </SectionContainerCard>
 
@@ -203,7 +210,7 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
                             accessibilityLabel="Export selected records as PDF"
                         >
                             {exporting ? (
-                                <ActivityIndicator color={colors.onAccent} />
+                                <PulseLoader color={colors.onAccent} />
                             ) : (
                                 <Text style={styles.renewBtnText}>Export as PDF</Text>
                             )}
@@ -244,14 +251,17 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
                         <TouchableOpacity
                             onPress={handleDelete}
                             style={styles.deleteBtn}
+                            disabled={deleting}
                             accessibilityRole="button"
                             accessibilityLabel="Permanently delete everything"
+                            accessibilityState={{ disabled: deleting, busy: deleting }}
                         >
-                            <Text style={styles.deleteBtnText}>Permanently delete everything</Text>
+                            {(<Text style={styles.deleteBtnText}>Permanently delete everything</Text>)}
                         </TouchableOpacity>
                         <TouchableOpacity
                             onPress={() => setConfirmDelete(false)}
                             style={styles.cancelBtn}
+                            disabled={deleting}
                             accessibilityRole="button"
                             accessibilityLabel="Go back"
                         >

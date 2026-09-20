@@ -3,7 +3,6 @@ import {
     View,
     Text,
     StyleSheet,
-    Modal,
     ScrollView,
     Pressable,
     TouchableOpacity,
@@ -11,6 +10,7 @@ import {
     Easing,
     useWindowDimensions,
 } from "react-native";
+import Modal from "./AppModal";
 import { Ionicons } from "@expo/vector-icons";
 import { radius, space, shadow, type, motion, MIN_TOUCH } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";

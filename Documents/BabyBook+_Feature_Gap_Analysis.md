@@ -78,7 +78,7 @@ This is also, not coincidentally, a natural paid feature.
 
 ### Moment 7 — At the health center
 
-The offline summary shortcut is there and works. The full offline mode is not. Already covered in the roadmap as Stage 2.
+The Offline Summary shortcut was removed in September 2026, including its device-local snapshots. Session caching still supports fast screen loading, but does not provide full offline mode across app restarts. Full offline mode remains covered in the roadmap as Stage 2.
 
 ### Moment 8 — Paying
 
