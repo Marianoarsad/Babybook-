@@ -1,5 +1,6 @@
 const { query } = require("../db/pool");
 const { encrypt, decrypt, decryptRow, isEncrypted } = require("./crypto");
+const { formatEmergencyContact } = require("./emergencyContact");
 
 // Record keys the parent can choose to share (mirrors the app's labels).
 const RECORD_LABELS = {
@@ -45,7 +46,7 @@ async function buildSnapshot(child, keys, visitReason) {
             hospital: decrypt(child.hospital),
             pediatrician: decrypt(child.pediatrician_name),
             obgyne: decrypt(child.obgyne_name),
-            emergencyContact: decrypt(child.emergency_contact),
+            emergencyContact: formatEmergencyContact(decrypt(child.emergency_contact)),
         };
     }
 

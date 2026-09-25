@@ -1,15 +1,30 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import Modal from "./AppModal";
 import { Ionicons } from "@expo/vector-icons";
-import { Calendar } from "react-native-calendars";
 import { MIN_TOUCH, radius, shadow, space, type } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
 import { useRecordForm } from "./RecordFormSheet";
 import { shortDate, todayLocal } from "../../utils/dates";
-import { timeParts, timeValue } from "../../utils/pickers";
+import {
+    pickerDateParts,
+    pickerDateValue,
+    pickerYears,
+    timeParts,
+    timeValue,
+} from "../../utils/pickers";
+import numericInput from "../../utils/numericInput.cjs";
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"];
+const {
+    measurementFractions,
+    measurementParts,
+    measurementValue,
+    measurementWholeValues,
+} = numericInput;
+
+const MONTHS = Array.from({ length: 12 }, (_, month) =>
+    new Date(2026, month, 1).toLocaleDateString(undefined, { month: "long" }),
+);
 const pad = (value) => String(value).padStart(2, "0");
 
 function clampDate(value, minimumDate, maximumDate) {
@@ -19,33 +34,79 @@ function clampDate(value, minimumDate, maximumDate) {
     return fallback;
 }
 
-function WheelColumn({ values, value, onChange, format = String, label, styles }) {
+function WheelColumn({ values, value, onChange, format = String, label, styles, compact = false, weight = 1, active }) {
     const index = Math.max(0, values.indexOf(value));
+    const itemHeight = compact ? 44 : 64;
+    const scrollRef = useRef(null);
+    const draggingRef = useRef(false);
+    const offsetRef = useRef(index * itemHeight);
+    const settleTimer = useRef(null);
+    const clearSettle = () => {
+        if (settleTimer.current) clearTimeout(settleTimer.current);
+        settleTimer.current = null;
+    };
+    const selectAtOffset = (offset = offsetRef.current) => {
+        const nextIndex = Math.max(0, Math.min(values.length - 1, Math.round(offset / itemHeight)));
+        if (values[nextIndex] !== value) onChange(values[nextIndex]);
+    };
+    const scheduleSelection = () => {
+        clearSettle();
+        settleTimer.current = setTimeout(selectAtOffset, 100);
+    };
+    const scrollToValue = () => {
+        if (active) scrollRef.current?.scrollTo({ x: 0, y: index * itemHeight, animated: false });
+    };
+    useEffect(scrollToValue, [active, index, itemHeight]);
+    useEffect(() => () => clearSettle(), []);
     return (
-        <View style={styles.wheelColumn} accessibilityLabel={label}>
+        <View style={[styles.wheelColumn, compact && styles.dateWheelColumn, { flex: weight }]} accessibilityLabel={label}>
             <ScrollView
-                key={`${label}-${value}`}
-                style={styles.wheelScroll}
-                contentContainerStyle={styles.wheelContent}
+                ref={scrollRef}
+                style={[styles.wheelScroll, compact && styles.dateWheelScroll]}
+                contentContainerStyle={[styles.wheelContent, compact && styles.dateWheelContent]}
                 showsVerticalScrollIndicator={false}
-                snapToInterval={64}
+                snapToInterval={itemHeight}
                 decelerationRate="fast"
-                contentOffset={{ x: 0, y: index * 64 }}
+                onLayout={scrollToValue}
+                scrollEventThrottle={16}
+                onScroll={({ nativeEvent }) => {
+                    offsetRef.current = nativeEvent.contentOffset.y;
+                    if (!draggingRef.current) scheduleSelection();
+                }}
+                onScrollBeginDrag={() => {
+                    draggingRef.current = true;
+                    clearSettle();
+                }}
+                onScrollEndDrag={({ nativeEvent }) => {
+                    draggingRef.current = false;
+                    offsetRef.current = nativeEvent.contentOffset.y;
+                    scheduleSelection();
+                }}
+                onMomentumScrollBegin={clearSettle}
                 onMomentumScrollEnd={({ nativeEvent }) => {
-                    const nextIndex = Math.max(0, Math.min(values.length - 1, Math.round(nativeEvent.contentOffset.y / 64)));
-                    onChange(values[nextIndex]);
+                    clearSettle();
+                    offsetRef.current = nativeEvent.contentOffset.y;
+                    selectAtOffset();
                 }}
             >
-                {values.map((item) => (
+                {values.map((item, itemIndex) => (
                     <TouchableOpacity
-                        key={item}
-                        style={[styles.wheelItem, item === value && styles.wheelItemSelected]}
-                        onPress={() => onChange(item)}
+                        key={item == null ? `empty-${itemIndex}` : item}
+                        style={[
+                            styles.wheelItem,
+                            compact && styles.dateWheelItem,
+                        ]}
+                        onPress={() => item !== value && onChange(item)}
                         accessibilityRole="button"
                         accessibilityLabel={`${label} ${format(item)}`}
                         accessibilityState={{ selected: item === value }}
                     >
-                        <Text style={[styles.wheelText, item !== value && styles.wheelTextMuted]}>{format(item)}</Text>
+                        <Text style={[
+                            styles.wheelText,
+                            compact && styles.dateWheelText,
+                            compact && item === value && styles.dateWheelTextSelected,
+                            item !== value && styles.wheelTextMuted,
+                        ]}>{format(item)}</Text>
                     </TouchableOpacity>
                 ))}
             </ScrollView>
@@ -59,6 +120,72 @@ function TextButton({ label, onPress, styles }) {
 
 function PrimaryButton({ label, onPress, styles }) {
     return <TouchableOpacity style={styles.primaryButton} onPress={onPress} accessibilityRole="button"><Text style={styles.primaryButtonLabel}>{label}</Text></TouchableOpacity>;
+}
+
+export function DateWheelPicker({
+    visible,
+    value,
+    onChange,
+    onClose,
+    minimumDate,
+    maximumDate,
+    accessibilityLabel = "Choose date",
+}) {
+    const { colors } = useTheme();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
+    const [draft, setDraft] = useState(() => clampDate(value, minimumDate, maximumDate));
+
+    useEffect(() => {
+        if (visible) setDraft(clampDate(value, minimumDate, maximumDate));
+    }, [visible, value, minimumDate, maximumDate]);
+
+    const parts = pickerDateParts(draft, todayLocal());
+    const years = pickerYears(draft, minimumDate, maximumDate);
+    const days = Array.from(
+        { length: new Date(parts.year, parts.month, 0).getDate() },
+        (_, index) => index + 1,
+    );
+    const choose = (part, selected) => {
+        const next = pickerDateValue({ ...parts, [part]: selected }, minimumDate, maximumDate);
+        setDraft(next);
+    };
+
+    return (
+        <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+            <TouchableOpacity
+                activeOpacity={1}
+                style={styles.datePickerBackdrop}
+                onPress={onClose}
+                accessibilityRole="button"
+                accessibilityLabel="Close date picker"
+            >
+                <TouchableOpacity
+                    activeOpacity={1}
+                    style={styles.card}
+                    onPress={() => {}}
+                    accessibilityViewIsModal
+                    accessibilityLabel={accessibilityLabel}
+                >
+                    <View style={styles.heading}>
+                        <Text style={styles.title}>{accessibilityLabel}</Text>
+                        <Text style={styles.subtitle}>{shortDate(draft)}</Text>
+                    </View>
+                    <View style={styles.dateWheels}>
+                        <View pointerEvents="none" style={[styles.selectionBand, styles.compactSelectionBand]} />
+                        <WheelColumn values={days} value={parts.day} onChange={(day) => choose("day", day)} label="Day" styles={styles} compact weight={0.7} active={visible} />
+                        <WheelColumn values={MONTHS.map((_, index) => index + 1)} value={parts.month} onChange={(month) => choose("month", month)} format={(month) => MONTHS[month - 1]} label="Month" styles={styles} compact weight={1.45} active={visible} />
+                        <WheelColumn values={years} value={parts.year} onChange={(year) => choose("year", year)} label="Year" styles={styles} compact active={visible} />
+                    </View>
+                    <View style={styles.actionsEnd}>
+                        <View style={styles.actionGroup}>
+                            <TextButton label="Cancel" onPress={onClose} styles={styles} />
+                            <PrimaryButton label="Done" onPress={() => { onChange(draft); onClose(); }} styles={styles} />
+                        </View>
+                    </View>
+                </TouchableOpacity>
+            </TouchableOpacity>
+        </Modal>
+    );
 }
 
 function formatTime(value) {
@@ -81,9 +208,7 @@ function PickerField({
     const recordForm = useRecordForm();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const [open, setOpen] = useState(false);
-    const [step, setStep] = useState("calendar");
     const [pendingDate, setPendingDate] = useState("");
-    const [visibleMonth, setVisibleMonth] = useState(todayLocal());
     const [pendingTime, setPendingTime] = useState(timeParts(value));
 
     const openPicker = () => {
@@ -91,29 +216,9 @@ function PickerField({
         else {
             const initial = clampDate(value, minimumDate, maximumDate);
             setPendingDate(initial);
-            setVisibleMonth(`${initial.slice(0, 7)}-01`);
-            setStep("calendar");
         }
         setOpen(true);
     };
-
-    const calendarTheme = useMemo(() => ({
-        calendarBackground: colors.surface,
-        textSectionTitleColor: colors.textMuted,
-        selectedDayBackgroundColor: colors.primary,
-        selectedDayTextColor: colors.onPrimary,
-        todayTextColor: colors.primary,
-        dayTextColor: colors.text,
-        textDisabledColor: colors.border,
-        arrowColor: colors.primary,
-        monthTextColor: colors.text,
-        textMonthFontWeight: "800",
-        textDayFontWeight: "600",
-        textDayHeaderFontWeight: "700",
-    }), [colors]);
-
-    const year = Number(visibleMonth.slice(0, 4));
-    const selectedMonth = visibleMonth.slice(0, 7);
     const hours = Array.from({ length: 12 }, (_, index) => index + 1);
     const minutes = Array.from({ length: 60 }, (_, index) => index);
 
@@ -130,59 +235,129 @@ function PickerField({
             </TouchableOpacity>
             {helper ? <Text style={[styles.helper, recordForm && { flexBasis: "100%" }]}>{helper}</Text> : null}
 
-            <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+            <Modal visible={open && mode === "time"} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
                 <TouchableOpacity activeOpacity={1} style={styles.backdrop} onPress={() => setOpen(false)}>
                     <TouchableOpacity activeOpacity={1} style={styles.card} onPress={() => {}}>
-                        {mode === "time" ? (
-                            <>
-                                <View style={styles.heading}><Text style={styles.title}>{label || "Select time"}</Text><Text style={styles.subtitle}>{formatTime(timeValue(pendingTime))}</Text></View>
-                                <View style={styles.wheels}>
-                                    <WheelColumn values={["AM", "PM"]} value={pendingTime.period} onChange={(period) => setPendingTime((v) => ({ ...v, period }))} label="Period" styles={styles} />
-                                    <WheelColumn values={hours} value={pendingTime.hour} onChange={(hour) => setPendingTime((v) => ({ ...v, hour }))} format={pad} label="Hour" styles={styles} />
-                                    <WheelColumn values={minutes} value={pendingTime.minute} onChange={(minute) => setPendingTime((v) => ({ ...v, minute }))} format={pad} label="Minute" styles={styles} />
-                                </View>
-                                <View style={styles.actionsEnd}>
-                                    <View style={styles.actionGroup}><TextButton label="Cancel" onPress={() => setOpen(false)} styles={styles} /><PrimaryButton label="Done" onPress={() => { onChange(timeValue(pendingTime)); setOpen(false); }} styles={styles} /></View>
-                                </View>
-                            </>
-                        ) : step === "calendar" ? (
-                            <>
-                                <View style={styles.heading}><Text style={styles.title}>{label || "Select date"}</Text><Text style={styles.subtitle}>{shortDate(pendingDate)}</Text></View>
-                                <Calendar
-                                    key={visibleMonth}
-                                    current={visibleMonth}
-                                    minDate={minimumDate || undefined}
-                                    maxDate={maximumDate || undefined}
-                                    markedDates={{ [pendingDate]: { selected: true, selectedColor: colors.primary, selectedTextColor: colors.onPrimary } }}
-                                    theme={calendarTheme}
-                                    disableArrowLeft={!!minimumDate && selectedMonth <= minimumDate.slice(0, 7)}
-                                    disableArrowRight={!!maximumDate && selectedMonth >= maximumDate.slice(0, 7)}
-                                    onMonthChange={({ dateString }) => setVisibleMonth(`${dateString.slice(0, 7)}-01`)}
-                                    renderHeader={(month) => <TouchableOpacity style={styles.monthHeader} onPress={() => setStep("months")} accessibilityRole="button" accessibilityLabel="Choose month"><Text style={styles.monthHeaderText}>{month?.toString("MMMM yyyy")}</Text><Ionicons name="chevron-down" size={16} color={colors.textSecondary} /></TouchableOpacity>}
-                                    onDayPress={({ dateString }) => setPendingDate(dateString)}
+                        <View style={styles.heading}><Text style={styles.title}>{label || "Select time"}</Text><Text style={styles.subtitle}>{formatTime(timeValue(pendingTime))}</Text></View>
+                        <View style={styles.wheels}>
+                            <View pointerEvents="none" style={[styles.selectionBand, styles.regularSelectionBand]} />
+                            <WheelColumn values={["AM", "PM"]} value={pendingTime.period} onChange={(period) => setPendingTime((v) => ({ ...v, period }))} label="Period" styles={styles} active={open && mode === "time"} />
+                            <WheelColumn values={hours} value={pendingTime.hour} onChange={(hour) => setPendingTime((v) => ({ ...v, hour }))} format={pad} label="Hour" styles={styles} active={open && mode === "time"} />
+                            <WheelColumn values={minutes} value={pendingTime.minute} onChange={(minute) => setPendingTime((v) => ({ ...v, minute }))} format={pad} label="Minute" styles={styles} active={open && mode === "time"} />
+                        </View>
+                        <View style={styles.actionsEnd}>
+                            <View style={styles.actionGroup}><TextButton label="Cancel" onPress={() => setOpen(false)} styles={styles} /><PrimaryButton label="Done" onPress={() => { onChange(timeValue(pendingTime)); setOpen(false); }} styles={styles} /></View>
+                        </View>
+                    </TouchableOpacity>
+                </TouchableOpacity>
+            </Modal>
+            <DateWheelPicker
+                visible={open && mode === "date"}
+                value={pendingDate}
+                minimumDate={minimumDate}
+                maximumDate={maximumDate}
+                accessibilityLabel={label || "Select date"}
+                onChange={(next) => {
+                    setPendingDate(next);
+                    onChange(next);
+                }}
+                onClose={() => setOpen(false)}
+            />
+        </View>
+    );
+}
+
+export function MeasurementField({
+    label,
+    value,
+    onChange,
+    unit,
+    min,
+    max,
+    defaultValue = min,
+    helper,
+    required = false,
+    error = false,
+}) {
+    const { colors } = useTheme();
+    const recordForm = useRecordForm();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
+    const [open, setOpen] = useState(false);
+    const [draft, setDraft] = useState(() => measurementParts(value, min, max, defaultValue));
+
+    const openPicker = () => {
+        setDraft(measurementParts(value, min, max, defaultValue));
+        setOpen(true);
+    };
+    const wholeValues = useMemo(() => measurementWholeValues(min, max), [min, max]);
+    const fractions = useMemo(
+        () => measurementFractions(draft.whole, min, max),
+        [draft.whole, min, max],
+    );
+    useEffect(() => {
+        if (!fractions.includes(draft.fraction)) {
+            setDraft((current) => ({ ...current, fraction: fractions[0] || 0 }));
+        }
+    }, [draft.fraction, fractions]);
+
+    const displayValue = value === "" || value == null
+        ? "Select measurement"
+        : `${Number(value).toFixed(1)} ${unit}`;
+
+    return (
+        <View style={[styles.fieldWrap, recordForm && styles.recordFieldWrap]}>
+            {label ? <Text style={[styles.label, recordForm && styles.recordLabel]}>{label}{required ? <Text style={{ color: colors.danger }}> *</Text> : null}</Text> : null}
+            <TouchableOpacity
+                onPress={openPicker}
+                accessibilityRole="button"
+                accessibilityLabel={`${label || "Measurement"}: ${displayValue}`}
+                style={[styles.input, recordForm && styles.recordInput, error && styles.inputError]}
+            >
+                <Text style={[styles.inputText, (value === "" || value == null) && styles.placeholder]}>{displayValue}</Text>
+                <Ionicons name="chevron-expand" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+            {helper ? <Text style={[styles.helper, recordForm && { flexBasis: "100%" }]}>{helper}</Text> : null}
+
+            <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+                <TouchableOpacity activeOpacity={1} style={styles.backdrop} onPress={() => setOpen(false)}>
+                    <TouchableOpacity activeOpacity={1} style={styles.card} onPress={() => {}} accessibilityViewIsModal>
+                        <View style={styles.heading}>
+                            <Text style={styles.title}>{label || "Choose a measurement"}</Text>
+                            <Text style={styles.subtitle}>
+                                {`${measurementValue(draft, min, max)} ${unit}`}
+                            </Text>
+                        </View>
+                        <View style={styles.measurementWheels}>
+                            <View pointerEvents="none" style={[styles.selectionBand, styles.regularSelectionBand]} />
+                            <View style={styles.measurementNumberGroup}>
+                                <WheelColumn
+                                    values={wholeValues}
+                                    value={draft.whole}
+                                    onChange={(whole) => setDraft((current) => ({ ...current, whole }))}
+                                    format={String}
+                                    label={`${label || "Measurement"} whole value`}
+                                    styles={styles}
+                                    active={open}
                                 />
-                                <View style={styles.actionsEnd}>
-                                    <View style={styles.actionGroup}><TextButton label="Cancel" onPress={() => setOpen(false)} styles={styles} /><PrimaryButton label="Done" onPress={() => { onChange(pendingDate); setOpen(false); }} styles={styles} /></View>
-                                </View>
-                            </>
-                        ) : (
-                            <>
-                                <View style={styles.monthPickerHeader}>
-                                    <TouchableOpacity style={styles.arrow} onPress={() => setVisibleMonth(`${year - 1}-${visibleMonth.slice(5, 7)}-01`)} disabled={!!minimumDate && year <= Number(minimumDate.slice(0, 4))} accessibilityRole="button" accessibilityLabel="Previous year"><Ionicons name="chevron-back" size={20} color={colors.textSecondary} /></TouchableOpacity>
-                                    <Text style={styles.monthHeaderText}>{year}</Text>
-                                    <TouchableOpacity style={styles.arrow} onPress={() => setVisibleMonth(`${year + 1}-${visibleMonth.slice(5, 7)}-01`)} disabled={!!maximumDate && year >= Number(maximumDate.slice(0, 4))} accessibilityRole="button" accessibilityLabel="Next year"><Ionicons name="chevron-forward" size={20} color={colors.textSecondary} /></TouchableOpacity>
-                                </View>
-                                <View style={styles.monthGrid}>
-                                    {MONTHS.map((month, index) => {
-                                        const key = `${year}-${pad(index + 1)}`;
-                                        const disabled = (!!minimumDate && key < minimumDate.slice(0, 7)) || (!!maximumDate && key > maximumDate.slice(0, 7));
-                                        const selected = key === selectedMonth;
-                                        return <TouchableOpacity key={key} style={[styles.monthCell, selected && styles.monthCellSelected]} disabled={disabled} onPress={() => { setVisibleMonth(`${key}-01`); setStep("calendar"); }} accessibilityRole="button" accessibilityState={{ disabled, selected }}><Text style={[styles.monthCellText, selected && styles.monthCellTextSelected, disabled && styles.disabled]}>{month}</Text></TouchableOpacity>;
-                                    })}
-                                </View>
-                                <View style={styles.actionsEnd}><TextButton label="Back" onPress={() => setStep("calendar")} styles={styles} /></View>
-                            </>
-                        )}
+                                <Text style={styles.measurementDecimal}>.</Text>
+                                <WheelColumn
+                                    values={fractions}
+                                    value={fractions.includes(draft.fraction) ? draft.fraction : fractions[0]}
+                                    onChange={(fraction) => setDraft((current) => ({ ...current, fraction }))}
+                                    label={`${label || "Measurement"} decimal`}
+                                    styles={styles}
+                                    active={open}
+                                />
+                                <Text style={styles.measurementUnit}>{unit}</Text>
+                            </View>
+                        </View>
+                        <View style={[styles.actionsEnd, value !== "" && value != null && styles.actionsBetween]}>
+                            {value !== "" && value != null ? <TextButton label="Clear" onPress={() => { onChange(""); setOpen(false); }} styles={styles} /> : null}
+                            <View style={styles.actionGroup}>
+                                <TextButton label="Cancel" onPress={() => setOpen(false)} styles={styles} />
+                                <PrimaryButton label="Done" onPress={() => { onChange(measurementValue(draft, min, max)); setOpen(false); }} styles={styles} />
+                            </View>
+                        </View>
                     </TouchableOpacity>
                 </TouchableOpacity>
             </Modal>
@@ -196,36 +371,60 @@ const makeStyles = (colors) => StyleSheet.create({
     helper: { ...type.caption, color: colors.textMuted },
     input: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, borderCurve: "continuous", paddingHorizontal: space.md },
     inputText: { ...type.body, color: colors.text },
+    inputError: { borderWidth: 1, borderColor: colors.danger },
     placeholder: { color: colors.placeholder },
+    recordFieldWrap: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.sm, paddingVertical: space.sm, marginBottom: space.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.hairline },
+    recordLabel: { flex: 1, marginBottom: 0, color: colors.text },
+    recordInput: { flex: 1.35, minWidth: 0, backgroundColor: colors.surfaceAlt, borderWidth: 0, borderRadius: radius.lg },
     backdrop: { flex: 1, justifyContent: "center", padding: space.lg, backgroundColor: "rgba(0,0,0,0.48)" },
     card: { width: "100%", maxWidth: 380, alignSelf: "center", padding: space.md, borderRadius: radius.xl, borderCurve: "continuous", backgroundColor: colors.surface, ...shadow.raised },
     heading: { paddingHorizontal: space.sm, paddingTop: space.sm, gap: 2 },
     title: { ...type.heading, color: colors.text },
     subtitle: { ...type.caption, color: colors.textMuted, minHeight: 18 },
-    monthHeader: { minHeight: MIN_TOUCH, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.xs, paddingHorizontal: space.sm },
-    monthHeaderText: { ...type.label, color: colors.text },
     actionsEnd: { minHeight: MIN_TOUCH, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", paddingTop: space.sm },
+    actionsBetween: { justifyContent: "space-between" },
     actionGroup: { flexDirection: "row", alignItems: "center", gap: space.xs },
     textButton: { minHeight: MIN_TOUCH, justifyContent: "center", paddingHorizontal: space.sm },
     textButtonLabel: { ...type.label, color: colors.textSecondary },
     primaryButton: { minHeight: MIN_TOUCH, justifyContent: "center", paddingHorizontal: space.lg, borderRadius: radius.pill, backgroundColor: colors.primary },
     primaryButtonLabel: { ...type.label, color: colors.onPrimary },
-    monthPickerHeader: { minHeight: 56, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: space.xs },
-    arrow: { width: MIN_TOUCH, height: MIN_TOUCH, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, borderCurve: "continuous" },
-    monthGrid: { flexDirection: "row", flexWrap: "wrap", paddingVertical: space.md },
-    monthCell: { width: "33.333%", minHeight: 52, alignItems: "center", justifyContent: "center", borderRadius: radius.md, borderCurve: "continuous" },
-    monthCellSelected: { backgroundColor: colors.primary },
-    monthCellText: { ...type.label, color: colors.textSecondary },
-    monthCellTextSelected: { color: colors.onPrimary },
-    disabled: { color: colors.placeholder, opacity: 0.55 },
-    wheels: { flexDirection: "row", alignItems: "center", paddingVertical: space.xl },
-    wheelColumn: { flex: 1, alignItems: "stretch", borderRightWidth: 1, borderRightColor: colors.hairline },
+    wheels: { height: 240, flexDirection: "row", alignItems: "center", position: "relative" },
+    measurementWheels: { height: 240, justifyContent: "center", position: "relative" },
+    measurementNumberGroup: { width: "66.6667%", height: "100%", flexDirection: "row", alignItems: "center", alignSelf: "center", position: "relative" },
+    measurementDecimal: { ...type.heading, color: colors.text, paddingHorizontal: 2 },
+    measurementUnit: { ...type.bodyStrong, color: colors.textSecondary, position: "absolute", right: -space.xl * 2, width: 40, textAlign: "left" },
+    wheelColumn: { flex: 1, alignItems: "stretch", zIndex: 1 },
     wheelScroll: { height: 192 },
     wheelContent: { paddingVertical: 64 },
     wheelItem: { height: 64, alignItems: "center", justifyContent: "center" },
-    wheelItemSelected: { borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.hairline },
     wheelText: { fontFamily: type.body.fontFamily, fontSize: 36, color: colors.text, fontVariant: ["tabular-nums"] },
     wheelTextMuted: { color: colors.placeholder, opacity: 0.55 },
+    datePickerBackdrop: {
+        flex: 1,
+        justifyContent: "center",
+        padding: space.lg,
+        backgroundColor: "rgba(0,0,0,0.36)",
+    },
+    dateWheels: {
+        height: 240,
+        flexDirection: "row",
+        alignItems: "center",
+        position: "relative",
+    },
+    selectionBand: {
+        position: "absolute",
+        left: 0,
+        right: 0,
+        backgroundColor: colors.surfaceAlt,
+    },
+    regularSelectionBand: { top: 88, height: 64 },
+    compactSelectionBand: { top: 98, height: 44 },
+    dateWheelColumn: { zIndex: 1 },
+    dateWheelScroll: { height: 192 },
+    dateWheelContent: { paddingVertical: 74 },
+    dateWheelItem: { height: 44 },
+    dateWheelText: { ...type.body, fontSize: 24, lineHeight: 30, color: colors.text, textAlign: "center" },
+    dateWheelTextSelected: { ...type.bodyStrong, fontSize: 24, lineHeight: 30, color: colors.text },
 });
 
 export function DateField(props) { return <PickerField mode="date" {...props} />; }

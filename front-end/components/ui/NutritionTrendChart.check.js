@@ -12,6 +12,7 @@ const checks = [
     ["year labels are unique and span the axis", chart.includes("evenYearSlots") && chart.includes("axisX(index, years.length)")],
     ["single-year labels use smaller month abbreviations", chart.includes('month: "short"') && chart.includes("fontSize: 11")],
     ["custom ranges use distinct full-axis DD/MM labels", chart.includes("datePreset == null") && chart.includes("new Set(evenDateSlots") && chart.includes("axisX(index, slots.length)") && chart.includes("${iso.slice(8, 10)}/${iso.slice(5, 7)}")],
+    ["short ranges align weekday labels to bar geometry", chart.includes("selectedDayCount <= 7") && chart.includes("weekdayAbbreviation") && chart.includes("x: bar.centerX") && chart.includes("width: bar.width")],
     ["zero-based rounded bars", chart.includes("roundedBarPath") && chart.includes("value) || 0) / yAxis.max")],
     ["seven evenly spaced left-side y-axis labels", chart.includes("const Y_TICK_COUNT = 7") && chart.includes("length: Y_TICK_COUNT") && chart.includes("intervals - index") && chart.includes("const leftPad = 42") && chart.includes("x={2}") && chart.includes('textAnchor="start"')],
     ["average caption clears the histogram", chart.includes("paddingBottom: space.md")],

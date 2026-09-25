@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AccessibilityInfo, Animated, Easing, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { BlurView } from "expo-blur";
 import Svg, { Path, Rect } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../../context/ThemeContext";
 import { useLanguage } from "../../context/LanguageContext";
-import { MIN_TOUCH, motion, space, type } from "../../theme";
+import { MIN_TOUCH, motion, radius, shadow, space, type } from "../../theme";
 
 export const TAB_KEYS = ["dashboard", "health", "growth", "nutrition", "calendar"];
 export const TAB_BAR_BASE_HEIGHT = 88;
@@ -74,61 +75,57 @@ function TabItem({ tab, label, active, reduceMotion, colors, styles, onSelect })
                 { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [0, -2] }) },
                 { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] }) },
             ] }}>
-                <TabIcon name={tab} color={active ? colors.text : colors.textSecondary} />
+                <TabIcon name={tab} color={active ? colors.primary : colors.textMuted} />
             </Animated.View>
         </View>
-        <Text numberOfLines={2} style={[styles.label, { color: active ? colors.text : colors.textSecondary }]}>{label}</Text>
+        <Text numberOfLines={2} style={[styles.label, active && styles.labelActive,
+            { color: active ? colors.primary : colors.textMuted }]}>{label}</Text>
     </Pressable>;
 }
 
-export default function TabBar({ activeView, onSelect, onLayout }) {
-    const { colors } = useTheme();
+export default function TabBar({ activeView, onSelect, onLayout, blurTarget }) {
+    const { colors, scheme } = useTheme();
     const { t } = useLanguage();
     const insets = useSafeAreaInsets();
     const styles = useMemo(() => makeStyles(colors), [colors]);
-    const [width, setWidth] = useState(0);
     const [reduceMotion, setReduceMotion] = useState(true);
     const index = TAB_KEYS.indexOf(activeView);
-    const offset = useRef(new Animated.Value(0)).current;
-    const previous = useRef({ width: 0, index: -1 });
     useEffect(() => {
         let mounted = true;
         AccessibilityInfo.isReduceMotionEnabled().then((value) => mounted && setReduceMotion(value)).catch(() => {});
         const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
         return () => { mounted = false; subscription.remove(); };
     }, []);
-    useEffect(() => {
-        const snap = reduceMotion || previous.current.width !== width || previous.current.index < 0;
-        previous.current = { width, index };
-        offset.stopAnimation();
-        if (index < 0 || !width) return;
-        const target = width / TAB_KEYS.length * (index + 0.2);
-        if (snap) { offset.setValue(target); return; }
-        const animation = Animated.timing(offset, { toValue: target, duration: motion.standard.duration,
-            easing: Easing.bezier(...motion.standard.bezier), useNativeDriver: Platform.OS !== "web" });
-        animation.start();
-        return () => animation.stop();
-    }, [index, width, reduceMotion, offset]);
     const labels = [t("navDashboard"), t("navHealth"), t("navGrowth"), t("navNutrition"), t("navCalendar")];
-    return <View style={[styles.bar, { paddingBottom: space.md + insets.bottom }]} onLayout={(event) => {
-        setWidth(event.nativeEvent.layout.width);
-        onLayout?.(event);
-    }}>
-        {index >= 0 && width > 0 ? <Animated.View pointerEvents="none" style={[styles.indicator,
-            { width: width / TAB_KEYS.length * 0.6, transform: [{ translateX: offset }] }]} /> : null}
-        <View style={styles.row}>
-            {TAB_KEYS.map((tab, position) => <TabItem key={tab} tab={tab} label={labels[position]}
-                active={index === position} reduceMotion={reduceMotion} colors={colors} styles={styles} onSelect={onSelect} />)}
+    return <View style={[styles.bar, { paddingBottom: space.sm + insets.bottom }]} onLayout={onLayout}>
+        <View style={styles.glassShadow}>
+            <BlurView
+                blurTarget={blurTarget}
+                blurMethod={Platform.OS === "android" ? "dimezisBlurViewSdk31Plus" : undefined}
+                intensity={72}
+                tint={scheme === "dark" ? "systemMaterialDark" : "systemMaterialLight"}
+                style={styles.glass}
+            >
+                <View pointerEvents="none" style={styles.glassTint} />
+                <View style={styles.row}>
+                    {TAB_KEYS.map((tab, position) => <TabItem key={tab} tab={tab} label={labels[position]}
+                        active={index === position} reduceMotion={reduceMotion} colors={colors} styles={styles} onSelect={onSelect} />)}
+                </View>
+            </BlurView>
         </View>
     </View>;
 }
 
 const makeStyles = (colors) => StyleSheet.create({
-    bar: { backgroundColor: colors.surface, minHeight: TAB_BAR_BASE_HEIGHT },
+    bar: { minHeight: TAB_BAR_BASE_HEIGHT, paddingTop: space.sm, paddingHorizontal: space.md },
+    glassShadow: { borderRadius: radius.pill, borderCurve: "continuous", ...shadow.raised },
+    glass: { overflow: "hidden", borderRadius: radius.pill, borderCurve: "continuous",
+        borderWidth: 1, borderColor: colors.surface + "CC", backgroundColor: colors.surface + "70" },
+    glassTint: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.surface + "38" },
     row: { flexDirection: "row", alignItems: "stretch" },
     item: { flex: 1, minWidth: 0, minHeight: MIN_TOUCH, alignItems: "center",
-        paddingTop: 16, paddingBottom: 8, paddingHorizontal: 2, gap: 6 },
+        paddingTop: 10, paddingBottom: 8, paddingHorizontal: 2, gap: 4 },
     iconFrame: { width: TAB_ICON_SIZE, height: TAB_ICON_SIZE, alignItems: "center", justifyContent: "center" },
     label: { ...type.caption, textAlign: "center", alignSelf: "stretch" },
-    indicator: { position: "absolute", left: 0, top: 0, height: 4, backgroundColor: colors.primary },
+    labelActive: { fontWeight: "700" },
 });

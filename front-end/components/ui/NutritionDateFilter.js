@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import Modal from "./AppModal";
 import { Ionicons } from "@expo/vector-icons";
-import { Calendar } from "react-native-calendars";
+import { DateWheelPicker } from "./DateField";
 import { useTheme } from "../../context/ThemeContext";
 import { useLanguage } from "../../context/LanguageContext";
 import { MIN_TOUCH, radius, shadow, space, type } from "../../theme";
@@ -79,25 +79,13 @@ export default function NutritionDateFilter({
     const [open, setOpen] = useState(false);
     const [draft, setDraft] = useState(value);
     const [picker, setPicker] = useState(null);
+    const [dateWheelEndpoint, setDateWheelEndpoint] = useState(null);
     const [visibleMonth, setVisibleMonth] = useState(today);
-    const calendarTheme = useMemo(() => ({
-        calendarBackground: colors.surface,
-        textSectionTitleColor: colors.textMuted,
-        selectedDayBackgroundColor: colors.primary,
-        selectedDayTextColor: colors.onPrimary,
-        todayTextColor: colors.primary,
-        dayTextColor: colors.text,
-        textDisabledColor: colors.border,
-        arrowColor: colors.primary,
-        monthTextColor: colors.text,
-        textMonthFontWeight: "800",
-        textDayFontWeight: "600",
-        textDayHeaderFontWeight: "700",
-    }), [colors]);
 
     const begin = () => {
         setDraft(value);
         setPicker(null);
+        setDateWheelEndpoint(null);
         setVisibleMonth(`${value.dateRange.to.slice(0, 7)}-01`);
         setOpen(true);
     };
@@ -211,10 +199,13 @@ export default function NutritionDateFilter({
                                             <View key={endpoint} style={styles.fieldGroup}>
                                                 <Text style={styles.fieldLabel}>{endpoint === "from" ? "Starting" : "Ending"} {pickerKind}</Text>
                                                 <TouchableOpacity style={styles.field} onPress={() => {
+                                                    if (!draft.preset) {
+                                                        setDateWheelEndpoint(endpoint);
+                                                        return;
+                                                    }
                                                     setPicker(endpoint);
                                                     if (draft.preset === "week") setVisibleMonth(`${weekRange.month}-01`);
                                                     else if (draft.preset === "month") setVisibleMonth(`${months[endpoint]}-01`);
-                                                    else if (!draft.preset) setVisibleMonth(`${draft.dateRange[endpoint].slice(0, 7)}-01`);
                                                 }} accessibilityRole="button">
                                                     <Text style={styles.fieldText}>{fieldLabel(endpoint)}</Text>
                                                     <Ionicons name="chevron-forward" size={17} color={colors.textMuted} />
@@ -231,21 +222,7 @@ export default function NutritionDateFilter({
                             </View>
                         )}
 
-                        {picker && (!draft.preset ? (
-                            <Calendar
-                                key={visibleMonth}
-                                current={visibleMonth}
-                                minDate={(picker === "to" ? draft.dateRange.from : minDate) || undefined}
-                                maxDate={picker === "from" ? draft.dateRange.to : today}
-                                markedDates={{ [draft.dateRange[picker]]: { selected: true, selectedColor: colors.primary, selectedTextColor: colors.onPrimary } }}
-                                theme={calendarTheme}
-                                onMonthChange={({ dateString }) => setVisibleMonth(`${dateString.slice(0, 7)}-01`)}
-                                onDayPress={({ dateString }) => {
-                                    setDraft((old) => ({ ...old, dateRange: setRangeEndpoint(old.dateRange, picker, dateString) }));
-                                    setPicker(null);
-                                }}
-                            />
-                        ) : draft.preset === "week" ? (
+                        {picker && (draft.preset === "week" ? (
                             <>
                                 <PickerHeader
                                     label={monthLabel(visibleMonth)}
@@ -260,7 +237,7 @@ export default function NutritionDateFilter({
                                     {[1, 2, 3, 4].map((week) => {
                                         const disabled = !availableWeeks[selectedMonth]?.has(week)
                                             || (weekRange.month === selectedMonth && ((picker === "from" && week > weekRange.to) || (picker === "to" && week < weekRange.from)));
-                                        return <GridButton key={week} label={`Week ${week}`} selected={weekRange.month === selectedMonth && weekRange[picker] === week} disabled={disabled} onPress={() => setEndpoint(picker, week)} styles={styles} />;
+                                        return <GridButton key={week} label={`Week ${week}`} selected={weekRange.month === selectedMonth && weekRange[picker] === week} disabled={disabled} onPress={() => setEndpoint(picker, week)} styles={styles} style={styles.weekGridButton} />;
                                     })}
                                 </View>
                             </>
@@ -297,6 +274,18 @@ export default function NutritionDateFilter({
                     </TouchableOpacity>
                 </TouchableOpacity>
             </Modal>
+            <DateWheelPicker
+                visible={open && !!dateWheelEndpoint}
+                value={dateWheelEndpoint ? draft.dateRange[dateWheelEndpoint] : today}
+                minimumDate={(dateWheelEndpoint === "to" ? draft.dateRange.from : minDate) || undefined}
+                maximumDate={dateWheelEndpoint === "from" ? draft.dateRange.to : today}
+                accessibilityLabel={`${dateWheelEndpoint === "to" ? "Ending" : "Starting"} date`}
+                onChange={(selected) => setDraft((old) => ({
+                    ...old,
+                    dateRange: setRangeEndpoint(old.dateRange, dateWheelEndpoint, selected),
+                }))}
+                onClose={() => setDateWheelEndpoint(null)}
+            />
         </>
     );
 }
@@ -311,9 +300,9 @@ function PickerHeader({ label, previousDisabled, nextDisabled, onPrevious, onNex
     );
 }
 
-function GridButton({ label, selected, disabled, onPress, styles }) {
+function GridButton({ label, selected, disabled, onPress, styles, style }) {
     return (
-        <TouchableOpacity style={[styles.gridButton, selected && styles.gridButtonSelected]} disabled={disabled} onPress={onPress} accessibilityRole="button" accessibilityState={{ selected, disabled }}>
+        <TouchableOpacity style={[styles.gridButton, style, selected && styles.gridButtonSelected]} disabled={disabled} onPress={onPress} accessibilityRole="button" accessibilityState={{ selected, disabled }}>
             <Text style={[styles.gridText, selected && styles.gridTextSelected, disabled && styles.disabled]}>{label}</Text>
         </TouchableOpacity>
     );
@@ -343,6 +332,7 @@ const makeStyles = (colors) => StyleSheet.create({
     arrow: { width: MIN_TOUCH, height: MIN_TOUCH, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, borderCurve: "continuous" },
     grid: { flexDirection: "row", flexWrap: "wrap", paddingVertical: space.md },
     gridButton: { width: "33.333%", minHeight: 52, alignItems: "center", justifyContent: "center", borderRadius: radius.md, borderCurve: "continuous" },
+    weekGridButton: { width: "50%" },
     gridButtonSelected: { backgroundColor: colors.primary },
     gridText: { ...type.label, color: colors.textSecondary },
     gridTextSelected: { color: colors.onPrimary },

@@ -9,7 +9,6 @@ import { space, radius, type, shadow, MIN_TOUCH } from "../../theme";
 import { api, ACCOUNT_SCOPE, ACCOUNT_RESOURCE } from "../../utils/api";
 import { useRecordCache, useScreenRefresh } from "../../utils/useRecords";
 import { storage } from "../../utils/storageAdapter";
-import { monthLabel } from "../../utils/dates";
 import { LEAD_TIME_KEY, LEAD_TIME_OPTIONS } from "./GeneralSettings";
 import { SkeletonBlock } from "../ui/Skeleton";
 import Avatar from "../ui/Avatar";
@@ -34,19 +33,19 @@ const SECTIONS = [
         ],
     },
     {
-        label: "BabyBook+ & Support",
+        label: "Support",
         items: [
-            { key: "share", icon: "share-social-outline", label: "Share Records" },
-            { key: "services", icon: "location-outline", label: "Local Services" },
+            { key: "services", icon: "location-outline", label: "Local Services", disabled: true },
             { key: "helpSupport", icon: "help-circle-outline", label: "Help & Support" },
             { key: "aboutApp", icon: "information-circle-outline", label: "About BabyBook+" },
         ],
     },
 ];
 
-export const PROFILE_TITLES = Object.fromEntries(
-    SECTIONS.flatMap((section) => section.items.map((item) => [item.key, item.label])),
-);
+export const PROFILE_TITLES = {
+    share: "Share Records",
+    ...Object.fromEntries(SECTIONS.flatMap((section) => section.items.map((item) => [item.key, item.label]))),
+};
 
 const LANGUAGE_LABELS = { en: "English", fil: "Filipino", tag: "Taglish" };
 const SCHEME_LABELS = { light: "Light", dark: "Dark", system: "System" };
@@ -55,7 +54,6 @@ export default function ViewProfile({
     parentName,
     parentAvatar,
     parentRelationship,
-    profiles = [],
     schemeOverride = "light",
     onNavigate,
     onLogout,
@@ -69,7 +67,7 @@ export default function ViewProfile({
     const cached = useRecordCache(ACCOUNT_SCOPE, ACCOUNT_RESOURCE);
     const user = cached.rows[0];
     const accountKnown = !!user;
-    const account = { email: user?.email || "", phone: user?.phoneNumber || "", city: user?.city || "", createdAt: user?.createdAt || "" };
+    const account = { email: user?.email || "", phone: user?.phoneNumber || "", city: user?.city || "" };
     const [leadDays, setLeadDays] = useState("1");
     const load = useCallback(async (isCurrent) => {
         const outcomes = await Promise.allSettled([api.me({ loading: "nonblocking" }), storage.getItem(LEAD_TIME_KEY)]);
@@ -86,7 +84,6 @@ export default function ViewProfile({
         reminder: LEAD_TIME_OPTIONS.find((option) => option.key === leadDays)?.label || "1 day before",
     };
     const role = relationshipLabel(parentRelationship) || "Caregiver";
-    const joined = accountKnown ? monthLabel(account.createdAt) || "Not available" : t("screenDataUnavailable");
 
     return (
         <Animated.ScrollView
@@ -122,19 +119,6 @@ export default function ViewProfile({
                 <InfoRow icon="location-outline" label="City / Municipality" value={!accountKnown ? (refreshing ? t("screenRefreshing") : t("screenDataUnavailable")) : account.city || "Not recorded"} colors={colors} styles={styles} />
             </View>
 
-            <View style={styles.highlights}>
-                <View style={styles.highlightCard}>
-                    <Ionicons name="happy-outline" size={22} color={colors.primary} />
-                    <Text style={styles.highlightValue}>{profiles.length}</Text>
-                    <Text style={styles.highlightLabel}>{profiles.length === 1 ? "Baby profile" : "Baby profiles"}</Text>
-                </View>
-                <View style={styles.highlightCard}>
-                    <Ionicons name="calendar-outline" size={22} color={colors.primary} />
-                    <Text style={styles.highlightValue} numberOfLines={1}>{joined}</Text>
-                    <Text style={styles.highlightLabel}>Member since</Text>
-                </View>
-            </View>
-
             <Gradient colors={[colors.primaryDark, colors.primary]} style={styles.planCard}>
                 <View style={styles.planIcon}>
                     <Ionicons name="book-outline" size={24} color={colors.primaryDark} />
@@ -155,14 +139,16 @@ export default function ViewProfile({
                                 {index > 0 ? <View style={styles.rowDivider} /> : null}
                                 <TouchableOpacity
                                     onPress={() => onNavigate(item.key)}
-                                    style={styles.settingRow}
+                                    style={[styles.settingRow, item.disabled && styles.settingRowDisabled]}
+                                    disabled={item.disabled}
                                     accessibilityRole="button"
                                     accessibilityLabel={item.label}
+                                    accessibilityState={{ disabled: !!item.disabled }}
                                 >
                                     <View style={styles.settingIcon}>
-                                        <Ionicons name={item.icon} size={19} color={colors.primary} />
+                                        <Ionicons name={item.icon} size={19} color={item.disabled ? colors.textMuted : colors.primary} />
                                     </View>
-                                    <Text style={styles.settingLabel}>{item.label}</Text>
+                                    <Text style={[styles.settingLabel, item.disabled && styles.settingLabelDisabled]}>{item.label}</Text>
                                     {item.value ? <Text style={styles.settingValue} numberOfLines={1}>{values[item.value]}</Text> : null}
                                     <Ionicons name="chevron-forward" size={17} color={colors.textMuted} />
                                 </TouchableOpacity>
@@ -239,23 +225,6 @@ const makeStyles = (colors) =>
         infoLabel: { ...type.caption, color: colors.textMuted },
         infoValue: { ...type.bodyStrong, color: colors.text },
         divider: { height: 1, backgroundColor: colors.hairline, marginLeft: 48 },
-        highlights: { flexDirection: "row", gap: space.md, marginTop: space.md },
-        highlightCard: {
-            flex: 1,
-            minWidth: 0,
-            minHeight: 104,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: colors.surface,
-            borderRadius: radius.lg,
-            borderCurve: "continuous",
-            borderWidth: 1,
-            borderColor: colors.hairline,
-            padding: space.md,
-            ...shadow.card,
-        },
-        highlightValue: { ...type.heading, color: colors.text, marginTop: space.xs, textAlign: "center" },
-        highlightLabel: { ...type.caption, color: colors.textMuted, textAlign: "center" },
         planCard: {
             minHeight: 112,
             flexDirection: "row",
@@ -292,6 +261,7 @@ const makeStyles = (colors) =>
             ...shadow.card,
         },
         settingRow: { minHeight: 58, flexDirection: "row", alignItems: "center" },
+        settingRowDisabled: { opacity: 0.5 },
         settingIcon: {
             width: 34,
             height: 34,
@@ -303,6 +273,7 @@ const makeStyles = (colors) =>
             marginRight: space.md,
         },
         settingLabel: { ...type.bodyStrong, color: colors.text, flex: 1, minWidth: 0 },
+        settingLabelDisabled: { color: colors.textMuted },
         settingValue: { ...type.caption, color: colors.textMuted, maxWidth: "32%", marginLeft: space.sm, marginRight: space.xs },
         rowDivider: { height: 1, backgroundColor: colors.hairline, marginLeft: 46 },
         logoutRow: {

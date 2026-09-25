@@ -18,7 +18,9 @@ import AnchoredMenu, { AnchoredMenuItem } from "./ui/AnchoredMenu";
 import NutritionDateFilter, { nutritionDateView } from "./ui/NutritionDateFilter";
 import NutritionTrendChart from "./ui/NutritionTrendChart";
 
-import RecordFormSheet, { RecordFormGroup, RecordFormRow } from "./ui/RecordFormSheet";
+import RecordFormSheet, { DeleteConfirmation, RecordFormGroup, RecordFormRow } from "./ui/RecordFormSheet";
+import PlanDetail from "./ui/PlanDetail";
+import SwipeActionRow from "./ui/SwipeActionRow";
 import ShowMore from "./ui/ShowMore";
 import { storage } from "../utils/storageAdapter";
 import {
@@ -31,6 +33,9 @@ import {
     recentNutritionFields,
     stepFormulaScoops,
 } from "../utils/nutritionFormPrefs.cjs";
+import numericInput from "../utils/numericInput.cjs";
+
+const { decimalOnly, digitsOnly } = numericInput;
 import {
     todayLocal,
     nowLocalTime,
@@ -111,6 +116,9 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [deletingId, setDeletingId] = useState(null);
+    const [detailEntry, setDetailEntry] = useState(null);
+    const [openSwipeId, setOpenSwipeId] = useState(null);
+    const [deleteCandidate, setDeleteCandidate] = useState(null);
     const [showModal, setShowModal] = useState(false);
     const [editingId, setEditingId] = useState(null);
     const saveRecord = useRecordSave(showModal, id, "nutrition", editingId);
@@ -319,6 +327,9 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
         if (deletingId === entryId) return false;
         setDeletingId(entryId);
         setShowModal(false);
+        setDetailEntry(null);
+        setOpenSwipeId(null);
+        setDeleteCandidate(null);
         try {
             await api.optimisticRecord(id, "nutrition", "delete", entryId, {}, { label: "Feeding entry" });
             toast.success("Entry removed");
@@ -485,6 +496,48 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
         }
         return e.notes || undefined;
     };
+
+    const nutritionDetailPlan = detailEntry ? {
+        title: entryTitle(detailEntry),
+        date: detailEntry.date,
+        time: detailEntry.time,
+        categoryLabel: detailEntry.entryType === "milk" ? "Milk feed" : "Solid food",
+        color: detailEntry.entryType === "milk" ? colors.info : colors.recNutrition.on,
+        details: detailEntry.entryType === "milk"
+            ? [
+                  { label: "Milk type", value: detailEntry.milkType || "—" },
+                  { label: "Feeding method", value: detailEntry.feedMethod === "breast" ? "At the breast" : "Bottle" },
+                  detailEntry.formulaBrand ? { label: "Formula brand", value: detailEntry.formulaBrand } : null,
+                  detailEntry.formulaScoops != null
+                      ? { label: "Scoops", value: String(detailEntry.formulaScoops) }
+                      : null,
+                  detailEntry.quantity != null
+                      ? {
+                            label: detailEntry.milkType === "Mixed" ? "Formula amount" : "Amount",
+                            value: `${detailEntry.quantity} ${detailEntry.unit || "mL"}`,
+                        }
+                      : null,
+                  detailEntry.breastmilkQuantity != null
+                      ? { label: "Breastmilk amount", value: `${detailEntry.breastmilkQuantity} ${detailEntry.unit || "mL"}` }
+                      : null,
+                  detailEntry.durationMinutes != null
+                      ? { label: "Duration", value: durationText(detailEntry.durationMinutes) }
+                      : null,
+              ].filter(Boolean)
+            : [
+                  { label: "Food", value: detailEntry.foodIntroduced || "—" },
+                  {
+                      label: "Reaction",
+                      value: detailEntry.reactionSeverity
+                          ? detailEntry.reactionSeverity.charAt(0).toUpperCase() + detailEntry.reactionSeverity.slice(1)
+                          : "Not recorded",
+                  },
+                  detailEntry.reaction ? { label: "Reaction details", value: detailEntry.reaction } : null,
+              ].filter(Boolean),
+        notes: detailEntry.notes,
+        showReminder: false,
+        deleteLabel: detailEntry.entryType === "milk" ? "Delete milk entry" : "Delete solid food entry",
+    } : null;
 
     const tiles = [
         { key: "feeds", label: "Feeds today", value: String(todayStats.count) },
@@ -847,50 +900,46 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                         />
                     )
                 )}
-                {listed.slice(0, visibleCount).map((e) => (
-                    <ListEntryCard
-                        key={e.id}
-                        title={entryTitle(e)}
-                        subtitle={entrySubtitle(e)}
-                        notes={entryNotes(e)}
-                        icon={
-                            <Ionicons
-                                name={
-                                    e.entryType !== "milk"
-                                        ? "restaurant-outline"
-                                        : e.feedMethod === "breast"
-                                          ? "heart-outline"
-                                          : "water-outline"
+                {listed.slice(0, visibleCount).map((e) => {
+                    const label = `View ${entryTitle(e)}`;
+                    return (
+                        <SwipeActionRow
+                            key={e.id}
+                            open={openSwipeId === e.id}
+                            onOpen={() => setOpenSwipeId(e.id)}
+                            onClose={() => setOpenSwipeId(null)}
+                            onPress={() => setDetailEntry(e)}
+                            label={label}
+                            actions={[
+                                {
+                                    key: "update", label: "Update", icon: "create-outline", color: colors.primaryDark,
+                                    onPress: () => { setOpenSwipeId(null); openEdit(e); },
+                                },
+                                {
+                                    key: "delete", label: "Delete", icon: "trash-outline", color: colors.onAccent, kind: "delete",
+                                    onPress: () => { setOpenSwipeId(null); setDeleteCandidate(e); },
+                                },
+                            ]}
+                        >
+                            <ListEntryCard
+                                style={styles.swipeListCard}
+                                title={entryTitle(e)}
+                                subtitle={entrySubtitle(e)}
+                                notes={entryNotes(e)}
+                                icon={
+                                    <Ionicons
+                                        name={e.entryType !== "milk" ? "restaurant-outline"
+                                            : e.feedMethod === "breast" ? "heart-outline" : "water-outline"}
+                                        size={18}
+                                        color={e.entryType === "milk" ? colors.info : colors.recNutrition.on}
+                                    />
                                 }
-                                size={18}
-                                color={e.entryType === "milk" ? colors.info : colors.recNutrition.on}
+                                iconBg={e.entryType === "milk" ? colors.infoBg : colors.recNutrition.bg}
+                                showChevron
                             />
-                        }
-                        iconBg={e.entryType === "milk" ? colors.infoBg : colors.recNutrition.bg}
-                        actions={
-                            <View style={{ flexDirection: "row" }}>
-                                <TouchableOpacity
-                                    onPress={() => openEdit(e)}
-                                    style={styles.rowIconBtn}
-                                    accessibilityRole="button"
-                                    accessibilityLabel="Edit entry"
-                                >
-                                    <Ionicons name="create-outline" size={20} color={colors.textSecondary} />
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    onPress={() => handleDelete(e.id)}
-                                    style={styles.rowIconBtn}
-                                    disabled={deletingId === e.id}
-                                    accessibilityRole="button"
-                                    accessibilityLabel="Delete entry"
-                                    accessibilityState={{ disabled: deletingId === e.id, busy: deletingId === e.id }}
-                                >
-                                    {(<Ionicons name="trash-outline" size={20} color={colors.danger} />)}
-                                </TouchableOpacity>
-                            </View>
-                        }
-                    />
-                ))}
+                        </SwipeActionRow>
+                    );
+                })}
                 <ShowMore
                     total={listed.length}
                     visible={visibleCount}
@@ -898,6 +947,28 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                     noun="entries"
                 />
             </SectionContainerCard>
+
+            <PlanDetail
+                visible={!!detailEntry}
+                plan={nutritionDetailPlan}
+                onClose={() => setDetailEntry(null)}
+                onEdit={() => {
+                    const entry = detailEntry;
+                    setDetailEntry(null);
+                    if (entry) openEdit(entry);
+                }}
+                onDelete={() => setDeleteCandidate(detailEntry)}
+                deleting={deletingId === detailEntry?.id}
+            />
+
+            <DeleteConfirmation
+                visible={!!deleteCandidate}
+                title={deleteCandidate?.entryType === "milk" ? "Delete milk entry?" : "Delete solid food entry?"}
+                message="Delete this nutrition entry? This cannot be undone."
+                busy={deletingId === deleteCandidate?.id}
+                onCancel={() => setDeleteCandidate(null)}
+                onConfirm={() => handleDelete(deleteCandidate?.id)}
+            />
 
             {/* Add / Edit Modal */}
             <RecordFormSheet visible={showModal} title={`${editingId ? "Edit" : "Add"} ${form.entryType === "milk" ? "Milk" : "Solid Food"} Entry`}
@@ -967,7 +1038,7 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                                                         placeholderTextColor={colors.placeholder}
                                                         value={form.durationMinutes}
                                                         onChangeText={(v) => {
-                                                            setF("durationMinutes", v);
+                                                            setF("durationMinutes", digitsOnly(v));
                                                             clearError("durationMinutes");
                                                         }}
                                                         accessibilityLabel="Duration in minutes, optional"
@@ -1025,8 +1096,9 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                                                                     maxLength={6}
                                                                     selectTextOnFocus
                                                                     onChangeText={(v) => {
-                                                                        if (!isFormulaScoopsDraft(v)) return;
-                                                                        setF("formulaScoops", v);
+                                                                        const next = decimalOnly(v);
+                                                                        if (!isFormulaScoopsDraft(next)) return;
+                                                                        setF("formulaScoops", next);
                                                                         clearError("formulaScoops");
                                                                     }}
                                                                     accessibilityLabel="Formula scoops"
@@ -1069,7 +1141,7 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                                                         placeholderTextColor={colors.placeholder}
                                                         value={form.quantity}
                                                         onChangeText={(v) => {
-                                                            setF("quantity", v);
+                                                            setF("quantity", decimalOnly(v));
                                                             clearError("quantity");
                                                         }}
                                                         accessibilityLabel={form.milkType === "Mixed" ? "Formula amount" : "Amount"}
@@ -1111,7 +1183,7 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                                                                 placeholderTextColor={colors.placeholder}
                                                                 value={form.breastmilkQuantity}
                                                                 onChangeText={(v) => {
-                                                                    setF("breastmilkQuantity", v);
+                                                                    setF("breastmilkQuantity", decimalOnly(v));
                                                                     clearError("breastmilkQuantity");
                                                                 }}
                                                                 accessibilityLabel="Breastmilk amount"
@@ -1387,14 +1459,7 @@ const makeStyles = (colors) =>
         reactionMeta: { ...type.caption, color: colors.textSecondary, marginTop: 2 },
         reactionNote: { ...type.caption, color: colors.textMuted },
 
-        // Bare 20px icons were the whole tap target (20 x 21.6). The button
-        // takes the 44pt box; the glyph inside stays the same size.
-        rowIconBtn: {
-            width: MIN_TOUCH,
-            height: MIN_TOUCH,
-            alignItems: "center",
-            justifyContent: "center",
-        },
+        swipeListCard: { marginBottom: 0 },
         addActions: { flexDirection: "row", gap: space.xs },
         addBtn: {
             width: MIN_TOUCH,

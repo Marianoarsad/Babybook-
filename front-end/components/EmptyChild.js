@@ -5,9 +5,10 @@ import { space, radius } from "../theme";
 import { useTheme } from "../context/ThemeContext";
 import Field from "./ui/Field";
 
-import DateField from "./ui/DateField";
+import DateField, { MeasurementField } from "./ui/DateField";
 import { useToast } from "./ui/Toast";
 import RecordFormSheet, { RecordFormGroup } from "./ui/RecordFormSheet";
+import { stripDoctorPrefix } from "../utils/adapters";
 
 // Shown when an authenticated parent has no children yet.
 // Progressive disclosure: required fields first, optional details behind a toggle.
@@ -23,7 +24,10 @@ export default function EmptyChild({ parentName, onCreate, onLogOut }) {
     const [hospital, setHospital] = useState("");
     const [pediatrician, setPediatrician] = useState("");
     const [obgyne, setObgyne] = useState("");
-    const [emergencyContact, setEmergencyContact] = useState("");
+    const [emergencyFirstName, setEmergencyFirstName] = useState("");
+    const [emergencyLastName, setEmergencyLastName] = useState("");
+    const [emergencyRelationship, setEmergencyRelationship] = useState("");
+    const [emergencyNumber, setEmergencyNumber] = useState("");
     const [showMore, setShowMore] = useState(false);
     const [saving, setSaving] = useState(false);
     const [nameError, setNameError] = useState("");
@@ -46,7 +50,12 @@ export default function EmptyChild({ parentName, onCreate, onLogOut }) {
                 hospital,
                 pediatrician,
                 obgyne,
-                emergencyContact,
+                emergencyContactDetails: {
+                    firstName: emergencyFirstName,
+                    lastName: emergencyLastName,
+                    relationship: emergencyRelationship,
+                    contactNumber: emergencyNumber,
+                },
             });
         } catch (e) {
             toast.error(e.message || "Could not add child");
@@ -135,14 +144,8 @@ export default function EmptyChild({ parentName, onCreate, onLogOut }) {
                     })}
                 </View>
 
-                <View style={{ flexDirection: "row", gap: space.md }}>
-                    <View style={{ flex: 1 }}>
-                        <Field label="Birth Weight (kg)" placeholder="3.2" keyboardType="numeric" value={weight} onChangeText={setWeight} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                        <Field label="Birth Height (cm)" placeholder="49.0" keyboardType="numeric" value={height} onChangeText={setHeight} />
-                    </View>
-                </View>
+                <MeasurementField label="Birth Weight" unit="kg" min={0.3} max={40} defaultValue={3.2} value={weight} onChange={setWeight} />
+                <MeasurementField label="Birth Height" unit="cm" min={20} max={140} defaultValue={49} value={height} onChange={setHeight} />
 
                 <TouchableOpacity
                     onPress={() => setShowMore((s) => !s)}
@@ -159,9 +162,21 @@ export default function EmptyChild({ parentName, onCreate, onLogOut }) {
                     <View>
                         <Field label="Blood Type" placeholder="e.g. O+" autoCapitalize="characters" value={bloodType} onChangeText={setBloodType} />
                         <Field label="Birth Hospital" value={hospital} onChangeText={setHospital} />
-                        <Field label="Pediatrician" value={pediatrician} onChangeText={setPediatrician} />
-                        <Field label="OB-GYNE" value={obgyne} onChangeText={setObgyne} />
-                        <Field label="Emergency Contact" placeholder="Name & number" value={emergencyContact} onChangeText={setEmergencyContact} />
+                        <Field label="Pediatrician" prefix="Dr." placeholder="Doctor's name"
+                            value={pediatrician} onChangeText={(value) => setPediatrician(stripDoctorPrefix(value))}
+                            autoCapitalize="words" />
+                        <Field label="OB-GYNE" prefix="Dr." placeholder="Doctor's name"
+                            value={obgyne} onChangeText={(value) => setObgyne(stripDoctorPrefix(value))}
+                            autoCapitalize="words" />
+                        <Field label="Emergency Contact First Name" placeholder="First name"
+                            value={emergencyFirstName} onChangeText={setEmergencyFirstName} autoCapitalize="words" />
+                        <Field label="Emergency Contact Last Name" placeholder="Last name"
+                            value={emergencyLastName} onChangeText={setEmergencyLastName} autoCapitalize="words" />
+                        <Field label="Emergency Contact Relationship" placeholder="e.g. Mother"
+                            value={emergencyRelationship} onChangeText={setEmergencyRelationship} autoCapitalize="words" />
+                        <Field label="Emergency Contact Number" placeholder="Contact number"
+                            value={emergencyNumber} onChangeText={setEmergencyNumber}
+                            numericMode="digits" keyboardType="phone-pad" textContentType="telephoneNumber" />
                     </View>
                 ) : null}
 

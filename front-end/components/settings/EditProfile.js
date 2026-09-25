@@ -11,6 +11,9 @@ import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
 import { useScroll } from "../../context/ScrollContext";
 import { RELATIONSHIPS, relationshipLabel } from "../../utils/relationship";
 import { space, radius, type, MIN_TOUCH } from "../../theme";
+import numericInput from "../../utils/numericInput.cjs";
+
+const { digitsOnly } = numericInput;
 
 // Guardian account fields (name, contact, relationship, city, avatar).
 // Language/theme and logout live in the Profile hub.
@@ -68,7 +71,7 @@ export default function EditProfile({
                 const { user } = await api.me();
                 if (user) {
                     setEmail(user.email || "");
-                    setPhone(user.phoneNumber || "");
+                    setPhone(digitsOnly(user.phoneNumber));
                     setCity(user.city || "");
                 }
             } catch (e) {
@@ -92,7 +95,7 @@ export default function EditProfile({
             // endpoint ignored, then reported success for both.
             const { user } = await api.updateMe({
                 fullName: nameDraft.trim(),
-                phoneNumber: phone,
+                phoneNumber: digitsOnly(phone),
                 relationship: relationshipDraft,
                 city,
             });
@@ -101,7 +104,7 @@ export default function EditProfile({
             // stored.
             if (user) {
                 onUpdateParentName?.(user.fullName || nameDraft.trim());
-                setPhone(user.phoneNumber || "");
+                setPhone(digitsOnly(user.phoneNumber));
                 setCity(user.city || "");
                 if (onUpdateParentRelationship) onUpdateParentRelationship(user.relationship || "");
             }
@@ -207,7 +210,7 @@ export default function EditProfile({
                                 style={styles.input}
                                 keyboardType="phone-pad"
                                 value={phone}
-                                onChangeText={setPhone}
+                                onChangeText={(value) => setPhone(digitsOnly(value))}
                                 accessibilityLabel="Phone Number"
                                 placeholder="09XX XXX XXXX"
                                 placeholderTextColor={colors.placeholder}

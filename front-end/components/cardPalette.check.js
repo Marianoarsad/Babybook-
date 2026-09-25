@@ -86,8 +86,12 @@ for (const gender of ["boy", "girl", "neutral"]) for (const scheme of ["light", 
     assert.equal(growth.styles.metricsHeaderDivider.backgroundColor, expectedForeground + "33");
     assert.equal(growth.styles.metricsHeaderBox.backgroundColor, undefined);
     assert.equal(growth.styles.metricsHeaderBox.padding, 16);
+    assert.equal(growth.styles.metricsHeaderHeading.flexDirection, "column");
+    assert.equal(growth.styles.metricsHeaderHeading.alignItems, "flex-start");
+    assert.equal(growth.styles.metricsHeaderHeading.paddingBottom, theme.space.xs);
+    assert.equal(growth.styles.metricsHeaderDate.textAlign, "left");
     assert.equal(growth.styles.metricsHeaderCol.flexBasis, 0);
-    assert.equal(growth.styles.detailGrabber.backgroundColor, colors.border, "Measurement detail sheet is unchanged");
+    assert.equal(growth.styles.detailGrabber, undefined, "Measurement detail uses the shared full-screen view");
     assert.equal((text(growth.rendered).match(/growthNoRecordYet/g) || []).length, 3);
     const partial = latest(colors, scheme, { latestMeasurement: { date: "2026-09-18", weight: 22.15, height: null, head_circumference: 50.8 } });
     for (const value of ["22.15", "50.8", "2026-09-18"]) assert(text(partial.rendered).includes(value));

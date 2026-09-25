@@ -60,7 +60,7 @@ function compile(file, extra = "") {
 const themeModule = { exports: {} };
 new Function("module", "exports", compile("theme.js"))(themeModule, themeModule.exports);
 const theme = themeModule.exports;
-let colors = theme.paletteFor(undefined, "boy", "light"), inset = 0, platform = "web";
+let colors = theme.paletteFor(undefined, "boy", "light"), inset = 0, platform = "web", scheme = "light";
 let motionListener, resolveMotion, unsubscribe = false;
 const state = harness();
 const native = {
@@ -78,9 +78,10 @@ new Function("require", "module", "exports", compile("components/ui/TabBar.js", 
     (name) => {
         if (name === "react") return state.React;
         if (name === "react-native") return native;
+        if (name === "expo-blur") return { BlurView: "BlurView" };
         if (name === "react-native-svg") return { __esModule: true, default: "Svg", Path: "Path", Rect: "Rect" };
         if (name === "react-native-safe-area-context") return { useSafeAreaInsets: () => ({ bottom: inset }) };
-        if (name.includes("ThemeContext")) return { useTheme: () => ({ colors }) };
+        if (name.includes("ThemeContext")) return { useTheme: () => ({ colors, scheme }) };
         if (name.includes("LanguageContext")) return { useLanguage: () => ({ t: (key) => key }) };
         if (name === "../../theme") return theme;
         assert.fail("Unexpected import: " + name);
@@ -108,25 +109,30 @@ function find(node, predicate) {
     for (const child of node.props?.children || []) { const hit = find(child, predicate); if (hit) return hit; }
     return null;
 }
-const indicator = (tree) => find(tree, (node) => node.type === "AnimatedView");
+const glass = (tree) => find(tree, (node) => node.type === "BlurView");
 const items = (tree) => find(tree, (node) => node.props?.style?.flexDirection === "row").props.children;
 let selected, measured;
-let props = { activeView: "dashboard", onSelect: (tab) => { selected = tab; }, onLayout: (event) => { measured = event.nativeEvent.layout.height; } };
+const blurTarget = { current: "background" };
+let props = { activeView: "dashboard", blurTarget, onSelect: (tab) => { selected = tab; },
+    onLayout: (event) => { measured = event.nativeEvent.layout.height; } };
 const render = (changes = {}) => state.render(TabBar, props = { ...props, ...changes });
 (async () => {
     let tree = render();
-    assert.equal(indicator(tree), null, "No misplaced indicator before measurement");
     tree.props.onLayout({ nativeEvent: { layout: { width: 400, height: 88 } } });
-    tree = render();
     assert.equal(measured, 88);
     resolveMotion(false);
     await Promise.resolve();
     tree = render();
-    for (const gender of ["boy", "girl", "neutral"]) for (const scheme of ["light", "dark"]) {
-        colors = theme.paletteFor(undefined, gender, scheme);
+    for (const gender of ["boy", "girl", "neutral"]) for (const mode of ["light", "dark"]) {
+        scheme = mode;
+        colors = theme.paletteFor(undefined, gender, mode);
         tree = render();
-        assert.equal(tree.props.style[0].backgroundColor, colors.surface);
-        assert.equal(indicator(tree).props.style[0].backgroundColor, colors.primary);
+        const blur = glass(tree);
+        assert.equal(blur.props.blurTarget, blurTarget);
+        assert.equal(blur.props.intensity, 72);
+        assert.equal(blur.props.tint, mode === "dark" ? "systemMaterialDark" : "systemMaterialLight");
+        assert.equal(blur.props.style.overflow, "hidden");
+        assert.equal(tree.props.style[0].paddingHorizontal, theme.space.md);
         assert.equal(items(tree).length, 5);
         for (const tab of items(tree)) {
             const frame = TabIcon({ name: tab.props.tab, color: colors.text });
@@ -142,41 +148,25 @@ const render = (changes = {}) => state.render(TabBar, props = { ...props, ...cha
             assert.equal(style.flex, 1);
             assert.equal(style.minWidth, 0);
             assert(style.minHeight >= 44);
-            assert.equal(find(item, (node) => node.type === "Text").props.numberOfLines, 2);
+            const icon = find(item, (node) => node.type === TabIcon);
+            const label = find(item, (node) => node.type === "Text");
+            assert.equal(icon.props.color, tab.props.active ? colors.primary : colors.textMuted);
+            assert.equal(label.props.style.at(-1).color, tab.props.active ? colors.primary : colors.textMuted);
+            assert.equal(label.props.numberOfLines, 2);
             item.props.onPress();
             assert.equal(selected, tab.props.tab);
             isolated.hooks.unmount();
         }
     }
-    for (const width of [320, 375, 390, 430, 768]) {
-        tree.props.onLayout({ nativeEvent: { layout: { width, height: 88 } } });
-        for (const tab of TAB_KEYS) {
-            tree = render({ activeView: tab });
-            const mark = indicator(tree).props.style[1];
-            assert.equal(mark.width, width / 5 * 0.6);
-            assert.equal(mark.transform[0].translateX.value, width / 5 * (TAB_KEYS.indexOf(tab) + 0.2));
-            tree = render();
-        }
-    }
-    render({ activeView: "health" });
-    const oldAnimation = animationLog.at(-1);
-    render({ activeView: "growth" });
-    assert(oldAnimation.stopped, "Rapid changes stop the old indicator animation");
-    assert.equal(animationLog.at(-1).options.duration, 220);
-    assert.equal(animationLog.at(-1).options.useNativeDriver, false);
+    platform = "android";
+    tree = render();
+    assert.equal(glass(tree).props.blurMethod, "dimezisBlurViewSdk31Plus");
     platform = "ios";
-    render({ activeView: "nutrition" });
-    assert.equal(animationLog.at(-1).options.useNativeDriver, true);
-    const before = animationLog.length;
-    motionListener(true);
-    render();
     tree = render({ activeView: "calendar" });
-    assert.equal(animationLog.length, before, "Reduced motion disables indicator animation");
     tree = render({ activeView: "viewProfile" });
-    assert.equal(indicator(tree), null, "Secondary screens have no falsely selected tab");
     assert(items(tree).every((item) => !item.props.active));
     inset = 34; tree = render();
-    assert.equal(tree.props.style[1].paddingBottom, theme.space.md + 34);
+    assert.equal(tree.props.style[1].paddingBottom, theme.space.sm + 34);
     assert.equal(tree.props.style[0].minHeight, TAB_BAR_BASE_HEIGHT);
     state.unmount();
     assert(unsubscribe, "Reduced-motion listener is cleaned up");
@@ -190,6 +180,7 @@ const render = (changes = {}) => state.render(TabBar, props = { ...props, ...cha
     assert.equal(animationLog.length, initialAnimations + 2, "New selection starts one lift and settle");
     const lift = animationLog.at(-2), settle = animationLog.at(-1);
     assert.equal(lift.options.duration + settle.options.duration, 220);
+    assert.equal(lift.options.useNativeDriver, true);
     const transforms = find(itemTree, (node) => node.type === "AnimatedView").props.style.transform;
     assert.deepEqual(transforms[0].translateY.outputRange, [0, -2]);
     assert.deepEqual(transforms[1].scale.outputRange, [1, 1.06]);
@@ -212,6 +203,10 @@ const render = (changes = {}) => state.render(TabBar, props = { ...props, ...cha
     const app = fs.readFileSync(path.join(root, "App.js"), "utf8");
     assert(app.includes("changeView(view);"));
     assert(app.includes("useScrollController(headerHeight, tabBarHeight)"));
+    assert(app.includes("<BlurTargetView ref={blurTargetRef}"));
+    assert(app.includes("blurTarget={blurTargetRef}"));
+    assert(app.includes("style={styles.fabGlass}"));
     assert(!/tabPill|styles.tabBar/.test(app));
-    console.log("Tab bar checks passed: five tabs, six themes, equal frames/columns, resize, rapid switching, reduced motion, safe areas and navigation.");
+    assert(!tabSource.includes("indicator"));
+    console.log("Tab bar checks passed: glass shell, five equal tabs, six themes, active states, blur fallback, motion, safe areas and navigation.");
 })().catch((error) => { console.error(error); process.exitCode = 1; });

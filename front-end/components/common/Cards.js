@@ -100,7 +100,7 @@ export function RadioRow({ label, sublabel, selected, onPress, icon, iconBg, tra
 // 3. LIST ENTRY CARD
 // Leading icons are optional. When present, `iconBg` must use the record's
 // colors.rec* tint rather than silently falling back to a shared gray tile.
-export function ListEntryCard({ title, subtitle, label, notes, icon, iconBg, actions, thumbnailUrl, onThumbnailPress, onPress, showChevron = false, accessibilityLabel }) {
+export function ListEntryCard({ title, subtitle, label, notes, icon, iconBg, actions, thumbnailUrl, onThumbnailPress, onPress, showChevron = false, accessibilityLabel, style }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     if (__DEV__ && icon && !iconBg) {
@@ -116,7 +116,7 @@ export function ListEntryCard({ title, subtitle, label, notes, icon, iconBg, act
     const Card = onPress ? TouchableOpacity : View;
     return (
         <Card
-            style={styles.listCard}
+            style={[styles.listCard, style]}
             onPress={onPress}
             activeOpacity={0.82}
             accessibilityRole={onPress ? "button" : undefined}

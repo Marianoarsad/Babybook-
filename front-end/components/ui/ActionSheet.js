@@ -1,9 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    AccessibilityInfo,
     Animated,
-    Easing,
-    PanResponder,
     View,
     Text,
     StyleSheet,
@@ -14,10 +11,11 @@ import {
 import Modal from "./AppModal";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { recordSheetHeight } from "../../utils/responsive";
+import { expandedSheetHeight, recordSheetHeight } from "../../utils/responsive";
 import { radius, space, shadow, type, MIN_TOUCH } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
 import { storage } from "../../utils/storageAdapter";
+import useBottomSheetMotion from "./useBottomSheetMotion";
 
 // The "+" button's sheet. Lifted out of App.js, which was already very large
 // and does not need this component's own storage-backed state.
@@ -62,114 +60,13 @@ const DEFAULT_ORDER = ["milk", "food", "growth", "vaccine", "checkup", "medicati
 const USAGE_KEY = "bb_action_usage";
 const SHORTCUTS = 3;
 
-function useActionSheetMotion(visible, height, onClose) {
-    const [presented, setPresented] = useState(false);
-    const [reduceMotion, setReduceMotion] = useState(null);
-    const offset = useRef(new Animated.Value(height)).current;
-    const shade = useRef(new Animated.Value(0)).current;
-    const phase = useRef("hidden");
-    const generation = useRef(0);
-    const animation = useRef(null);
-    const pending = useRef(null);
-    const wasVisible = useRef(false);
-    const closeRef = useRef(onClose);
-    closeRef.current = onClose;
-
-    useEffect(() => {
-        let active = true;
-        AccessibilityInfo.isReduceMotionEnabled().then((value) => active && setReduceMotion(value))
-            .catch(() => active && setReduceMotion(false));
-        const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
-        return () => { active = false; subscription.remove(); };
-    }, []);
-    useEffect(() => () => {
-        generation.current++;
-        animation.current?.stop();
-        pending.current = null;
-    }, []);
-
-    const animate = useCallback((target, duration, complete) => {
-        const token = ++generation.current;
-        animation.current?.stop();
-        if (reduceMotion) {
-            offset.setValue(target);
-            shade.setValue(target === 0 ? 1 : 0);
-            complete();
-            return;
-        }
-        animation.current = Animated.parallel([
-            Animated.timing(offset, { toValue: target, duration, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-            Animated.timing(shade, { toValue: target === 0 ? 1 : 0, duration, useNativeDriver: true }),
-        ]);
-        animation.current.start(({ finished }) => {
-            if (finished && generation.current === token) complete();
-        });
-    }, [offset, shade, reduceMotion]);
-    const finishClose = useCallback(() => {
-        const callback = pending.current;
-        pending.current = null;
-        phase.current = "hidden";
-        setPresented(false);
-        callback?.();
-    }, []);
-    const dismiss = useCallback((afterClose) => {
-        if (phase.current === "hidden" || phase.current === "closing") return;
-        pending.current = afterClose || (() => closeRef.current());
-        phase.current = "closing";
-        animate(height, 220, finishClose);
-    }, [animate, height, finishClose]);
-
-    useEffect(() => {
-        if (reduceMotion === null) return;
-        const opening = visible && !wasVisible.current;
-        wasVisible.current = visible;
-        if (visible) {
-            if (phase.current === "closing" && !opening) {
-                animate(height, 220, finishClose);
-                return;
-            }
-            if (phase.current === "hidden" || opening) offset.setValue(height);
-            pending.current = null;
-            phase.current = "opening";
-            setPresented(true);
-            animate(0, 280, () => { phase.current = "open"; });
-        } else if (phase.current !== "hidden") {
-            pending.current = null;
-            phase.current = "closing";
-            animate(height, 220, finishClose);
-        }
-    }, [visible, height, reduceMotion, animate, finishClose, offset]);
-
-    const recover = useCallback(() => {
-        if (phase.current !== "dragging") return;
-        phase.current = "settling";
-        animate(0, 160, () => { phase.current = "open"; });
-    }, [animate]);
-    const pan = useMemo(() => PanResponder.create({
-        onMoveShouldSetPanResponder: (_event, gesture) => phase.current === "open"
-            && gesture.dy > 12 && gesture.dy > Math.abs(gesture.dx) * 1.25,
-        onPanResponderGrant: () => { if (phase.current === "open") phase.current = "dragging"; },
-        onPanResponderMove: (_event, gesture) => {
-            if (phase.current !== "dragging") return;
-            const distance = Math.max(0, Math.min(height, gesture.dy));
-            offset.setValue(distance);
-            shade.setValue(1 - distance / Math.max(1, height));
-        },
-        onPanResponderRelease: (_event, gesture) => {
-            if (phase.current !== "dragging") return;
-            if (gesture.dy >= 64) dismiss(); else recover();
-        },
-        onPanResponderTerminate: recover,
-    }), [dismiss, height, offset, recover, shade]);
-    return { presented, offset, shade, pan, dismiss };
-}
-
 export default function ActionSheet({ visible, onClose, onSelect }) {
     const { colors } = useTheme();
     const { height: windowHeight, fontScale } = useWindowDimensions();
     const insets = useSafeAreaInsets();
     const sheetHeight = recordSheetHeight(windowHeight, fontScale, insets.top, insets.bottom);
-    const motion = useActionSheetMotion(visible, sheetHeight, onClose);
+    const expandedHeight = expandedSheetHeight(windowHeight, sheetHeight, insets.top);
+    const motion = useBottomSheetMotion({ visible, collapsedHeight: sheetHeight, expandedHeight, onClose });
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const [usage, setUsage] = useState({});
 
@@ -209,7 +106,7 @@ export default function ActionSheet({ visible, onClose, onSelect }) {
     );
 
     return (
-        <Modal visible={motion.presented} transparent animationType="none" onRequestClose={() => motion.dismiss()}>
+        <Modal visible={motion.presented} transparent animationType="none" onShow={motion.startOpening} onRequestClose={() => motion.dismiss()}>
             <View style={[styles.root, { paddingTop: Math.max(insets.top, space.md) }]}>
                 <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.text + "66", opacity: motion.shade }]} />
                 <TouchableOpacity
@@ -219,7 +116,7 @@ export default function ActionSheet({ visible, onClose, onSelect }) {
                     accessibilityRole="button"
                     accessibilityLabel="Close"
                 />
-                <Animated.View style={[styles.card, { height: sheetHeight, paddingBottom: Math.max(space.xl, insets.bottom), transform: [{ translateY: motion.offset }] }]}
+                <Animated.View style={[styles.card, { height: expandedHeight, paddingBottom: Math.max(space.xl, insets.bottom), transform: [{ translateY: motion.offset }] }]}
                     accessibilityViewIsModal onAccessibilityEscape={() => motion.dismiss()}>
                     <View {...motion.pan.panHandlers} style={{ touchAction: "none" }}>
                         <View style={styles.grabber} />
@@ -326,7 +223,8 @@ const makeStyles = (colors) =>
             alignSelf: "center",
             marginBottom: space.md,
         },
-        title: { ...type.heading, color: colors.text, textAlign: "center", marginBottom: space.sm },
+        title: { ...type.heading, fontSize: type.heading.fontSize * 1.3, lineHeight: type.heading.lineHeight * 1.3,
+            color: colors.text, textAlign: "center", marginBottom: space.sm },
         scroll: { flex: 1, minHeight: 0 },
         groupTitle: {
             ...type.subheading,

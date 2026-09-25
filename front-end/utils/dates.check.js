@@ -6,7 +6,7 @@ const src = fs.readFileSync(path.join(__dirname, "dates.js"), "utf8").replace(/e
 const M = new Function(
     `${src}\nreturn { todayLocal, toLocalISO, shiftMonthClamped, shortDate, monthLabel, shortTime, overdueBy,
                       nowLocalTime, durationText, minutesBetween, ageAtDate, monthsBetween,
-                      spanText, ageLabel, compactDate, shortDateRange, numericDateRange, setRangeEndpoint,
+                      spanText, ageLabel, compactDate, weekdayAbbreviation, shortDateRange, numericDateRange, setRangeEndpoint,
                       dateRangePreset, evenDateSlots, evenYearSlots,
                       dateEndpointBounds, weekOfMonth, weekRangeFromSelection,
                       monthRangeFromSelection };`,
@@ -36,6 +36,9 @@ const currentYear = new Date().getFullYear();
 const pastYear = currentYear - 1;
 eq("compactDate", M.compactDate(`${currentYear}-09-04`), "4 Sept");
 eq("compactDate with year", M.compactDate("2026-09-04", true), "4 Sept 2026");
+eq("weekday Monday", M.weekdayAbbreviation("2026-09-21"), "Mon");
+eq("weekday Tuesday", M.weekdayAbbreviation("2026-09-22"), "Tue");
+eq("weekday invalid", M.weekdayAbbreviation(""), "");
 eq("shortDateRange same day", M.shortDateRange(`${currentYear}-09-04`, `${currentYear}-09-04`), "4 Sept");
 eq("shortDateRange same month", M.shortDateRange(`${currentYear}-09-01`, `${currentYear}-09-04`), "1–4 Sept");
 eq("shortDateRange past year", M.shortDateRange(`${pastYear}-09-01`, `${pastYear}-09-04`), `1–4 Sept ${pastYear}`);

@@ -3,22 +3,23 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { parse } = require("@babel/parser");
 
-// Exercise the actual motion hook with controllable animation completions.
-const source = fs.readFileSync(path.join(__dirname, "ActionSheet.js"), "utf8");
-const hook = parse(source, { sourceType: "module", plugins: ["jsx"] }).program.body
-    .find((node) => node.id?.name === "useActionSheetMotion");
+const source = fs.readFileSync(path.join(__dirname, "useBottomSheetMotion.js"), "utf8");
+const body = parse(source, { sourceType: "module", plugins: ["jsx"] }).program.body;
+const hook = body.map((node) => node.declaration || node).find((node) => node.id?.name === "useBottomSheetMotion");
 
 async function check(reduced = false) {
     const slots = [];
     let index = 0, dirty = false, effects = [], activeAnimation, preferenceListener;
-    let visible = false, height = 575, closed = 0, selected = 0;
+    let visible = false, gestureEnabled = true, closed = 0;
+    const collapsedHeight = 575, expandedHeight = 640, collapsedOffset = 65;
     const same = (a, b) => a && b && a.length === b.length && a.every((value, i) => Object.is(value, b[i]));
     const useState = (initial) => {
         const position = index++;
         slots[position] ??= { value: initial };
         return [slots[position].value, (value) => {
-            if (!Object.is(slots[position].value, value)) dirty = true;
-            slots[position].value = value;
+            const next = typeof value === "function" ? value(slots[position].value) : value;
+            if (!Object.is(slots[position].value, next)) dirty = true;
+            slots[position].value = next;
         }];
     };
     const useRef = (initial) => { const position = index++; return slots[position] ??= { current: initial }; };
@@ -47,7 +48,7 @@ async function check(reduced = false) {
         addEventListener: (_name, callback) => { preferenceListener = callback; return { remove() {} }; },
     };
     const run = new Function("useState", "useRef", "useMemo", "useCallback", "useEffect", "Animated", "Easing", "PanResponder", "AccessibilityInfo",
-        `${source.slice(hook.start, hook.end)}; return useActionSheetMotion;`)(
+        `const OPEN_MS=280,CLOSE_MS=220,SETTLE_MS=160,DRAG_CAPTURE=12,DETENT_THRESHOLD=64;${source.slice(hook.start, hook.end)}; return useBottomSheetMotion;`)(
         useState, useRef, useMemo, (callback, deps) => useMemo(() => callback, deps), useEffect,
         Animated, { out: (value) => value, cubic: "cubic" }, { create: (handlers) => ({ panHandlers: handlers }) }, AccessibilityInfo);
     let motion;
@@ -56,7 +57,7 @@ async function check(reduced = false) {
         do {
             dirty = false;
             index = 0;
-            motion = run(visible, height, close);
+            motion = run({ visible, collapsedHeight, expandedHeight, onClose: close, gestureEnabled });
             const pending = effects; effects = [];
             pending.forEach((effect) => effect());
         } while (dirty);
@@ -67,79 +68,70 @@ async function check(reduced = false) {
         current.steps.forEach(({ value, config }) => value.setValue(config.toValue));
         current.callback({ finished: true });
         render();
-        return current;
-    }
-    function open() {
-        visible = true; render();
-        assert.equal(motion.presented, true);
-        if (!reduced) { assert.equal(activeAnimation.steps[0].config.duration, 280); finish(); }
-        assert.equal(motion.offset.value, 0);
     }
     render();
     await Promise.resolve(); render();
     assert.equal(motion.presented, false);
-    open();
+    visible = true; render();
+    assert.equal(motion.presented, true);
+    if (!reduced) {
+        assert.equal(motion.offset.value, expandedHeight);
+        motion.startOpening();
+        assert.equal(activeAnimation.steps[0].config.duration, 280);
+        finish();
+    }
+    assert.equal(motion.offset.value, collapsedOffset);
+
     const pan = motion.pan.panHandlers;
-    const claims = (dx, dy) => pan.onMoveShouldSetPanResponder(null, { dx, dy });
-    assert.equal(claims(0, 12), false);
-    assert.equal(claims(40, 20), false);
-    assert.equal(claims(0, -80), false);
-    assert.equal(claims(0, 20), true);
+    assert.equal(pan.onMoveShouldSetPanResponder(null, { dx: 0, dy: 12 }), false);
+    assert.equal(pan.onMoveShouldSetPanResponder(null, { dx: 40, dy: 20 }), false);
+    assert.equal(pan.onMoveShouldSetPanResponder(null, { dx: 0, dy: -20 }), true);
+    pan.onPanResponderGrant();
+    pan.onPanResponderMove(null, { dy: -80 });
+    assert.equal(motion.offset.value, 0);
+    pan.onPanResponderRelease(null, { dy: -64 });
+    if (!reduced) finish();
+    assert.equal(motion.offset.value, 0, "An upward header swipe expands to the 80% detent");
+
     pan.onPanResponderGrant();
     pan.onPanResponderMove(null, { dy: 30 });
-    assert.equal(motion.offset.value, 30);
     pan.onPanResponderRelease(null, { dy: 30, vy: 10 });
-    if (!reduced) { assert.equal(activeAnimation.steps[0].config.duration, 160); finish(); }
-    assert.equal(motion.offset.value, 0);
-    assert.equal(closed, 0, "Velocity alone cannot dismiss a short pull");
-    pan.onPanResponderGrant();
-    pan.onPanResponderMove(null, { dy: height + 100 });
-    assert.equal(motion.offset.value, height);
-    pan.onPanResponderTerminate();
     if (!reduced) finish();
-    assert.equal(motion.offset.value, 0);
+    assert.equal(motion.offset.value, 0, "A short swipe recovers regardless of velocity");
+    assert.equal(closed, 0);
+
     pan.onPanResponderGrant();
     pan.onPanResponderRelease(null, { dy: 64 });
-    motion.dismiss();
-    if (!reduced) { assert.equal(activeAnimation.steps[0].config.duration, 220); assert.equal(motion.presented, true); finish(); }
+    if (!reduced) {
+        assert.equal(activeAnimation.steps[0].config.duration, 220);
+        finish();
+    }
     render();
-    assert.equal(closed, 1);
-    assert.equal(motion.presented, false);
-    open();
-    motion.dismiss(() => { selected++; visible = false; });
-    motion.dismiss(() => { selected++; });
-    if (!reduced) { assert.equal(selected, 0); finish(); }
-    render();
-    assert.equal(selected, 1, "Selection happens once, after sliding out");
+    assert.equal(closed, 1, "A downward header swipe closes from the expanded detent");
     assert.equal(motion.presented, false);
 
-    if (!reduced) {
-        open();
-        motion.dismiss(() => { selected++; });
-        const stale = activeAnimation;
-        visible = false; render();
-        visible = true; render(); finish();
-        stale.callback({ finished: true });
-        assert.equal(selected, 1, "Reopening cancels pending selection and stale completions");
-        height = 400; render(); finish();
-        assert.equal(motion.offset.value, 0);
-        motion.dismiss();
-        preferenceListener(true); render();
-        assert.equal(closed, 2, "Changing reduced motion during an exit retains the close callback");
-        preferenceListener(false); render();
-        open();
-        motion.dismiss(() => { selected++; });
-        const interrupted = activeAnimation;
-        slots.forEach((slot) => slot?.cleanup?.());
-        interrupted.callback({ finished: true });
-        assert.equal(selected, 1, "Unmount cancels pending actions");
-    }
+    visible = true; render();
+    if (!reduced) { motion.startOpening(); finish(); }
+    gestureEnabled = false; render();
+    assert.equal(motion.pan.panHandlers.onMoveShouldSetPanResponder(null, { dx: 0, dy: 80 }), false,
+        "Busy and non-dismissible forms do not capture close gestures");
+    preferenceListener?.(reduced);
 }
 
-assert(source.includes('animationType="none"'));
-assert(source.includes('<View {...motion.pan.panHandlers}'), "Drag handlers belong only to the header");
-assert(!/<ScrollView[^>]*panHandlers/.test(source));
+const actionSheet = fs.readFileSync(path.join(__dirname, "ActionSheet.js"), "utf8");
+const recordSheet = fs.readFileSync(path.join(__dirname, "RecordFormSheet.js"), "utf8");
+for (const consumer of [actionSheet, recordSheet]) {
+    assert(consumer.includes("useBottomSheetMotion"));
+    assert(consumer.includes("expandedSheetHeight"));
+    assert(consumer.includes("onShow={motion.startOpening}"));
+    assert(consumer.includes("...motion.pan.panHandlers"));
+}
+assert(actionSheet.includes("height: expandedHeight"));
+assert(recordSheet.includes("gestureEnabled: canDismiss"));
+assert(recordSheet.includes("canDismiss && motion.dismiss()"));
+
 (async () => {
-    await check(); await check(true);
-    console.log("Action sheet motion checks passed: drag thresholds, recovery, deferred callbacks, interruptions, resizing and reduced motion.");
+    await check();
+    await check(true);
+    console.log("Bottom sheet checks passed: staged entrance, 80% expansion, recovery, downward close, locks and reduced motion.");
 })().catch((error) => { console.error(error); process.exitCode = 1; });

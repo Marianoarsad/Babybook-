@@ -1,5 +1,8 @@
 // Maps between the backend's child shape (snake_case) and the app's profile
 // shape (camelCase, gender as "girl"/"boy").
+import numericInput from "./numericInput.cjs";
+
+const { digitsOnly } = numericInput;
 
 const GIRL_AVATAR =
     "https://images.unsplash.com/photo-1519689680058-324335c77eb2?q=80&w=300&auto=format&fit=crop";
@@ -18,6 +21,7 @@ export function childToProfile(c) {
     const fullName = [c.first_name, c.last_name].filter(Boolean).join(" ") || c.first_name || "Baby";
     const birthWeight = num(c.birth_weight);
     const birthHeight = num(c.birth_length);
+    const emergency = c.emergency_contact_details || {};
     return {
         id: String(c.id),
         name: fullName,
@@ -26,7 +30,6 @@ export function childToProfile(c) {
         nickname: c.nickname || "",
         placeOfBirth: c.place_of_birth || "",
         timeOfBirth: c.time_of_birth ? String(c.time_of_birth).slice(0, 5) : "",
-        preferredHealthCenter: c.preferred_health_center || "",
         dateOfBirth: c.date_of_birth ? String(c.date_of_birth).slice(0, 10) : "",
         gender: isGirl ? "girl" : "boy",
         sex: c.sex || (isGirl ? "Female" : "Male"),
@@ -34,9 +37,18 @@ export function childToProfile(c) {
         birthWeight: birthWeight ?? 3.0,
         birthHeight: birthHeight ?? 49.0,
         hospital: c.hospital || "",
-        obgynName: c.obgyne_name || "",
-        pediatricianName: c.pediatrician_name || "",
+        obgynName: formatDoctorName(c.obgyne_name),
+        obgynContactNumber: digitsOnly(c.obgyne_contact_number),
+        pediatricianName: formatDoctorName(c.pediatrician_name),
+        pediatricianContactNumber: digitsOnly(c.pediatrician_contact_number),
+        pediatricianClinicHospital: c.pediatrician_clinic_hospital || "",
         emergencyContact: c.emergency_contact || "",
+        emergencyContactDetails: {
+            firstName: emergency.first_name || "",
+            lastName: emergency.last_name || "",
+            relationship: emergency.relationship || "",
+            contactNumber: digitsOnly(emergency.contact_number),
+        },
         avatarUrl: c.avatar_url || (isGirl ? GIRL_AVATAR : BOY_AVATAR),
         allergies: Array.isArray(c.allergies) ? c.allergies : [],
         hereditaryConditions: Array.isArray(c.hereditary_conditions) ? c.hereditary_conditions : [],
@@ -66,13 +78,27 @@ export function profileFormToChild(form, { includeBirth = true } = {}) {
     }
     if (form.bloodType) body.blood_type = form.bloodType;
     if (form.hospital) body.hospital = form.hospital;
-    if (form.pediatrician) body.pediatrician_name = form.pediatrician;
-    if (form.obgyne) body.obgyne_name = form.obgyne;
-    if (form.emergencyContact) body.emergency_contact = form.emergencyContact;
+    body.pediatrician_name = formatDoctorName(form.pediatrician) || null;
+    body.obgyne_name = formatDoctorName(form.obgyne) || null;
+    if (form.pediatricianContactNumber !== undefined) {
+        body.pediatrician_contact_number = digitsOnly(form.pediatricianContactNumber) || null;
+    }
+    if (form.pediatricianClinicHospital !== undefined) {
+        body.pediatrician_clinic_hospital = String(form.pediatricianClinicHospital || "").trim() || null;
+    }
+    if (form.obgynContactNumber !== undefined) {
+        body.obgyne_contact_number = digitsOnly(form.obgynContactNumber) || null;
+    }
+    const emergency = form.emergencyContactDetails || {};
+    body.emergency_contact_details = {
+        first_name: emergency.firstName || "",
+        last_name: emergency.lastName || "",
+        relationship: emergency.relationship || "",
+        contact_number: digitsOnly(emergency.contactNumber),
+    };
     if (form.nickname) body.nickname = form.nickname;
     if (form.placeOfBirth) body.place_of_birth = form.placeOfBirth;
     if (form.timeOfBirth) body.time_of_birth = form.timeOfBirth;
-    if (form.preferredHealthCenter) body.preferred_health_center = form.preferredHealthCenter;
     if (form.avatarUrl) body.avatar_url = form.avatarUrl;
     return body;
 }
@@ -225,6 +251,15 @@ export function feedRowSummary(n) {
         return `${base} • ${qty} ${n.unit || "mL"} formula + ${breastmilkQty} ${n.unit || "mL"} breastmilk${scoops}`;
     }
     return qty != null ? `${base} • ${qty} ${n.unit || "mL"}${scoops}` : `${base}${scoops}`;
+}
+
+export function stripDoctorPrefix(value) {
+    return String(value || "").replace(/^(?:dr(?:\.\s*|\s+))+/i, "").trimStart();
+}
+
+export function formatDoctorName(value) {
+    const name = stripDoctorPrefix(value).trim();
+    return name ? `Dr. ${name}` : "";
 }
 
 // Backend checkup row -> app appointment shape (Growth appointments list).

@@ -4,7 +4,7 @@ import Svg, { Path, Circle, Line, Text as SvgText, Defs, LinearGradient, Stop } 
 import { useTheme } from "../context/ThemeContext";
 import { useLanguage } from "../context/LanguageContext";
 import { space, type } from "../theme";
-import { evenDateSlots, evenYearSlots } from "../utils/dates";
+import { evenDateSlots, evenYearSlots, weekdayAbbreviation } from "../utils/dates";
 import {
     WHO_MAX_DAY,
     ageInDays,
@@ -265,6 +265,13 @@ export default function PercentileChart({
     }, [chartPoints, compact, geo, multiYearMode, padTop, plotH]);
 
     const xTicks = useMemo(() => {
+        if (areaFill && shortRange && geo) {
+            return chartPoints.map((point) => ({
+                label: weekdayAbbreviation(point.date),
+                x: geo.xFor(point.day),
+                fontSize: 13,
+            }));
+        }
         if (areaFill && datePreset === "year" && yearRange) {
             const fromYear = Number(yearRange.from);
             const toYear = Number(yearRange.to);
@@ -325,7 +332,7 @@ export default function PercentileChart({
             });
         }
         return out;
-    }, [areaFill, yearRange, datePreset, domain, dateWindow, plotDateWindow, dateOfBirth, language, plotW, t]);
+    }, [areaFill, shortRange, geo, chartPoints, yearRange, datePreset, domain, dateWindow, plotDateWindow, dateOfBirth, language, plotW, t]);
 
     const latestHighlight = areaFill && childPath?.latest ? childPath.latest : null;
 
@@ -495,11 +502,13 @@ export default function PercentileChart({
 
                         {/* X scale — drawn in both sizes now. */}
                         {xTicks.map((t, i) => {
-                            const x = areaFill
-                                ? xTicks.length === 1
+                            const x = Number.isFinite(t.x)
+                                ? t.x
+                                : areaFill
+                                  ? xTicks.length === 1
                                     ? gutter + plotW / 2
                                     : gutter + (i / (xTicks.length - 1)) * plotW
-                                : geo.xFor(t.day);
+                                  : geo.xFor(t.day);
                             return (
                             <SvgText
                                 key={`x${i}`}

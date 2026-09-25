@@ -9,13 +9,10 @@ import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
 import { useScroll } from "../../context/ScrollContext";
 import { SkeletonBlock } from "../ui/Skeleton";
 import { space, radius, type, shadow, MIN_TOUCH } from "../../theme";
-import { exportChildRecordsPdf, pdfExportAvailable } from "../../utils/exportPdf";
-import { CATEGORY_LABELS } from "../../utils/pdfTemplate";
-import PulseLoader from "../ui/PulseLoader";
 
 // Consent status/retention + the existing withdraw-and-delete flow, surfaced
 // as its own destination instead of only appearing in the annual reminder.
-export default function PrivacySettings({ profile, onAccountDeleted }) {
+export default function PrivacySettings({ onAccountDeleted }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
@@ -29,33 +26,6 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [renewing, setRenewing] = useState(false);
     const [deleting, setDeleting] = useState(false);
-
-    const exportKeys = Object.keys(CATEGORY_LABELS);
-    const [exportSelected, setExportSelected] = useState(() => new Set(exportKeys));
-    const [exporting, setExporting] = useState(false);
-    const toggleExportKey = (key) => {
-        setExportSelected((prev) => {
-            const next = new Set(prev);
-            if (next.has(key)) next.delete(key);
-            else next.add(key);
-            return next;
-        });
-    };
-    const handleExport = async () => {
-        if (!profile) return;
-        if (exportSelected.size === 0) {
-            toast.error("Select at least one category to export.");
-            return;
-        }
-        setExporting(true);
-        try {
-            await exportChildRecordsPdf(profile, { scope: exportSelected });
-        } catch (e) {
-            toast.error(e.message || "Could not export records");
-        } finally {
-            setExporting(false);
-        }
-    };
 
     const load = async () => {
         try {
@@ -178,50 +148,6 @@ export default function PrivacySettings({ profile, onAccountDeleted }) {
             </SectionContainerCard>
 
             <SectionContainerCard
-                title="Export My Child's Records"
-                subtitle="Download a PDF — also works offline once saved"
-            >
-                {pdfExportAvailable() ? (
-                    <>
-                        <View style={styles.exportGrid}>
-                            {exportKeys.map((key) => {
-                                const on = exportSelected.has(key);
-                                return (
-                                    <TouchableOpacity
-                                        key={key}
-                                        style={styles.exportRow}
-                                        onPress={() => toggleExportKey(key)}
-                                        accessibilityRole="checkbox"
-                                        accessibilityState={{ checked: on }}
-                                    >
-                                        <View style={[styles.checkbox, on && styles.checkboxOn]}>
-                                            {on && <Ionicons name="checkmark" size={13} color={colors.onPrimary} />}
-                                        </View>
-                                        <Text style={styles.exportLabel}>{CATEGORY_LABELS[key]}</Text>
-                                    </TouchableOpacity>
-                                );
-                            })}
-                        </View>
-                        <TouchableOpacity
-                            onPress={handleExport}
-                            style={styles.renewBtn}
-                            disabled={exporting || !profile}
-                            accessibilityRole="button"
-                            accessibilityLabel="Export selected records as PDF"
-                        >
-                            {exporting ? (
-                                <PulseLoader color={colors.onAccent} />
-                            ) : (
-                                <Text style={styles.renewBtnText}>Export as PDF</Text>
-                            )}
-                        </TouchableOpacity>
-                    </>
-                ) : (
-                    <Text style={styles.warnText}>PDF export isn't available on this build.</Text>
-                )}
-            </SectionContainerCard>
-
-            <SectionContainerCard
                 title="QR Consultation Access Log"
                 subtitle="What's recorded when a healthcare professional views shared records"
             >
@@ -304,14 +230,6 @@ const makeStyles = (colors) =>
         },
         rowLabel: { ...type.label, color: colors.textMuted, flex: 1, minWidth: 0 },
         rowValue: { ...type.label, color: colors.text, flexShrink: 1, textAlign: "right" },
-        exportGrid: { marginBottom: space.md },
-        exportRow: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: MIN_TOUCH, paddingVertical: 7 },
-        exportLabel: { ...type.label, color: colors.text, flex: 1, minWidth: 0 },
-        checkbox: {
-            width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: colors.primary,
-            alignItems: "center", justifyContent: "center", backgroundColor: colors.surface,
-        },
-        checkboxOn: { backgroundColor: colors.primary },
         renewBtn: {
             height: 44,
             borderRadius: radius.md,

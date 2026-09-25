@@ -5,8 +5,10 @@ const path = require("path");
 const source = fs.readFileSync(path.join(__dirname, "NutritionDateFilter.js"), "utf8");
 const checks = [
     ["Growth-style form padding", source.includes('form: { gap: space.md, paddingHorizontal: space.sm, paddingVertical: space.lg }')],
-    ["quick actions stay on the form screen", source.indexOf("ACTIONS.map") > source.indexOf("!picker ?") && source.includes("picker && (!draft.preset")],
+    ["quick actions stay on the form screen", source.indexOf("ACTIONS.map") > source.indexOf("!picker ?")],
+    ["week picker uses a 2x2 grid", source.includes('style={styles.weekGridButton}') && source.includes('weekGridButton: { width: "50%" }')],
     ["picker uses a focused heading", source.includes('Choose a {pickerKind}.') && source.includes('picker === "from" ? "Starting" : "Ending"')],
+    ["date inputs use the centered wheel modal", source.includes("dateWheelEndpoint") && source.includes("<DateWheelPicker")],
 ];
 
 let failed = 0;

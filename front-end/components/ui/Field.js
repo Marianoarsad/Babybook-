@@ -4,6 +4,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { radius, space, type, MIN_TOUCH } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
 import { useRecordForm } from "./RecordFormSheet";
+import numericInput from "../../utils/numericInput.cjs";
+
+const { decimalOnly, digitsOnly } = numericInput;
 
 // Accessible labelled text field with inline error + helper text.
 // Replaces bare TextInputs and alert()-based validation.
@@ -12,6 +15,7 @@ export default function Field({
     value,
     onChangeText,
     placeholder,
+    prefix,
     error,
     helper,
     keyboardType,
@@ -28,6 +32,7 @@ export default function Field({
     autoComplete,
     textContentType,
     inputMode,
+    numericMode,
     maxLength,
     editable = true,
     // Suppresses the reveal control on a secure field. The sign-in password box
@@ -57,19 +62,26 @@ export default function Field({
             <View style={{ justifyContent: "center", ...(row ? { flex: 1.35, minWidth: 0 } : {}) }}>
                 <TextInput
                     value={value}
-                    onChangeText={onChangeText}
+                    onChangeText={(next) => onChangeText?.(
+                        numericMode === "digits"
+                            ? digitsOnly(next)
+                            : numericMode === "decimal"
+                              ? decimalOnly(next)
+                              : next,
+                    )}
                     placeholder={placeholder}
                     placeholderTextColor={colors.placeholder}
-                    keyboardType={keyboardType}
+                    keyboardType={keyboardType || (numericMode === "digits" ? "number-pad" : numericMode === "decimal" ? "decimal-pad" : undefined)}
                     secureTextEntry={!!secureTextEntry && !revealed}
                     autoCapitalize={autoCapitalize}
                     multiline={multiline}
                     autoComplete={autoComplete}
                     textContentType={textContentType}
-                    inputMode={inputMode}
+                    inputMode={inputMode || (numericMode === "digits" ? "numeric" : numericMode === "decimal" ? "decimal" : undefined)}
                     maxLength={maxLength}
                     editable={editable}
                     accessibilityLabel={label}
+                    accessibilityHint={prefix ? `${prefix} is added automatically` : undefined}
                     style={{
                         minHeight: 52,
                         backgroundColor: colors.surfaceAlt,
@@ -77,7 +89,7 @@ export default function Field({
                         borderColor: error ? colors.danger : colors.border,
                         borderRadius: radius.lg,
                         borderCurve: "continuous",
-                        paddingLeft: recordForm ? space.md : space.lg,
+                        paddingLeft: prefix ? (recordForm ? space.md : space.lg) + 30 : recordForm ? space.md : space.lg,
                         // Room for the reveal button so a long password never
                         // runs underneath it.
                         paddingRight: canReveal ? MIN_TOUCH + space.xs : space.lg,
@@ -89,6 +101,20 @@ export default function Field({
                         textAlignVertical: multiline ? "top" : "center",
                     }}
                 />
+                {prefix ? (
+                    <View
+                        pointerEvents="none"
+                        style={{
+                            position: "absolute",
+                            left: recordForm ? space.md : space.lg,
+                            top: 0,
+                            bottom: 0,
+                            justifyContent: "center",
+                        }}
+                    >
+                        <Text style={{ ...type.body, color: colors.text }}>{prefix}</Text>
+                    </View>
+                ) : null}
                 {canReveal ? (
                     <TouchableOpacity
                         onPress={() => setRevealed((v) => !v)}

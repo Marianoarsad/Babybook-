@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { Animated, PanResponder, View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput } from "react-native";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { Animated, View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput } from "react-native";
 import Modal from "./ui/AppModal";
 import { Ionicons } from "@expo/vector-icons";
 import { Calendar } from "react-native-calendars";
@@ -21,10 +21,10 @@ import { LEAD_TIME_KEY, LEAD_TIME_OPTIONS } from "./settings/GeneralSettings";
 
 import RecordFormSheet, { DeleteConfirmation, RecordFormGroup, RecordFormRow } from "./ui/RecordFormSheet";
 import PlanDetail from "./ui/PlanDetail";
+import SwipeActionRow from "./ui/SwipeActionRow";
 import { shortDate, shortTime, shiftMonthClamped, todayLocal, toLocalISO } from "../utils/dates";
 import { plannedEnd } from "../utils/medication";
 import { selectableMonths } from "../utils/pickers";
-import { shouldClaimHorizontalSwipe, shouldOpenSwipe } from "../utils/swipeMath";
 
 // Category -> theme-derived marker/accent color. Kept to semantic status tones
 // (not brand hex) so it stays consistent across the girl/boy palette switch.
@@ -40,8 +40,6 @@ const CATEGORY_META = {
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"];
 const LIST_PAGE = 3;
-const SWIPE_ACTION_WIDTH = 72;
-const SWIPE_FOREGROUND_OVERLAP = 12;
 const EmptyCalendarHeader = () => null;
 const PLAN_RESOURCES = {
     vaccination: "vaccinations",
@@ -49,111 +47,6 @@ const PLAN_RESOURCES = {
     "medical-history": "medical-history",
     "calendar-event": "calendar-events",
 };
-
-function SwipePlanRow({ open, onOpen, onClose, onPress, actions, label, styles, children }) {
-    const revealWidth = actions.length * SWIPE_ACTION_WIDTH;
-    const revealDistance = revealWidth - SWIPE_FOREGROUND_OVERLAP;
-    const translateX = useRef(new Animated.Value(0)).current;
-    const dragStart = useRef(0);
-    const openRef = useRef(open);
-    const onOpenRef = useRef(onOpen);
-    const onCloseRef = useRef(onClose);
-
-    openRef.current = open;
-    onOpenRef.current = onOpen;
-    onCloseRef.current = onClose;
-
-    const settle = useCallback((isOpen) => {
-        Animated.spring(translateX, {
-            toValue: isOpen ? -revealDistance : 0,
-            speed: 18,
-            bounciness: 0,
-            useNativeDriver: true,
-        }).start();
-    }, [revealDistance, translateX]);
-
-    useEffect(() => settle(open), [open, settle]);
-
-    const pan = useMemo(
-        () =>
-            PanResponder.create({
-                onMoveShouldSetPanResponder: (_event, gesture) =>
-                    shouldClaimHorizontalSwipe(gesture.dx, gesture.dy),
-                onPanResponderGrant: () => {
-                    translateX.stopAnimation((value) => {
-                        dragStart.current = value;
-                    });
-                },
-                onPanResponderMove: (_event, gesture) => {
-                    translateX.setValue(Math.max(-revealDistance, Math.min(0, dragStart.current + gesture.dx)));
-                },
-                onPanResponderRelease: (_event, gesture) => {
-                    const nextOpen = shouldOpenSwipe({
-                        dx: gesture.dx,
-                        wasOpen: openRef.current,
-                        revealWidth: revealDistance,
-                    });
-                    settle(nextOpen);
-                    (nextOpen ? onOpenRef.current : onCloseRef.current)();
-                },
-                onPanResponderTerminate: () => settle(openRef.current),
-            }),
-        [revealDistance, settle, translateX],
-    );
-
-    const runAction = (name) => actions.find((action) => action.key === name)?.onPress();
-    const actionOpacity = translateX.interpolate({
-        inputRange: [-24, -6, 0],
-        outputRange: [1, 0, 0],
-        extrapolate: "clamp",
-    });
-
-    return (
-        <View
-            style={styles.swipeRow}
-            accessible={!open}
-            accessibilityRole="button"
-            accessibilityLabel={label}
-            accessibilityHint="Swipe left for actions"
-            onAccessibilityTap={open ? onClose : onPress}
-            accessibilityActions={actions.map((action) => ({ name: action.key, label: action.label }))}
-            onAccessibilityAction={(event) => runAction(event.nativeEvent.actionName)}
-            {...pan.panHandlers}
-        >
-            <Animated.View
-                style={[styles.swipeActions, { width: revealWidth, opacity: actionOpacity }]}
-                pointerEvents={open ? "auto" : "none"}
-                accessibilityElementsHidden={!open}
-                importantForAccessibility={open ? "auto" : "no-hide-descendants"}
-            >
-                {actions.map((action) => (
-                    <TouchableOpacity
-                        key={action.key}
-                        style={[
-                            styles.swipeAction,
-                            action.key === "update" && styles.swipeLeadingAction,
-                            action.kind === "delete" && styles.swipeDeleteAction,
-                        ]}
-                        onPress={action.onPress}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${action.label} ${label}`}
-                    >
-                        <Ionicons
-                            name={action.icon}
-                            size={19}
-                            color={action.color}
-                        />
-                    </TouchableOpacity>
-                ))}
-            </Animated.View>
-            <Animated.View style={[styles.swipeForeground, { transform: [{ translateX }] }]}>
-                <TouchableOpacity activeOpacity={1} disabled={!open && !onPress} onPress={open ? onClose : onPress} accessible={false}>
-                    {children}
-                </TouchableOpacity>
-            </Animated.View>
-        </View>
-    );
-}
 
 function monthText(value, short = false) {
     const date = new Date(`${String(value || "").slice(0, 10)}T00:00:00`);
@@ -580,7 +473,7 @@ export default function CalendarView({ profile, onNavigate }) {
               ];
 
         return (
-            <SwipePlanRow
+            <SwipeActionRow
                 key={ev.id}
                 open={openSwipeId === ev.id}
                 onOpen={() => setOpenSwipeId(ev.id)}
@@ -588,7 +481,6 @@ export default function CalendarView({ profile, onNavigate }) {
                 onPress={onPress}
                 actions={actions}
                 label={`${meta.label}: ${ev.title}`}
-                styles={styles}
             >
                 <View
                     style={[
@@ -601,7 +493,7 @@ export default function CalendarView({ profile, onNavigate }) {
                 >
                     {renderEventContent(ev, showDate, checklist, tone)}
                 </View>
-            </SwipePlanRow>
+            </SwipeActionRow>
         );
     };
 
@@ -1038,41 +930,6 @@ const makeStyles = (colors) =>
             borderCurve: "continuous",
             marginBottom: space.sm,
         },
-        swipeRow: {
-            position: "relative",
-            overflow: "hidden",
-            borderRadius: radius.lg,
-            borderCurve: "continuous",
-            marginBottom: space.sm,
-        },
-        swipeActions: {
-            position: "absolute",
-            top: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 0,
-            flexDirection: "row",
-            justifyContent: "flex-end",
-        },
-        swipeForeground: {
-            position: "relative",
-            zIndex: 1,
-            width: "100%",
-            overflow: "hidden",
-            borderRadius: radius.lg,
-            borderCurve: "continuous",
-            backgroundColor: colors.surface,
-        },
-        swipeAction: {
-            width: SWIPE_ACTION_WIDTH,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: colors.primarySoft,
-        },
-        swipeLeadingAction: {
-            paddingLeft: space.lg,
-        },
-        swipeDeleteAction: { backgroundColor: colors.danger },
         swipeEventRow: { marginBottom: 0, minHeight: 72 },
         eventWhen: {
             width: 76,

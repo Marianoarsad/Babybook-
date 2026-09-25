@@ -63,7 +63,10 @@ for (width of [240, 280, 340, 420]) {
                 const customDayCount = Math.round(
                     (new Date(`${to}T00:00:00`) - new Date(`${from}T00:00:00`)) / 86400000
                 ) + 1;
-                const expectedXCount = multiYear
+                const shortRange = customDayCount <= 7;
+                const expectedXCount = shortRange
+                    ? from === to ? 1 : 2
+                    : multiYear
                     ? Math.min(7, yearRange.to - yearRange.from + 1)
                     : customRange
                       ? Math.min(narrowTickCount, customDayCount)
@@ -76,7 +79,7 @@ for (width of [240, 280, 340, 420]) {
                         ? 44 + (width - 68) / 2
                         : 44 + (i / (expectedXCount - 1)) * (width - 68));
                     assert.equal(label.props.textAnchor, "middle");
-                    assert.equal(label.props.fontSize, datePreset === "year" && !multiYear ? 11 : 13);
+                    assert.equal(label.props.fontSize, datePreset === "year" && !multiYear && !shortRange ? 11 : 13);
                     // Conservative 8px-per-glyph bounds at the 13px font size.
                     const halfText = String(label.children[0]).length * 4;
                     assert.ok(label.props.x - halfText >= 0);
@@ -89,13 +92,19 @@ for (width of [240, 280, 340, 420]) {
                     assert.equal(x[expectedXCount - 1].props.x, width - 24);
                 }
                 for (let i = 2; i < x.length; i++) assert.ok(Math.abs((x[i].props.x - x[i - 1].props.x) - (x[1].props.x - x[0].props.x)) < 1e-8);
-                if (datePreset === "month" || customRange) {
+                if (!shortRange && (datePreset === "month" || customRange)) {
                     assert.ok(x.every((label) => /^\d{2}\/\d{2}$/.test(String(label.children[0]))));
                     for (let i = 1; i < x.length; i++) assert.ok(x[i].props.x - x[i - 1].props.x >= 40);
                 }
-                if (datePreset === "year" && !multiYear) {
+                if (!shortRange && datePreset === "year" && !multiYear) {
                     assert.ok(x.every((label) => String(label.children[0]).length === 3));
                     assert.ok(x.every((label) => label.props.fontSize === 11));
+                }
+                if (shortRange) {
+                    assert.ok(x.every((label) => /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)$/.test(String(label.children[0]))));
+                    const pointDots = nodes.filter((node) => node.type === "Circle" && node.props.r !== 7);
+                    assert.equal(pointDots.length, x.length);
+                    x.forEach((label, index) => assert.equal(label.props.x, pointDots[index].props.cx));
                 }
                 if (multiYear) {
                     const yearLabels = x.map((label) => label.children[0]);

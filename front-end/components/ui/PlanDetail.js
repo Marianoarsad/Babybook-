@@ -77,7 +77,9 @@ export default function PlanDetail({ visible, plan, onClose, onEdit, onDelete, d
                     <View>
                         <Text style={styles.title} selectable>{plan.title || "Untitled plan"}</Text>
                         <Text style={styles.date} selectable>{longDate(plan.date)}</Text>
-                        <Text style={styles.time} selectable>{plan.time ? shortTime(plan.time) : "All-day"}</Text>
+                        {plan.showTime === false ? null : (
+                            <Text style={styles.time} selectable>{plan.time ? shortTime(plan.time) : "All-day"}</Text>
+                        )}
                     </View>
 
                     <View style={styles.rows}>

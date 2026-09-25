@@ -542,7 +542,7 @@ export default function Dashboard({
     // not a fact a clinician needs stated, it's just an empty field.
     const careFacts = [
         { key: "ped", icon: "medkit-outline", label: "Pediatrician", value: profile.pediatricianName || "" },
-        { key: "center", icon: "business-outline", label: "Health center", value: profile.preferredHealthCenter || "" },
+        { key: "clinic", icon: "business-outline", label: "Pediatrician Clinic/Hospital", value: profile.pediatricianClinicHospital || "" },
         { key: "emergency", icon: "call-outline", label: "Emergency", value: profile.emergencyContact || "" },
         { key: "born", icon: "location-outline", label: "Born at", value: profile.hospital || profile.placeOfBirth || "" },
     ].filter((f) => f.value);

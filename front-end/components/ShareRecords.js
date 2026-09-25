@@ -466,12 +466,6 @@ export default function ShareRecords({ profile }) {
                 </View>
             )}
 
-            <View style={styles.privacyNote}>
-                <Ionicons name="lock-closed" size={14} color={colors.primary} />
-                <Text style={styles.privacyText}>
-                    You control exactly what is shared. The professional can view — never edit, add, or delete. Every view is recorded in your access log.
-                </Text>
-            </View>
         </Animated.ScrollView>
     );
 }
@@ -538,10 +532,6 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     logWho: { ...type.caption, fontWeight: "700", color: colors.text },
     logMeta: { ...type.caption, color: colors.textMuted, marginTop: 1 },
-    privacyNote: {
-        flexDirection: "row", gap: 8, backgroundColor: colors.softGreen, borderRadius: 14, padding: 14, alignItems: "flex-start",
-    },
-    privacyText: { flex: 1, ...type.caption, color: colors.primaryDark, lineHeight: 18 },
     resultCard: {
         backgroundColor: colors.surface, borderRadius: 24, padding: 20, alignItems: "center",
         borderWidth: 1, borderColor: colors.border,

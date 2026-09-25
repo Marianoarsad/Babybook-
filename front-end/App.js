@@ -13,7 +13,6 @@ import {
     AppState,
     Animated,
     Easing,
-    useWindowDimensions,
 } from "react-native";
 // react-native-safe-area-context, NOT React Native's own SafeAreaView, which
 // this file used to use. RN's version is a no-op on Android — it renders a
@@ -23,6 +22,7 @@ import {
 // a home indicator or gesture bar.
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Asset } from "expo-asset";
+import { BlurTargetView, BlurView } from "expo-blur";
 import { LanguageProvider, useLanguage } from "./context/LanguageContext";
 import DatabaseLoadingProvider, { useDatabaseLoading } from "./context/DatabaseLoadingContext";
 import Modal from "./components/ui/AppModal";
@@ -40,7 +40,6 @@ import {
     shadow,
     type,
     MIN_TOUCH,
-    TEXT_COL_MIN,
     motion,
     HEADER_TITLE_MAX,
     HEADER_TITLE_MIN,
@@ -51,6 +50,8 @@ import TabBar, { TAB_BAR_BASE_HEIGHT } from "./components/ui/TabBar";
 import AnchoredMenu, { AnchoredMenuItem, AnchoredMenuFooter } from "./components/ui/AnchoredMenu";
 import Gradient from "./components/ui/Gradient";
 import { ScrollContext, useScrollController } from "./context/ScrollContext";
+
+const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
 // Guarded expo-haptics, same pattern as ui/Toast.js — a no-op if the module
 // isn't available rather than a crash.
@@ -82,7 +83,6 @@ try {
     SplashScreen = null;
 }
 import ThemeProvider, { useTheme } from "./context/ThemeContext";
-import { fitsColumns } from "./utils/responsive";
 import { storage, removeLegacyOfflineSummaries } from "./utils/storageAdapter";
 import { seen, markSeen } from "./utils/firstRun";
 
@@ -117,9 +117,10 @@ import CalendarView from "./components/CalendarView";
 import AllActivity from "./components/AllActivity";
 import Search from "./components/Search";
 import Splash from "./components/Splash";
-import { DateField, TimeField } from "./components/ui/DateField";
+import { DateField, TimeField, MeasurementField } from "./components/ui/DateField";
+import Field from "./components/ui/Field";
 
-import RecordFormSheet, { RecordFormGroup, RecordFormRow } from "./components/ui/RecordFormSheet";
+import RecordFormSheet, { RecordFormGroup, RecordFormRow, RecordFormScreen } from "./components/ui/RecordFormSheet";
 import ViewProfile, { PROFILE_TITLES } from "./components/settings/ViewProfile";
 import Avatar from "./components/ui/Avatar";
 import EditProfile from "./components/settings/EditProfile";
@@ -132,7 +133,7 @@ import ChangePassword from "./components/settings/ChangePassword";
 import PrivacySettings from "./components/settings/PrivacySettings";
 import { api, getToken, setToken, clearToken } from "./utils/api";
 import { scheduleReminder, morningOf, cancelRemindersOfKind } from "./utils/notifications";
-import { childToProfile, profileFormToChild } from "./utils/adapters";
+import { childToProfile, profileFormToChild, stripDoctorPrefix } from "./utils/adapters";
 import { todayLocal } from "./utils/dates";
 import { pickImage, pickerAvailable } from "./utils/imagePicker";
 
@@ -148,6 +149,7 @@ import { pickImage, pickerAvailable } from "./utils/imagePicker";
 // A new sub-screen gets an entry here; it does not get its own header.
 const SCREEN_TITLES = {
     viewProfile: "Profile",
+    editBabyProfile: "Edit Baby Profile",
     ...PROFILE_TITLES,
     search: "Search",
     allActivity: "Recent Activity",
@@ -186,22 +188,12 @@ function MainAppShell({
     // the floating button's old hardcoded `bottom: 92` was only ever correct
     // on one device at one font size.
     const [tabBarHeight, setTabBarHeight] = useState(0);
+    const blurTargetRef = useRef(null);
     // The header floats OVER the page now, so it reserves no layout space and
     // every scrolling screen has to pad for it. Measured, never hardcoded: it
     // moves with the safe-area inset and grows with the OS font scale.
     const [headerHeight, setHeaderHeight] = useState(0);
     const scroll = useScrollController(headerHeight, tabBarHeight);
-
-    // Room inside the child-profile sheet, so its paired fields (birth weight /
-    // birth height) can drop to one per line rather than squeezing to ~130pt
-    // each on a small phone. Derived from the sheet's own geometry — screen,
-    // less the backdrop padding, capped at maxWidth, less the card padding.
-    const { width: windowWidth } = useWindowDimensions();
-    const modalTwoCol = fitsColumns(
-        Math.min(windowWidth - space.xl * 2, 440) - space.xl * 2,
-        2,
-        space.sm,
-    );
 
     // Preload the icon and text fonts so buttons and copy never render blank.
     const [fontsReady, setFontsReady] = useState(false);
@@ -381,7 +373,10 @@ function MainAppShell({
     const [showAddProfileModal, setShowAddProfileModal] = useState(false);
     const addedProfileId = useRef(null);
     useEffect(() => { if (showAddProfileModal) addedProfileId.current = null; }, [showAddProfileModal]);
-    const [showEditProfileModal, setShowEditProfileModal] = useState(false);
+    const [bloodTypeMenuOpen, setBloodTypeMenuOpen] = useState(false);
+    const [bloodTypeMenuAnchor, setBloodTypeMenuAnchor] = useState(null);
+    const bloodTypeTriggerRef = useRef(null);
+    useEffect(() => { if (currentView !== "editBabyProfile") setBloodTypeMenuOpen(false); }, [currentView]);
     const [profileSaving, setProfileSaving] = useState(null);
     // Baby switcher, opened from the child's name in the header. It used to be
     // a row of pills pinned to the top of the Dashboard, which meant it cost a
@@ -421,12 +416,17 @@ function MainAppShell({
     const [formBloodType, setFormBloodType] = useState("");
     const [formHospital, setFormHospital] = useState("");
     const [formPediatrician, setFormPediatrician] = useState("");
+    const [formPediatricianContact, setFormPediatricianContact] = useState("");
+    const [formPediatricianClinic, setFormPediatricianClinic] = useState("");
     const [formObgyne, setFormObgyne] = useState("");
-    const [formEmergency, setFormEmergency] = useState("");
+    const [formObgyneContact, setFormObgyneContact] = useState("");
+    const [formEmergencyFirstName, setFormEmergencyFirstName] = useState("");
+    const [formEmergencyLastName, setFormEmergencyLastName] = useState("");
+    const [formEmergencyRelationship, setFormEmergencyRelationship] = useState("");
+    const [formEmergencyNumber, setFormEmergencyNumber] = useState("");
     const [formNickname, setFormNickname] = useState("");
     const [formPlaceOfBirth, setFormPlaceOfBirth] = useState("");
     const [formTimeOfBirth, setFormTimeOfBirth] = useState("");
-    const [formHealthCenter, setFormHealthCenter] = useState("");
     // Profile picture: a picked device photo (uploaded on save) or a pasted URL.
     const [formAvatarUri, setFormAvatarUri] = useState("");
 
@@ -786,8 +786,12 @@ function MainAppShell({
                         hospital: formHospital,
                         pediatrician: formPediatrician,
                         obgyne: formObgyne,
-                        emergencyContact: formEmergency,
-                        preferredHealthCenter: formHealthCenter,
+                        emergencyContactDetails: {
+                            firstName: formEmergencyFirstName,
+                            lastName: formEmergencyLastName,
+                            relationship: formEmergencyRelationship,
+                            contactNumber: formEmergencyNumber,
+                        },
                     },
                     { includeBirth: true },
                 );
@@ -816,8 +820,10 @@ function MainAppShell({
             setFormHospital("");
             setFormPediatrician("");
             setFormObgyne("");
-            setFormEmergency("");
-            setFormHealthCenter("");
+            setFormEmergencyFirstName("");
+            setFormEmergencyLastName("");
+            setFormEmergencyRelationship("");
+            setFormEmergencyNumber("");
             setFormAvatarUri("");
         } catch (e) {
             toast.error(e.message || "Could not add child");
@@ -847,9 +853,16 @@ function MainAppShell({
                         bloodType: formBloodType,
                         hospital: formHospital,
                         pediatrician: formPediatrician,
+                        pediatricianContactNumber: formPediatricianContact,
+                        pediatricianClinicHospital: formPediatricianClinic,
                         obgyne: formObgyne,
-                        emergencyContact: formEmergency,
-                        preferredHealthCenter: formHealthCenter,
+                        obgynContactNumber: formObgyneContact,
+                        emergencyContactDetails: {
+                            firstName: formEmergencyFirstName,
+                            lastName: formEmergencyLastName,
+                            relationship: formEmergencyRelationship,
+                            contactNumber: formEmergencyNumber,
+                        },
                     },
                     { includeBirth: false },
                 ),
@@ -864,8 +877,8 @@ function MainAppShell({
                 }
             }
             setProfiles((prev) => prev.map((p) => (p.id === prof.id ? { ...prof, currentWeight: p.currentWeight, currentHeight: p.currentHeight } : p)));
-            setShowEditProfileModal(false);
             setFormAvatarUri("");
+            goBack();
         } catch (e) {
             toast.error(e.message || "Could not update child");
         } finally {
@@ -874,26 +887,38 @@ function MainAppShell({
     };
 
     const openEditModal = () => {
+        const emergency = activeProfile.emergencyContactDetails || {};
         setFormName(activeProfile.name);
         setFormDob(activeProfile.dateOfBirth);
         setFormGender(activeProfile.gender);
-        setFormHeight(
-            String(activeProfile.currentHeight || activeProfile.birthHeight),
-        );
-        setFormWeight(
-            String(activeProfile.currentWeight || activeProfile.birthWeight),
-        );
         setFormBloodType(activeProfile.bloodType || "");
         setFormHospital(activeProfile.hospital || "");
-        setFormPediatrician(activeProfile.pediatricianName || "");
-        setFormObgyne(activeProfile.obgynName || "");
-        setFormEmergency(activeProfile.emergencyContact || "");
+        setFormPediatrician(stripDoctorPrefix(activeProfile.pediatricianName));
+        setFormPediatricianContact(activeProfile.pediatricianContactNumber || "");
+        setFormPediatricianClinic(activeProfile.pediatricianClinicHospital || "");
+        setFormObgyne(stripDoctorPrefix(activeProfile.obgynName));
+        setFormObgyneContact(activeProfile.obgynContactNumber || "");
+        setFormEmergencyFirstName(emergency.firstName || "");
+        setFormEmergencyLastName(emergency.lastName || "");
+        setFormEmergencyRelationship(emergency.relationship || "");
+        setFormEmergencyNumber(emergency.contactNumber || "");
         setFormNickname(activeProfile.nickname || "");
         setFormPlaceOfBirth(activeProfile.placeOfBirth || "");
         setFormTimeOfBirth(activeProfile.timeOfBirth || "");
-        setFormHealthCenter(activeProfile.preferredHealthCenter || "");
         setFormAvatarUri("");
-        setShowEditProfileModal(true);
+        changeView("editBabyProfile");
+    };
+
+    const openBloodTypeMenu = () => {
+        if (bloodTypeTriggerRef.current?.measureInWindow) {
+            bloodTypeTriggerRef.current.measureInWindow((x, y, width, height) => {
+                setBloodTypeMenuAnchor({ x, y, width, height });
+                setBloodTypeMenuOpen(true);
+            });
+            return;
+        }
+        setBloodTypeMenuAnchor(null);
+        setBloodTypeMenuOpen(true);
     };
 
     // Open the add-baby modal with a clean avatar picker + fields.
@@ -901,7 +926,6 @@ function MainAppShell({
         setFormNickname("");
         setFormPlaceOfBirth("");
         setFormTimeOfBirth("");
-        setFormHealthCenter("");
         setFormAvatarUri("");
         setShowAddProfileModal(true);
     };
@@ -1048,6 +1072,7 @@ function MainAppShell({
             ]}
         >
             <StatusBar barStyle={scheme === "dark" ? "light-content" : "dark-content"} backgroundColor={colors.pageGradient[0]} />
+            <BlurTargetView ref={blurTargetRef} style={styles.blurTarget}>
             <MutationFeedback profiles={profiles} top={headerHeight + space.xs} />
 
             {/* Dynamic Header — rendered AFTER the content below so it paints
@@ -1302,7 +1327,6 @@ function MainAppShell({
                         parentName={parentName}
                         parentAvatar={parentAvatar}
                         parentRelationship={parentRelationship}
-                        profiles={profiles}
                         schemeOverride={schemeOverride}
                         onNavigate={changeView}
                         onLogout={handleLogOut}
@@ -1332,11 +1356,13 @@ function MainAppShell({
                 {currentView === "aboutApp" && <AboutApp />}
                 {currentView === "changePassword" && <ChangePassword />}
                 {currentView === "privacySettings" && (
-                    <PrivacySettings profile={activeProfile} onAccountDeleted={handleLogOut} />
+                    <PrivacySettings onAccountDeleted={handleLogOut} />
                 )}
             </Animated.View>
+            </BlurTargetView>
 
             <TabBar activeView={currentView}
+                blurTarget={blurTargetRef}
                 onLayout={(event) => setTabBarHeight(event.nativeEvent.layout.height)}
                 onSelect={(view) => {
                     if (Haptics?.selectionAsync) Haptics.selectionAsync().catch(() => {});
@@ -1359,7 +1385,18 @@ function MainAppShell({
                     accessibilityRole="button"
                     accessibilityLabel="Add a record"
                 >
-                    <Ionicons name="add" size={28} color={colors.onPrimary} />
+                    <BlurView
+                        blurTarget={blurTargetRef}
+                        blurMethod={Platform.OS === "android" ? "dimezisBlurViewSdk31Plus" : undefined}
+                        intensity={76}
+                        tint={scheme === "dark" ? "systemMaterialDark" : "systemMaterialLight"}
+                        style={styles.fabGlass}
+                    >
+                        <Gradient colors={[colors.primary + "C7", colors.accent + "A8"]} style={styles.fabTint}>
+                            <View pointerEvents="none" style={styles.fabHighlight} />
+                            <Ionicons name="add" size={30} color={colors.onPrimary} />
+                        </Gradient>
+                    </BlurView>
                 </TouchableOpacity>
             ) : null}
 
@@ -1450,34 +1487,10 @@ function MainAppShell({
                                 </TouchableOpacity>
                             </View>
 
-                            <View style={modalTwoCol ? styles.formRow : styles.formStack}>
-                                <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
-                                    <RecordFormRow label={<Text style={styles.modalLabel}>
-                                        Birth Weight (kg)
-                                    </Text>}>
-
-                                    <TextInput
-                                        keyboardType="numeric"
-                                        style={styles.modalInput}
-                                        value={formWeight}
-                                        onChangeText={setFormWeight}
-                                    />
-                                    </RecordFormRow>
-                                </View>
-                                <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
-                                    <RecordFormRow label={<Text style={styles.modalLabel}>
-                                        Birth Height (cm)
-                                    </Text>}>
-
-                                    <TextInput
-                                        keyboardType="numeric"
-                                        style={styles.modalInput}
-                                        value={formHeight}
-                                        onChangeText={setFormHeight}
-                                    />
-                                    </RecordFormRow>
-                                </View>
-                            </View>
+                            <MeasurementField label="Birth Weight" unit="kg" min={0.3} max={40}
+                                value={formWeight} onChange={setFormWeight} />
+                            <MeasurementField label="Birth Height" unit="cm" min={20} max={140}
+                                value={formHeight} onChange={setFormHeight} />
 
                             <RecordFormRow label={<Text style={styles.modalLabel}>Blood Type</Text>}>
 
@@ -1498,30 +1511,26 @@ function MainAppShell({
                                 onChangeText={setFormHospital}
                             />
                             </RecordFormRow>
-                            <RecordFormRow label={<Text style={styles.modalLabel}>Pediatrician</Text>}>
-
-                            <TextInput
-                                style={styles.modalInput}
+                            <Field label="Pediatrician" prefix="Dr." placeholder="Doctor's name"
                                 value={formPediatrician}
-                                onChangeText={setFormPediatrician}
-                            />
-                            </RecordFormRow>
-                            <RecordFormRow label={<Text style={styles.modalLabel}>OB-GYNE</Text>}>
-
-                            <TextInput
-                                style={styles.modalInput}
+                                onChangeText={(value) => setFormPediatrician(stripDoctorPrefix(value))}
+                                autoCapitalize="words" />
+                            <Field label="OB-GYNE" prefix="Dr." placeholder="Doctor's name"
                                 value={formObgyne}
-                                onChangeText={setFormObgyne}
-                            />
-                            </RecordFormRow>
-                            <RecordFormRow label={<Text style={styles.modalLabel}>Emergency Contact</Text>}>
-
-                            <TextInput
-                                style={styles.modalInput}
-                                value={formEmergency}
-                                onChangeText={setFormEmergency}
-                            />
-                            </RecordFormRow>
+                                onChangeText={(value) => setFormObgyne(stripDoctorPrefix(value))}
+                                autoCapitalize="words" />
+                            <Field label="Emergency Contact First Name" placeholder="First name"
+                                value={formEmergencyFirstName} onChangeText={setFormEmergencyFirstName}
+                                autoCapitalize="words" />
+                            <Field label="Emergency Contact Last Name" placeholder="Last name"
+                                value={formEmergencyLastName} onChangeText={setFormEmergencyLastName}
+                                autoCapitalize="words" />
+                            <Field label="Emergency Contact Relationship" placeholder="e.g. Mother"
+                                value={formEmergencyRelationship} onChangeText={setFormEmergencyRelationship}
+                                autoCapitalize="words" />
+                            <Field label="Emergency Contact Number" placeholder="Contact number"
+                                value={formEmergencyNumber} onChangeText={setFormEmergencyNumber}
+                                numericMode="digits" keyboardType="phone-pad" textContentType="telephoneNumber" />
 
                             <RecordFormRow label={<Text style={styles.modalLabel}>Place of Birth</Text>}>
 
@@ -1536,22 +1545,13 @@ function MainAppShell({
                                 value={formTimeOfBirth}
                                 onChange={setFormTimeOfBirth}
                             />
-                            <RecordFormRow label={<Text style={styles.modalLabel}>Preferred Health Center</Text>}>
-
-                            <TextInput
-                                style={styles.modalInput}
-                                value={formHealthCenter}
-                                onChangeText={setFormHealthCenter}
-                            />
-                            </RecordFormRow>
 
                 </RecordFormGroup>
             </RecordFormSheet>
 
-            {/* Modal: EDIT BABY PROFILE */}
-            <RecordFormSheet visible={showEditProfileModal} title={t("profileEditTitle")}
-                onClose={() => setShowEditProfileModal(false)} onSubmit={handleEditProfile} busy={profileSaving === "edit"}
-                cancelLabel={t("cancel")} submitLabel={t("save")}>
+            {/* Screen: EDIT BABY PROFILE */}
+            {currentView === "editBabyProfile" ? <RecordFormScreen
+                onSubmit={handleEditProfile} busy={profileSaving === "edit"} submitLabel="Save Changes">
                 <RecordFormGroup>
 
                             {renderAvatarPicker(activeProfile.avatarUrl)}
@@ -1627,46 +1627,25 @@ function MainAppShell({
                                 </TouchableOpacity>
                             </View>
 
-                            <View style={modalTwoCol ? styles.formRow : styles.formStack}>
-                                <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
-                                    <RecordFormRow label={<Text style={styles.modalLabel}>
-                                        Current Weight (kg)
-                                    </Text>}>
-
-                                    <TextInput
-                                        keyboardType="numeric"
-                                        style={styles.modalInput}
-                                        value={formWeight}
-                                        onChangeText={setFormWeight}
-                                    />
-                                    </RecordFormRow>
-                                </View>
-                                <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
-                                    <RecordFormRow label={<Text style={styles.modalLabel}>
-                                        Current Height (cm)
-                                    </Text>}>
-
-                                    <TextInput
-                                        keyboardType="numeric"
-                                        style={styles.modalInput}
-                                        value={formHeight}
-                                        onChangeText={setFormHeight}
-                                    />
-                                    </RecordFormRow>
-                                </View>
+                            <View style={styles.bloodTypeField}>
+                            <Text style={styles.bloodTypeFloatingLabel}>Blood Type</Text>
+                            <TouchableOpacity
+                                ref={bloodTypeTriggerRef}
+                                style={styles.bloodTypeTrigger}
+                                onPress={openBloodTypeMenu}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Blood Type, ${formBloodType || "Select blood type"}`}
+                                accessibilityState={{ expanded: bloodTypeMenuOpen }}
+                            >
+                                <Text
+                                    style={[styles.dropdownText, !formBloodType && styles.dropdownPlaceholder]}
+                                    numberOfLines={1}
+                                >
+                                    {formBloodType || "Select blood type"}
+                                </Text>
+                                <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
+                            </TouchableOpacity>
                             </View>
-
-                            <RecordFormRow label={<Text style={styles.modalLabel}>Blood Type</Text>}>
-
-                            <TextInput
-                                style={styles.modalInput}
-                                autoCapitalize="characters"
-                                placeholder="e.g. O+"
-                                placeholderTextColor={colors.placeholder}
-                                value={formBloodType}
-                                onChangeText={setFormBloodType}
-                            />
-                            </RecordFormRow>
                             <RecordFormRow label={<Text style={styles.modalLabel}>Birth Hospital</Text>}>
 
                             <TextInput
@@ -1675,30 +1654,35 @@ function MainAppShell({
                                 onChangeText={setFormHospital}
                             />
                             </RecordFormRow>
-                            <RecordFormRow label={<Text style={styles.modalLabel}>Pediatrician</Text>}>
-
-                            <TextInput
-                                style={styles.modalInput}
+                            <Field label="Pediatrician" prefix="Dr." placeholder="Doctor's name"
                                 value={formPediatrician}
-                                onChangeText={setFormPediatrician}
-                            />
-                            </RecordFormRow>
-                            <RecordFormRow label={<Text style={styles.modalLabel}>OB-GYNE</Text>}>
-
-                            <TextInput
-                                style={styles.modalInput}
+                                onChangeText={(value) => setFormPediatrician(stripDoctorPrefix(value))}
+                                autoCapitalize="words" />
+                            <Field label="Pediatrician Contact Number" placeholder="Contact number"
+                                value={formPediatricianContact} onChangeText={setFormPediatricianContact}
+                                numericMode="digits" keyboardType="phone-pad" textContentType="telephoneNumber" />
+                            <Field label="Pediatrician Clinic/Hospital" placeholder="Clinic or hospital name"
+                                value={formPediatricianClinic} onChangeText={setFormPediatricianClinic}
+                                autoCapitalize="words" />
+                            <Field label="OB-GYNE" prefix="Dr." placeholder="Doctor's name"
                                 value={formObgyne}
-                                onChangeText={setFormObgyne}
-                            />
-                            </RecordFormRow>
-                            <RecordFormRow label={<Text style={styles.modalLabel}>Emergency Contact</Text>}>
-
-                            <TextInput
-                                style={styles.modalInput}
-                                value={formEmergency}
-                                onChangeText={setFormEmergency}
-                            />
-                            </RecordFormRow>
+                                onChangeText={(value) => setFormObgyne(stripDoctorPrefix(value))}
+                                autoCapitalize="words" />
+                            <Field label="OB-GYNE Contact Number" placeholder="Contact number"
+                                value={formObgyneContact} onChangeText={setFormObgyneContact}
+                                numericMode="digits" keyboardType="phone-pad" textContentType="telephoneNumber" />
+                            <Field label="Emergency Contact First Name" placeholder="First name"
+                                value={formEmergencyFirstName} onChangeText={setFormEmergencyFirstName}
+                                autoCapitalize="words" />
+                            <Field label="Emergency Contact Last Name" placeholder="Last name"
+                                value={formEmergencyLastName} onChangeText={setFormEmergencyLastName}
+                                autoCapitalize="words" />
+                            <Field label="Emergency Contact Relationship" placeholder="e.g. Mother"
+                                value={formEmergencyRelationship} onChangeText={setFormEmergencyRelationship}
+                                autoCapitalize="words" />
+                            <Field label="Emergency Contact Number" placeholder="Contact number"
+                                value={formEmergencyNumber} onChangeText={setFormEmergencyNumber}
+                                numericMode="digits" keyboardType="phone-pad" textContentType="telephoneNumber" />
 
                             <RecordFormRow label={<Text style={styles.modalLabel}>Place of Birth</Text>}>
 
@@ -1709,21 +1693,34 @@ function MainAppShell({
                             />
                             </RecordFormRow>
                             <TimeField
-                                label="Time of Birth"
+                                label="Time of Birth (Optional)"
                                 value={formTimeOfBirth}
                                 onChange={setFormTimeOfBirth}
                             />
-                            <RecordFormRow label={<Text style={styles.modalLabel}>Preferred Health Center</Text>}>
-
-                            <TextInput
-                                style={styles.modalInput}
-                                value={formHealthCenter}
-                                onChangeText={setFormHealthCenter}
-                            />
-                            </RecordFormRow>
 
                 </RecordFormGroup>
-            </RecordFormSheet>
+            </RecordFormScreen> : null}
+
+            <AnchoredMenu
+                visible={currentView === "editBabyProfile" && bloodTypeMenuOpen}
+                anchor={bloodTypeMenuAnchor}
+                onClose={() => setBloodTypeMenuOpen(false)}
+                variant="select"
+            >
+                {BLOOD_TYPES.map((bloodType) => (
+                    <AnchoredMenuItem
+                        key={bloodType}
+                        label={bloodType}
+                        selected={formBloodType === bloodType}
+                        variant="select"
+                        accessibilityLabel={`Blood type ${bloodType}`}
+                        onPress={() => {
+                            setFormBloodType(bloodType);
+                            setBloodTypeMenuOpen(false);
+                        }}
+                    />
+                ))}
+            </AnchoredMenu>
 
             {/* Annual data-retention re-consent (Data Privacy Act of 2012, RA 10173) */}
             <Modal visible={consentDue} transparent animationType="fade">
@@ -2069,6 +2066,9 @@ const makeStyles = (colors) => StyleSheet.create({
     content: {
         flex: 1,
     },
+    blurTarget: {
+        flex: 1,
+    },
 
     fab: {
         position: "absolute",
@@ -2079,10 +2079,30 @@ const makeStyles = (colors) => StyleSheet.create({
         height: 56,
         borderRadius: 28,
         borderCurve: "continuous",
-        backgroundColor: colors.primary,
+        ...shadow.accent,
+    },
+    fabGlass: {
+        flex: 1,
+        overflow: "hidden",
+        borderRadius: 28,
+        borderCurve: "continuous",
+        borderWidth: 1,
+        borderColor: colors.surface + "CC",
+        backgroundColor: colors.primary + "52",
+    },
+    fabTint: {
+        flex: 1,
         alignItems: "center",
         justifyContent: "center",
-        ...shadow.accent,
+    },
+    fabHighlight: {
+        position: "absolute",
+        left: 7,
+        right: 7,
+        top: 5,
+        height: 14,
+        borderRadius: radius.pill,
+        backgroundColor: colors.onPrimary + "30",
     },
     modalBg: {
         flex: 1,
@@ -2169,13 +2189,35 @@ const makeStyles = (colors) => StyleSheet.create({
         color: colors.text,
         marginBottom: space.lg,
     },
-    // Paired form fields. `formStack` is the same two fields one per line, used
-    // whenever a column would fall below TEXT_COL_MIN — at which point a label
-    // like "Current Weight (kg)" no longer fits on one line beside its twin.
-    formRow: { flexDirection: "row", gap: space.sm },
-    formStack: { flexDirection: "column" },
-    formCell: { flex: 1, minWidth: 0 },
-    formCellFull: { width: "100%" },
+    dropdownText: { ...type.body, color: colors.text, flex: 1, minWidth: 0 },
+    dropdownPlaceholder: { color: colors.placeholder },
+    bloodTypeField: {
+        position: "relative",
+        marginVertical: space.sm,
+    },
+    bloodTypeTrigger: {
+        minHeight: 52,
+        paddingHorizontal: space.md,
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: space.sm,
+    },
+    bloodTypeFloatingLabel: {
+        ...type.caption,
+        position: "absolute",
+        zIndex: 1,
+        top: -8,
+        left: space.md,
+        paddingHorizontal: space.xs,
+        backgroundColor: colors.surface,
+        color: colors.textSecondary,
+    },
 
     modalSaveBtn: {
         paddingVertical: 12,

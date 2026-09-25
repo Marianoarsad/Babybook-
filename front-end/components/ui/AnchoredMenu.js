@@ -39,6 +39,7 @@ export default function AnchoredMenu({
     anchor,
     onClose,
     children,
+    variant = "menu",
     minWidth = 240,
     // 300, not 340: at 340 on a 360pt screen the panel left 8px of page beside
     // it and read as a full-width sheet rather than a menu hanging off the
@@ -78,9 +79,13 @@ export default function AnchoredMenu({
     if (!mounted) return null;
 
     const a = anchor || { x: space.lg, y: 0, width: 0, height: 0 };
+    const select = variant === "select";
+    const panelWidth = select && a.width
+        ? Math.min(a.width, winW - space.sm * 2)
+        : maxWidth;
     // Clamp horizontally so a menu anchored near the right edge folds back on
     // screen instead of running off it.
-    const left = Math.max(space.sm, Math.min(a.x, winW - maxWidth - space.sm));
+    const left = Math.max(space.sm, Math.min(a.x, winW - panelWidth - space.sm));
     const top = a.y + a.height + space.xs;
     // Whatever vertical room is left below the anchor, minus a margin — the
     // list scrolls inside this rather than overflowing the screen.
@@ -90,7 +95,7 @@ export default function AnchoredMenu({
         <Modal visible transparent animationType="none" onRequestClose={onClose}>
             {/* A light scrim, not a heavy modal backdrop: this is a menu hanging
                 off a control, and the page behind it should stay legible. */}
-            <Animated.View style={[styles.scrim, { opacity: anim }]} />
+            <Animated.View style={[styles.scrim, select && styles.selectScrim, { opacity: anim }]} />
             <Pressable
                 style={StyleSheet.absoluteFill}
                 onPress={onClose}
@@ -101,11 +106,11 @@ export default function AnchoredMenu({
                 accessibilityViewIsModal
                 style={[
                     styles.card,
+                    select && styles.selectCard,
                     {
                         left,
                         top,
-                        minWidth,
-                        maxWidth,
+                        ...(select ? { width: panelWidth } : { minWidth, maxWidth }),
                         maxHeight,
                         opacity: anim,
                         // Grows out of its own top-left corner, so it reads as
@@ -125,7 +130,7 @@ export default function AnchoredMenu({
                 ]}
             >
                 <ScrollView
-                    showsVerticalScrollIndicator={false}
+                    showsVerticalScrollIndicator={select}
                     keyboardShouldPersistTaps="handled"
                     bounces={false}
                 >
@@ -138,12 +143,13 @@ export default function AnchoredMenu({
 
 // A row inside the menu. Exported so callers don't rebuild the same layout and
 // drift apart on padding.
-export function AnchoredMenuItem({ label, note, selected, leading, onPress, accessibilityLabel }) {
+export function AnchoredMenuItem({ label, note, selected, leading, onPress, accessibilityLabel, variant = "menu" }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const select = variant === "select";
     return (
         <TouchableOpacity
-            style={[styles.item, selected && styles.itemOn]}
+            style={[styles.item, select && styles.selectItem, selected && (select ? styles.selectItemOn : styles.itemOn)]}
             onPress={onPress}
             accessibilityRole="button"
             accessibilityState={{ selected: !!selected }}
@@ -151,14 +157,14 @@ export function AnchoredMenuItem({ label, note, selected, leading, onPress, acce
         >
             {leading || null}
             <View style={styles.itemText}>
-                <Text style={[styles.itemLabel, selected && styles.itemLabelOn]} numberOfLines={2}>
+                <Text style={[styles.itemLabel, select && styles.selectItemLabel, selected && (select ? styles.selectItemLabelOn : styles.itemLabelOn)]} numberOfLines={2}>
                     {label}
                 </Text>
                 {note ? <Text style={styles.itemNote}>{note}</Text> : null}
             </View>
             {/* A checkmark as well as the tint — colour must never be the only
                 signal that a row is the selected one. */}
-            {selected ? <Ionicons name="checkmark" size={18} color={colors.primary} /> : null}
+            {selected && !select ? <Ionicons name="checkmark" size={18} color={colors.primary} /> : null}
         </TouchableOpacity>
     );
 }
@@ -182,6 +188,7 @@ export function AnchoredMenuFooter({ icon = "add", label, onPress }) {
 const makeStyles = (colors) =>
     StyleSheet.create({
         scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(22,32,42,0.18)" },
+        selectScrim: { backgroundColor: "transparent" },
         card: {
             position: "absolute",
             backgroundColor: colors.surface,
@@ -192,6 +199,11 @@ const makeStyles = (colors) =>
             paddingVertical: space.xs,
             paddingHorizontal: space.xs,
             ...shadow.raised,
+        },
+        selectCard: {
+            paddingVertical: 0,
+            paddingHorizontal: 0,
+            borderRadius: radius.md,
         },
         item: {
             flexDirection: "row",
@@ -204,9 +216,18 @@ const makeStyles = (colors) =>
             borderCurve: "continuous",
         },
         itemOn: { backgroundColor: colors.primarySoft },
+        selectItem: {
+            minHeight: 38,
+            paddingVertical: space.xs,
+            paddingHorizontal: space.md,
+            borderRadius: 0,
+        },
+        selectItemOn: { backgroundColor: colors.surfaceAlt },
         itemText: { flex: 1, minWidth: 0 },
         itemLabel: { ...type.body, color: colors.text },
         itemLabelOn: { ...type.bodyStrong, color: colors.primaryDark },
+        selectItemLabel: { ...type.caption, color: colors.text },
+        selectItemLabelOn: { ...type.label, color: colors.text },
         itemNote: { ...type.caption, color: colors.danger },
         footer: {
             flexDirection: "row",

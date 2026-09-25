@@ -14,6 +14,11 @@ export function recordSheetHeight(height, fontScale = 1, topInset = 0, bottomIns
     return Math.max(0, Math.min(height - Math.max(topInset, space.md), height * 0.55 + chrome));
 }
 
+export function expandedSheetHeight(height, collapsedHeight, topInset = 0) {
+    const available = Math.max(0, height - Math.max(topInset, space.md));
+    return Math.min(available, Math.max(collapsedHeight, height * 0.8));
+}
+
 // Can `available` px hold `columns` side-by-side without squeezing any of them
 // below a readable width? Answer no and the caller stacks to a column instead.
 //

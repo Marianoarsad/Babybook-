@@ -1,14 +1,16 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { AccessibilityInfo, Keyboard, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { AccessibilityInfo, Animated, Keyboard, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import Modal from "./AppModal";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../../context/ThemeContext";
 import { useLanguage } from "../../context/LanguageContext";
-import { recordSheetHeight } from "../../utils/responsive";
+import { expandedSheetHeight, recordSheetHeight, useScreenPadTop } from "../../utils/responsive";
+import { useScroll } from "../../context/ScrollContext";
 import { MIN_TOUCH, radius, shadow, space, type } from "../../theme";
 import { canDeleteRecord, deleteRecordAndClose, headerActionIcon } from "./recordFormActions.cjs";
 import KeyboardAvoider from "./KeyboardAvoider";
+import useBottomSheetMotion from "./useBottomSheetMotion";
 
 const RecordFormContext = createContext(false);
 export const useRecordForm = () => useContext(RecordFormContext);
@@ -40,6 +42,32 @@ export function RecordFormRow({ label, children, stacked = false, divider = true
             }] }) : children}
         </View>
     </View>;
+}
+
+export function RecordFormScreen({ children, onSubmit, submitLabel = "Save Changes", busy = false }) {
+    const { colors } = useTheme();
+    const { scrollProps, tabBarHeight } = useScroll();
+    const padTop = useScreenPadTop();
+    const submitLock = useRef(false);
+    const submit = async () => {
+        if (busy || submitLock.current) return;
+        submitLock.current = true;
+        try { await onSubmit(); } finally { submitLock.current = false; }
+    };
+    return <KeyboardAvoider style={{ position: "absolute", top: 0, right: 0, bottom: tabBarHeight, left: 0, zIndex: 1 }}>
+        <RecordFormContext.Provider value>
+            <Animated.ScrollView style={{ flex: 1 }} {...scrollProps} keyboardShouldPersistTaps="handled"
+                contentContainerStyle={{ padding: space.lg, paddingTop: padTop, paddingBottom: space.xl }}>
+                {children}
+                <Pressable onPress={submit} disabled={busy} accessibilityRole="button"
+                    accessibilityLabel={submitLabel} accessibilityState={{ disabled: busy, busy }}
+                    style={({ pressed }) => ({ minHeight: 52, borderRadius: radius.lg, backgroundColor: colors.accentStrong,
+                        alignItems: "center", justifyContent: "center", padding: space.md, opacity: busy || pressed ? 0.65 : 1 })}>
+                    <Text style={{ ...type.label, color: colors.onAccent }}>{submitLabel}</Text>
+                </Pressable>
+            </Animated.ScrollView>
+        </RecordFormContext.Provider>
+    </KeyboardAvoider>;
 }
 
 export function DeleteConfirmation({ visible, inline = false, title, message, cancelLabel = "Cancel",
@@ -87,9 +115,9 @@ export default function RecordFormSheet({ visible, title, children, onClose, onS
     const insets = useSafeAreaInsets();
     const { height, fontScale } = useWindowDimensions();
     const sheetHeight = recordSheetHeight(height, fontScale, insets.top, insets.bottom);
+    const expandedHeight = expandedSheetHeight(height, sheetHeight, insets.top);
     const cancelIcon = headerActionIcon(cancelLabel, "cancel", t("cancel"));
     const saveIcon = headerActionIcon(submitLabel, "save", t("save"));
-    const [reduceMotion, setReduceMotion] = useState(false);
     const [confirming, setConfirming] = useState(false);
     const [deleting, setDeleting] = useState(false);
     const [deleteError, setDeleteError] = useState("");
@@ -101,29 +129,25 @@ export default function RecordFormSheet({ visible, title, children, onClose, onS
     }
     const submitLock = useRef(false);
     const deleteButton = useRef(null);
-    useEffect(() => {
-        let active = true;
-        AccessibilityInfo.isReduceMotionEnabled?.().then((value) => active && setReduceMotion(!!value)).catch(() => {});
-        const subscription = AccessibilityInfo.addEventListener?.("reduceMotionChanged", setReduceMotion);
-        return () => { active = false; subscription?.remove?.(); };
-    }, []);
     useEffect(() => { setDeleting(false); if (!visible) { setConfirming(false); setDeleteError(""); } }, [visible, record?.id]);
+    const blocked = busy || deleting;
+    const canDismiss = dismissible && !blocked && !confirming;
+    const motion = useBottomSheetMotion({ visible, collapsedHeight: sheetHeight, expandedHeight, onClose, gestureEnabled: canDismiss });
     const styles = useMemo(() => StyleSheet.create({
-        backdrop: { flex: 1, backgroundColor: colors.text + "66", justifyContent: "flex-end", alignItems: "center",
-            paddingTop: Math.max(insets.top, space.md) },
-        sheet: { height: sheetHeight, maxHeight: "100%", flexShrink: 1, minHeight: 0, width: "100%",
+        root: { flex: 1, justifyContent: "flex-end", paddingTop: Math.max(insets.top, space.md) },
+        sheet: { maxHeight: "100%", flexShrink: 1, minHeight: 0, width: "100%",
             backgroundColor: colors.background, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl,
             borderCurve: "continuous", overflow: "hidden", ...shadow.raised },
         header: { padding: space.lg, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.hairline, gap: space.sm },
-        heading: { ...type.heading, color: colors.text, textAlign: "center", flex: 1.5, minWidth: 0 },
+        heading: { ...type.heading, fontSize: type.heading.fontSize * 1.3, lineHeight: type.heading.lineHeight * 1.3,
+            color: colors.text, textAlign: "center", flex: 1.5, minWidth: 0 },
         actions: { flexDirection: "row", alignItems: "center", gap: space.sm },
-        action: { minHeight: MIN_TOUCH, minWidth: MIN_TOUCH, maxWidth: "32%", paddingHorizontal: space.md, paddingVertical: space.sm,
+        action: { minHeight: MIN_TOUCH * 1.3, minWidth: MIN_TOUCH * 1.3, maxWidth: "32%", paddingHorizontal: space.md * 1.3, paddingVertical: space.sm * 1.3,
             borderRadius: radius.pill, backgroundColor: colors.surface, justifyContent: "center", alignItems: "center", flexShrink: 1 },
-        actionText: { ...type.label, color: colors.text, textAlign: "center" },
-        actionIcon: { width: MIN_TOUCH, height: MIN_TOUCH, paddingHorizontal: 0, paddingVertical: 0, flexShrink: 0 },
+        actionText: { ...type.label, fontSize: type.label.fontSize * 1.3, lineHeight: type.label.lineHeight * 1.3, color: colors.text, textAlign: "center" },
+        actionIcon: { width: MIN_TOUCH * 1.3, height: MIN_TOUCH * 1.3, paddingHorizontal: 0, paddingVertical: 0, flexShrink: 0 },
         content: { padding: space.lg, paddingBottom: space.xl + insets.bottom },
-    }), [colors, insets.top, insets.bottom, sheetHeight]);
-    const blocked = busy || deleting;
+    }), [colors, insets.top, insets.bottom]);
     const submit = async () => {
         if (blocked || confirming || submitLock.current) return;
         submitLock.current = true;
@@ -144,24 +168,28 @@ export default function RecordFormSheet({ visible, title, children, onClose, onS
             if (isCurrent()) setDeleteError(e.message || "Could not delete the record. Please try again.");
         } finally { if (deleteScope.current.version === scopeVersion) { deleteLock.current = false; setDeleting(false); } }
     };
-    return <Modal visible={visible} transparent animationType={reduceMotion ? "none" : "slide"}
-        onRequestClose={() => { if (confirming) cancelDelete(); else if (!blocked && dismissible) onClose(); }}>
+    return <Modal visible={motion.presented} transparent animationType="none" onShow={motion.startOpening}
+        onRequestClose={() => { if (confirming) cancelDelete(); else if (canDismiss) motion.dismiss(); }}>
         <KeyboardAvoider>
-            <View style={styles.backdrop}>
-                <View style={styles.sheet} accessibilityViewIsModal>
+            <View style={styles.root}>
+                <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.text + "66", opacity: motion.shade }]} />
+                <Pressable style={StyleSheet.absoluteFill} onPress={() => canDismiss && motion.dismiss()}
+                    accessibilityRole="button" accessibilityLabel={cancelLabel} disabled={!canDismiss} />
+                <Animated.View style={[styles.sheet, { height: expandedHeight, transform: [{ translateY: motion.offset }] }]}
+                    accessibilityViewIsModal onAccessibilityEscape={() => canDismiss && motion.dismiss()}>
                     <RecordFormContext.Provider value>
                         <View style={{ flex: 1, minHeight: 0 }} pointerEvents={confirming ? "none" : "auto"}
                             accessibilityElementsHidden={confirming} importantForAccessibility={confirming ? "no-hide-descendants" : "auto"}>
-                            <View style={styles.header}>
+                            <View {...motion.pan.panHandlers} style={[styles.header, { touchAction: "none" }]}>
                                 <View style={styles.actions}>
-                                    <Pressable onPress={() => !blocked && onClose()} disabled={blocked} style={[styles.action, cancelIcon && styles.actionIcon]}
+                                    <Pressable onPress={() => !blocked && motion.dismiss()} disabled={blocked} style={[styles.action, cancelIcon && styles.actionIcon]}
                                         accessibilityRole="button" accessibilityLabel={cancelLabel} accessibilityState={{ disabled: blocked }}>
-                                        {cancelIcon ? <Ionicons name={cancelIcon} size={24} color={colors.text} /> : <Text style={styles.actionText}>{cancelLabel}</Text>}
+                                        {cancelIcon ? <Ionicons name={cancelIcon} size={31} color={colors.text} /> : <Text style={styles.actionText}>{cancelLabel}</Text>}
                                     </Pressable>
                                     <Text accessibilityRole="header" style={styles.heading}>{title}</Text>
                                     <Pressable onPress={submit} disabled={blocked} accessibilityRole="button" accessibilityLabel={submitLabel}
-                                        accessibilityState={{ disabled: blocked, busy }} style={[styles.action, saveIcon && styles.actionIcon, { backgroundColor: colors.primarySoft, opacity: blocked ? 0.6 : 1 }]}>
-                                        {(saveIcon ? <Ionicons name={saveIcon} size={24} color={colors.primaryDark} /> : <Text style={[styles.actionText, { color: colors.primaryDark }]}>{submitLabel}</Text>)}
+                                        accessibilityState={{ disabled: blocked, busy }} style={[styles.action, saveIcon && styles.actionIcon, { opacity: blocked ? 0.6 : 1 }]}>
+                                        {(saveIcon ? <Ionicons name={saveIcon} size={31} color={colors.text} /> : <Text style={styles.actionText}>{submitLabel}</Text>)}
                                     </Pressable>
                                 </View>
                                 {error ? <Text accessibilityRole="alert" style={{ ...type.caption, color: colors.danger }}>{error}</Text> : null}
@@ -179,7 +207,7 @@ export default function RecordFormSheet({ visible, title, children, onClose, onS
                         <DeleteConfirmation inline visible={confirming} title={deleteTitle} message={deleteMessage} cancelLabel={cancelLabel}
                             deleteLabel={deleteLabel} busy={deleting} error={deleteError} onCancel={cancelDelete} onConfirm={confirmDelete} />
                     </RecordFormContext.Provider>
-                </View>
+                </Animated.View>
             </View>
         </KeyboardAvoider>
     </Modal>;

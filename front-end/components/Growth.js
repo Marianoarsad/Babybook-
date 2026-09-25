@@ -27,7 +27,6 @@ import {
 import { MemoriesSkeleton, AppointmentsSkeleton, SkeletonBlock } from "./ui/Skeleton";
 import { useRefreshControl } from "./ui/useRefreshControl";
 import ShowMore from "./ui/ShowMore";
-import Button from "./ui/Button";
 import MemoryDetail from "./MemoryDetail";
 import PercentileChart from "./PercentileChart";
 import { ageInDays, wholeNumberLabel } from "../utils/whoGrowth";
@@ -52,7 +51,11 @@ import {
 import AddMemoryModal from "./ui/AddMemoryModal";
 import GrowthModal from "./ui/GrowthModal";
 import OptionSheet from "./ui/OptionSheet";
+import PlanDetail from "./ui/PlanDetail";
+import SwipeActionRow from "./ui/SwipeActionRow";
+import { DeleteConfirmation } from "./ui/RecordFormSheet";
 import AnchoredMenu, { AnchoredMenuItem } from "./ui/AnchoredMenu";
+import { DateWheelPicker } from "./ui/DateField";
 import {
     CHECKPOINTS,
     DOMAINS,
@@ -248,6 +251,7 @@ export default function Growth({
         weekSelectionFromRange(initialDateView.dateRange),
     );
     const [datePickerOpen, setDatePickerOpen] = useState(false);
+    const [dateWheelOpen, setDateWheelOpen] = useState(false);
     const [datePickerStep, setDatePickerStep] = useState("form");
     const [editingDate, setEditingDate] = useState(null);
     const [editingYear, setEditingYear] = useState(null);
@@ -446,9 +450,8 @@ export default function Growth({
         const fallback = endpoint === "to" ? draftDateRange?.from : draftDateRange?.to;
         const focusDate = value || fallback || today;
         setEditingDate(endpoint);
-        setPendingDate(value);
-        setVisibleMonth(`${focusDate.slice(0, 7)}-01`);
-        setDatePickerStep("calendar");
+        setPendingDate(focusDate);
+        setDateWheelOpen(true);
     };
 
     const openYearField = (endpoint) => {
@@ -648,13 +651,12 @@ export default function Growth({
 
     // Metric adding state
     const [showMetricsModal, setShowMetricsModal] = useState(false);
-    // Which row the form is editing (null = adding a new one), and which row
-    // has armed its delete confirm. Delete is two-step in place rather than a
-    // native alert: CLAUDE.md records that RN `Alert` is unreliable on the web
-    // build, and settings/PrivacySettings.js is the pattern that works there.
+    // Editing, details, the single open swipe row, and confirmed deletion stay
+    // separate so a late optimistic response cannot act on a newly opened row.
     const [editingGrowth, setEditingGrowth] = useState(null);
     const [detailGrowth, setDetailGrowth] = useState(null);
-    const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+    const [openGrowthSwipeId, setOpenGrowthSwipeId] = useState(null);
+    const [deleteGrowthCandidate, setDeleteGrowthCandidate] = useState(null);
     const [deletingGrowthId, setDeletingGrowthId] = useState(null);
 
     // The form owns validation, the save, and the toast now — see
@@ -665,7 +667,7 @@ export default function Growth({
     const handleDeleteGrowth = async (id) => {
         if (deletingGrowthId === id) return false;
         setDeletingGrowthId(id);
-        setConfirmDeleteId(null); setDetailGrowth(null); setShowMetricsModal(false);
+        setDeleteGrowthCandidate(null); setOpenGrowthSwipeId(null); setDetailGrowth(null); setShowMetricsModal(false);
         try {
             await api.optimisticRecord(profile.id, "growth", "delete", id, {}, { label: "Measurement" });
             toast.success(t("growthMeasurementRemoved"));
@@ -673,6 +675,24 @@ export default function Growth({
         } catch (e) { toast.error(e.message || t("growthMeasurementRemoveFailed")); return false; }
         finally { setDeletingGrowthId((current) => current === id ? null : current); }
     };
+
+    const growthDetailPlan = detailGrowth ? {
+        title: t("growthMeasurementDetails"),
+        date: detailGrowth.date,
+        showTime: false,
+        categoryLabel: t("growthMeasurementDetails"),
+        color: colors.recGrowth.on,
+        details: [
+            { label: t("growthDetailAge"), value: detailGrowth.day != null ? ageLabel(detailGrowth.day) : "—" },
+            { label: t("growthWeight"), value: detailGrowth.weight != null ? `${detailGrowth.weight} kg` : "—" },
+            { label: t("growthHeight"), value: detailGrowth.height != null ? `${detailGrowth.height} cm` : "—" },
+            { label: t("growthHeadCirc"), value: detailGrowth.head_circumference != null ? `${detailGrowth.head_circumference} cm` : "—" },
+            { label: t("growthDetailLocation"), value: PLACE_LABELS[detailGrowth.measured_at] || "—" },
+        ],
+        notes: detailGrowth.notes,
+        showReminder: false,
+        deleteLabel: t("delete"),
+    } : null;
 
     return (
         <Animated.ScrollView
@@ -1096,6 +1116,7 @@ export default function Growth({
                                     setEditingMonth(null);
                                     setEditingWeek(null);
                                     setPendingDate(null);
+                                    setDateWheelOpen(false);
                                     setDatePickerOpen(true);
                                 }}
                                 style={styles.dateSelect}
@@ -1231,38 +1252,49 @@ export default function Growth({
                                     if (m.head_circumference != null)
                                         parts.push(`head ${m.head_circumference} cm`);
                                     const place = PLACE_LABELS[m.measured_at] || null;
+                                    const label = `${t("growthViewMeasurement")}: ${shortDate(m.date)}`;
                                     return (
-                                        <TouchableOpacity
+                                        <SwipeActionRow
                                             key={m.id ?? m.date}
-                                            activeOpacity={0.82}
-                                            onPress={() => {
-                                                setConfirmDeleteId(null);
-                                                setDetailGrowth(m);
-                                            }}
-                                            accessibilityRole="button"
-                                            accessibilityLabel={`${t("growthViewMeasurement")}: ${shortDate(m.date)}`}
+                                            open={openGrowthSwipeId === m.id}
+                                            onOpen={() => setOpenGrowthSwipeId(m.id)}
+                                            onClose={() => setOpenGrowthSwipeId(null)}
+                                            onPress={() => setDetailGrowth(m)}
+                                            label={label}
+                                            actions={[
+                                                {
+                                                    key: "update", label: t("growthUpdateMeasurement"), icon: "create-outline",
+                                                    color: colors.primaryDark,
+                                                    onPress: () => {
+                                                        setOpenGrowthSwipeId(null);
+                                                        setEditingGrowth(m.raw || null);
+                                                        setShowMetricsModal(true);
+                                                    },
+                                                },
+                                                {
+                                                    key: "delete", label: t("delete"), icon: "trash-outline",
+                                                    color: colors.onAccent, kind: "delete",
+                                                    onPress: () => {
+                                                        setOpenGrowthSwipeId(null);
+                                                        setDeleteGrowthCandidate(m);
+                                                    },
+                                                },
+                                            ]}
                                         >
                                             <ListEntryCard
+                                                style={styles.swipeListCard}
                                                 title={parts.join("  ·  ") || t("growthNoValues")}
                                                 subtitle={[
                                                     shortDate(m.date),
                                                     m.day != null ? ageLabel(m.day) : null,
                                                     place,
-                                                ]
-                                                    .filter(Boolean)
-                                                    .join(" · ")}
+                                                ].filter(Boolean).join(" · ")}
                                                 notes={m.notes || null}
-                                                icon={
-                                                    <MaterialCommunityIcons
-                                                        name="scale"
-                                                        size={18}
-                                                        color={colors.recGrowth.on}
-                                                    />
-                                                }
+                                                icon={<MaterialCommunityIcons name="scale" size={18} color={colors.recGrowth.on} />}
                                                 iconBg={colors.recGrowth.bg}
-                                                actions={<Ionicons name="chevron-forward" size={20} color={colors.textMuted} />}
+                                                showChevron
                                             />
-                                        </TouchableOpacity>
+                                        </SwipeActionRow>
                                     );
                                 })}
                                 <ShowMore
@@ -1277,112 +1309,27 @@ export default function Growth({
                 </View>
             )}
 
-            <Modal
+            <PlanDetail
                 visible={!!detailGrowth}
-                transparent
-                animationType="slide"
-                onRequestClose={() => {
-                    setConfirmDeleteId(null);
+                plan={growthDetailPlan}
+                onClose={() => setDetailGrowth(null)}
+                onEdit={() => {
+                    setEditingGrowth(detailGrowth?.raw || null);
                     setDetailGrowth(null);
+                    setShowMetricsModal(true);
                 }}
-            >
-                <View style={styles.detailBackdrop}>
-                    <TouchableOpacity
-                        activeOpacity={1}
-                        style={StyleSheet.absoluteFill}
-                        onPress={() => {
-                            setConfirmDeleteId(null);
-                            setDetailGrowth(null);
-                        }}
-                        accessibilityRole="button"
-                        accessibilityLabel={t("close")}
-                    />
-                    <View style={styles.detailSheet} accessibilityViewIsModal>
-                        <View style={styles.detailGrabber} />
-                        <View style={styles.detailHeader}>
-                            <View style={styles.detailHeading}>
-                                <Text style={styles.detailTitle}>{t("growthMeasurementDetails")}</Text>
-                                <Text style={styles.detailSubtitle}>
-                                    {detailGrowth ? shortDate(detailGrowth.date) : ""}
-                                </Text>
-                            </View>
-                            <TouchableOpacity
-                                style={styles.detailClose}
-                                onPress={() => {
-                                    setConfirmDeleteId(null);
-                                    setDetailGrowth(null);
-                                }}
-                                accessibilityRole="button"
-                                accessibilityLabel={t("close")}
-                            >
-                                <Ionicons name="close" size={22} color={colors.textSecondary} />
-                            </TouchableOpacity>
-                        </View>
-                        <ScrollView showsVerticalScrollIndicator={false}>
-                            <View style={styles.detailGrid}>
-                                {detailGrowth ? [
-                                    [t("growthDetailAge"), detailGrowth.day != null ? ageLabel(detailGrowth.day) : "—"],
-                                    [t("growthWeight"), detailGrowth.weight != null ? `${detailGrowth.weight} kg` : "—"],
-                                    [t("growthHeight"), detailGrowth.height != null ? `${detailGrowth.height} cm` : "—"],
-                                    [t("growthHeadCirc"), detailGrowth.head_circumference != null ? `${detailGrowth.head_circumference} cm` : "—"],
-                                    [t("growthDetailLocation"), PLACE_LABELS[detailGrowth.measured_at] || "—"],
-                                    [t("growthDetailNotes"), detailGrowth.notes || "—"],
-                                ].map(([label, value]) => (
-                                    <View key={label} style={styles.detailRow}>
-                                        <Text style={styles.detailLabel}>{label}</Text>
-                                        <Text style={styles.detailValue}>{value}</Text>
-                                    </View>
-                                )) : null}
-                            </View>
+                onDelete={() => setDeleteGrowthCandidate(detailGrowth)}
+                deleting={deletingGrowthId === detailGrowth?.id}
+            />
 
-                            {detailGrowth && confirmDeleteId === detailGrowth.id ? (
-                                <View style={styles.deleteConfirmBox}>
-                                    <Text style={styles.deleteConfirmText}>{t("growthDeleteConfirm")}</Text>
-                                    <View style={styles.detailActions}>
-                                        <Button loadingIndicator={false}
-                                            title={t("growthKeepMeasurement")}
-                                            variant="secondary"
-                                            fullWidth={false}
-                                            style={styles.detailAction}
-                                            onPress={() => setConfirmDeleteId(null)}
-                                        />
-                                        <Button
-                                            title={t("delete")}
-                                            variant="danger"
-                                            fullWidth={false}
-                                            style={styles.detailAction}
-                                            loading={deletingGrowthId === detailGrowth.id}
-                                            onPress={() => handleDeleteGrowth(detailGrowth.id)}
-                                        />
-                                    </View>
-                                </View>
-                            ) : (
-                                <View style={styles.detailActions}>
-                                    <Button
-                                        title={t("growthUpdateMeasurement")}
-                                        icon="create-outline"
-                                        fullWidth={false}
-                                        style={styles.detailAction}
-                                        onPress={() => {
-                                            setEditingGrowth(detailGrowth?.raw || null);
-                                            setDetailGrowth(null);
-                                            setShowMetricsModal(true);
-                                        }}
-                                    />
-                                    <Button
-                                        title={t("delete")}
-                                        icon="trash-outline"
-                                        variant="danger"
-                                        fullWidth={false}
-                                        style={styles.detailAction}
-                                        onPress={() => setConfirmDeleteId(detailGrowth?.id)}
-                                    />
-                                </View>
-                            )}
-                        </ScrollView>
-                    </View>
-                </View>
-            </Modal>
+            <DeleteConfirmation
+                visible={!!deleteGrowthCandidate}
+                title={t("growthDeleteConfirm")}
+                message={t("growthDeleteConfirm")}
+                busy={deletingGrowthId === deleteGrowthCandidate?.id}
+                onCancel={() => setDeleteGrowthCandidate(null)}
+                onConfirm={() => handleDeleteGrowth(deleteGrowthCandidate?.id)}
+            />
 
             {/* One form for adding a measurement and for correcting one.
                 It owns its own validation, save and toast now: the old
@@ -1392,6 +1339,7 @@ export default function Growth({
                 visible={showMetricsModal}
                 profile={profile}
                 record={editingGrowth}
+                suggestedValues={latestMeasurement}
                 onDelete={(record) => handleDeleteGrowth(record.id)}
                 onClose={() => {
                     setShowMetricsModal(false);
@@ -1827,6 +1775,23 @@ export default function Growth({
                 </TouchableOpacity>
             </Modal>
 
+            <DateWheelPicker
+                visible={datePickerOpen && dateWheelOpen}
+                value={pendingDate || draftDateRange?.[editingDate] || today}
+                minimumDate={activeDateBounds.min || undefined}
+                maximumDate={activeDateBounds.max || undefined}
+                accessibilityLabel={t(editingDate === "to" ? "growthEndingDate" : "growthStartingDate")}
+                onChange={(selected) => {
+                    setPendingDate(selected);
+                    const next = setRangeEndpoint(draftDateRange, editingDate, selected);
+                    setDraftDateRange(next);
+                    setDraftMonthRange(monthSelectionFromRange(next));
+                    setDraftWeekRange(weekSelectionFromRange(next));
+                    setDraftDatePreset(null);
+                }}
+                onClose={() => setDateWheelOpen(false)}
+            />
+
             <OptionSheet
                 visible={bandSheetOpen}
                 title="Choose an age"
@@ -2029,11 +1994,11 @@ const makeStyles = (colors, cardForeground) => StyleSheet.create({
         marginBottom: 16,
     },
     metricsHeaderHeading: {
-        flexDirection: "row",
-        alignItems: "baseline",
-        justifyContent: "space-between",
-        gap: space.sm,
-        marginBottom: space.md,
+        flexDirection: "column",
+        alignItems: "flex-start",
+        gap: 2,
+        paddingBottom: space.xs,
+        marginBottom: space.sm,
     },
     metricsHeaderTitle: { ...type.bodyStrong, color: cardForeground, flexShrink: 1 },
     metricsHeaderRow: { flexDirection: "row", alignItems: "stretch" },
@@ -2066,8 +2031,7 @@ const makeStyles = (colors, cardForeground) => StyleSheet.create({
         fontWeight: "400",
         color: cardForeground,
         opacity: 0.95,
-        flexShrink: 0,
-        textAlign: "right",
+        textAlign: "left",
     },
     metricsHeaderEmpty: {
         ...type.caption,
@@ -2146,83 +2110,7 @@ const makeStyles = (colors, cardForeground) => StyleSheet.create({
         color: colors.textMuted,
         fontVariant: ["tabular-nums"],
     },
-    detailBackdrop: {
-        flex: 1,
-        justifyContent: "flex-end",
-        backgroundColor: "rgba(0,0,0,0.48)",
-    },
-    detailSheet: {
-        width: "100%",
-        maxHeight: "86%",
-        paddingHorizontal: space.lg,
-        paddingBottom: space.xl,
-        borderTopLeftRadius: radius.xl,
-        borderTopRightRadius: radius.xl,
-        borderCurve: "continuous",
-        backgroundColor: colors.surface,
-        ...shadow.raised,
-    },
-    detailGrabber: {
-        width: 42,
-        height: 4,
-        alignSelf: "center",
-        marginTop: space.sm,
-        marginBottom: space.md,
-        borderRadius: radius.pill,
-        backgroundColor: colors.border,
-    },
-    detailHeader: {
-        flexDirection: "row",
-        alignItems: "flex-start",
-        justifyContent: "space-between",
-        gap: space.md,
-        marginBottom: space.md,
-    },
-    detailHeading: { flex: 1, minWidth: 0 },
-    detailTitle: { ...type.heading, color: colors.text },
-    detailSubtitle: { ...type.caption, color: colors.textMuted, marginTop: 2 },
-    detailClose: {
-        width: MIN_TOUCH,
-        height: MIN_TOUCH,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    detailGrid: {
-        borderWidth: 1,
-        borderColor: colors.hairline,
-        borderRadius: radius.lg,
-        borderCurve: "continuous",
-        overflow: "hidden",
-    },
-    detailRow: {
-        flexDirection: "row",
-        alignItems: "flex-start",
-        justifyContent: "space-between",
-        gap: space.lg,
-        paddingHorizontal: space.md,
-        paddingVertical: space.sm,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.hairline,
-    },
-    detailLabel: { ...type.caption, color: colors.textMuted, flexShrink: 0 },
-    detailValue: { ...type.body, color: colors.text, textAlign: "right", flex: 1 },
-    detailActions: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: space.sm,
-        marginTop: space.lg,
-    },
-    detailAction: { flex: 1 },
-    deleteConfirmBox: {
-        marginTop: space.lg,
-        padding: space.md,
-        borderRadius: radius.lg,
-        borderCurve: "continuous",
-        backgroundColor: colors.dangerBg,
-        borderWidth: 1,
-        borderColor: colors.danger,
-    },
-    deleteConfirmText: { ...type.bodyStrong, color: colors.danger },
+    swipeListCard: { marginBottom: 0 },
     datePickerBackdrop: {
         flex: 1,
         justifyContent: "center",

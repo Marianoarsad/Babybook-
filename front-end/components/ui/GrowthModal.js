@@ -9,7 +9,7 @@ import { useRecordSave } from "../../utils/useRecords";
 import { todayLocal } from "../../utils/dates";
 import { useToast } from "./Toast";
 
-import { DateField } from "./DateField";
+import { DateField, MeasurementField } from "./DateField";
 
 import RecordFormSheet, { RecordFormGroup, RecordFormRow } from "./RecordFormSheet";
 
@@ -59,12 +59,12 @@ const PLACES = [
 // are deliberately far wider than any real 0–6y measurement, so the app is
 // never in the business of telling a parent their child's size is wrong.
 const FIELDS = [
-    { key: "weight", label: "Weight", unit: "kg", indicator: "weight", min: 0.3, max: 40, placeholder: "e.g. 8.4" },
-    { key: "height", label: "Height / length", unit: "cm", indicator: "height", min: 20, max: 140, placeholder: "e.g. 72" },
-    { key: "head", label: "Head circumference", unit: "cm", indicator: "head", min: 20, max: 65, placeholder: "e.g. 45.2", optional: true },
+    { key: "weight", label: "Weight", unit: "kg", min: 0.3, max: 40 },
+    { key: "height", label: "Height / length", unit: "cm", min: 20, max: 140 },
+    { key: "head", label: "Head circumference", unit: "cm", min: 20, max: 65, optional: true },
 ];
 
-export default function GrowthModal({ visible, profile, record = null, onClose, onSaved, onDelete }) {
+export default function GrowthModal({ visible, profile, record = null, suggestedValues = null, onClose, onSaved, onDelete }) {
     const { colors } = useTheme();
     const { t } = useLanguage();
     const toast = useToast();
@@ -221,15 +221,19 @@ export default function GrowthModal({ visible, profile, record = null, onClose, 
                                             ) : null}
                                         </Text>}>
 
-                                        <TextInput
-                                            style={[styles.input, errors[f.key] && styles.inputError]}
-                                            keyboardType="numeric"
-                                            inputMode="decimal"
-                                            placeholder={f.placeholder}
-                                            placeholderTextColor={colors.placeholder}
+                                        <MeasurementField
+                                            label=""
                                             value={values[f.key]}
-                                            onChangeText={(v) => setValue(f.key, v)}
-                                            accessibilityLabel={`${f.label} in ${f.unit}`}
+                                            onChange={(v) => setValue(f.key, v)}
+                                            unit={f.unit}
+                                            min={f.min}
+                                            max={f.max}
+                                            defaultValue={f.key === "weight"
+                                                ? suggestedValues?.weight ?? profile?.currentWeight ?? profile?.birthWeight ?? 3.2
+                                                : f.key === "height"
+                                                    ? suggestedValues?.height ?? profile?.currentHeight ?? profile?.birthHeight ?? 49
+                                                    : suggestedValues?.head_circumference ?? 35}
+                                            error={!!errors[f.key]}
                                         />
                                         </RecordFormRow>
                                     </View>
@@ -310,7 +314,6 @@ const makeStyles = (colors) =>
             fontFamily: type.body.fontFamily,
             color: colors.text,
         },
-        inputError: { borderWidth: 1, borderColor: colors.danger },
         inputMultiline: { paddingVertical: space.md, minHeight: 84, textAlignVertical: "top" },
 
         // Amber, not coral: DESIGN.md reserves coral for overdue / error /

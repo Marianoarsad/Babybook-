@@ -60,20 +60,48 @@ async function check() {
                 assert(!attributes.has("onDelete"), `${file}: no profile/create-only deletion`);
         });
     }
-    assert.equal(sheets, 12, "All twelve scoped record form presentations use the shared sheet");
+    assert.equal(sheets, 11, "All eleven bottom-sheet record form presentations use the shared sheet");
     const sheet = fs.readFileSync(path.join(root, "ui/RecordFormSheet.js"), "utf8");
-    assert(sheet.includes('animationType={reduceMotion ? "none" : "slide"}'));
+    assert(sheet.includes('animationType="none"'));
+    assert(sheet.includes("useBottomSheetMotion"));
+    assert(sheet.includes("gestureEnabled: canDismiss"));
+    assert(sheet.includes("fontSize: type.heading.fontSize * 1.3"));
+    assert(sheet.includes('size={31} color={colors.text}'));
     assert(sheet.includes("if (deleteLock.current || busy || !onDelete) return"));
     assert(sheet.includes("submitLock.current"));
     assert(sheet.includes("accessibilityElementsHidden={confirming}"));
-    assert(sheet.includes('sheet: { height: sheetHeight,'));
+    assert(sheet.includes('height: expandedHeight'));
     assert(/sheet:\s*\{[^}]*width: "100%"/.test(sheet));
     assert(!/sheet:\s*\{[^}]*maxWidth/.test(sheet), "Record sheets must span the screen on every display width");
     assert(sheet.includes('accessibilityLabel={cancelLabel}'));
     assert(sheet.includes('accessibilityLabel={submitLabel}'));
     assert(sheet.includes('ScrollView style={{ flex: 1, minHeight: 0 }}'));
+    assert(sheet.includes("export function RecordFormScreen"));
+    assert(sheet.includes("<Animated.ScrollView"));
+    assert(sheet.includes('bottom: tabBarHeight'));
+    assert(sheet.includes('submitLabel = "Save Changes"'));
     const menu = fs.readFileSync(path.join(root, "ui/ActionSheet.js"), "utf8");
     for (const source of [sheet, menu]) assert(source.includes("recordSheetHeight("), "Both sheets share their height calculation");
+    const app = fs.readFileSync(path.join(root, "../App.js"), "utf8");
+    const editStart = app.indexOf("{/* Screen: EDIT BABY PROFILE */}");
+    const editProfile = app.slice(editStart, app.indexOf("{/* Annual data-retention", editStart));
+    assert(editProfile.includes('<RecordFormScreen'));
+    assert(!editProfile.includes('<RecordFormSheet'));
+    assert(app.includes('editBabyProfile: "Edit Baby Profile"'));
+    assert(app.includes('changeView("editBabyProfile")'));
+    for (const bloodType of ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"])
+        assert(app.includes(`"${bloodType}"`), `Missing blood type option ${bloodType}`);
+    assert(editProfile.includes("bloodTypeTriggerRef"));
+    assert(editProfile.includes('name="chevron-down"'));
+    assert(editProfile.includes("accessibilityState={{ expanded: bloodTypeMenuOpen }}"));
+    assert(editProfile.includes("<AnchoredMenu"));
+    assert(editProfile.includes('variant="select"'));
+    assert(editProfile.includes("styles.bloodTypeFloatingLabel"));
+    assert(!editProfile.includes('placeholder="e.g. O+"'), "Edit Baby Profile blood type must not remain free text");
+    const anchoredMenu = fs.readFileSync(path.join(root, "ui/AnchoredMenu.js"), "utf8");
+    assert(anchoredMenu.includes('variant === "select"'));
+    assert(anchoredMenu.includes("width: panelWidth"), "Select menus must match their trigger width");
+    assert(anchoredMenu.includes("selected && !select"), "Select menus use a row highlight instead of a checkmark");
     const responsive = fs.readFileSync(path.join(root, "../utils/responsive.js"), "utf8");
     const sizing = parse(responsive, { sourceType: "module" }).program.body
         .find((node) => node.declaration?.id?.name === "recordSheetHeight").declaration;
@@ -81,6 +109,7 @@ async function check() {
         `${responsive.slice(sizing.start, sizing.end)}; return recordSheetHeight;`)(
         { sm: 8, md: 12, xl: 24 }, { heading: { lineHeight: 23 }, label: { lineHeight: 18 } }, 44);
     assert.equal(recordSheetHeight(800), 575, "Retain the original add-record menu height at normal text size");
+    assert(responsive.includes("export function expandedSheetHeight"));
     for (const height of [0, 320, 600, 844, 1080]) for (const scale of [1, 2, 3]) {
         for (const top of [0, 44]) for (const bottom of [0, 34]) {
             const actual = recordSheetHeight(height, scale, top, bottom);
@@ -91,7 +120,7 @@ async function check() {
     const medical = fs.readFileSync(path.join(root, "ui/MedicalEventModal.js"), "utf8");
     assert(medical.includes('modalTitle: "Log an illness"'));
     assert(medical.includes('modalTitle: "Log a hospital stay"'));
-    console.log("Record form checks passed: 12 forms, localized header icons, shared compact sizing, scrolling, delete guards and reduced motion.");
+    console.log("Record form checks passed: 11 sheets, full-screen Edit Baby Profile, blood-type dropdown, scrolling, delete guards and reduced motion.");
 }
 
 check().catch((error) => { console.error(error); process.exitCode = 1; });

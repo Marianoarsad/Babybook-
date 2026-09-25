@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from "react-native";
 import Svg, { Line, Path, Text as SvgText } from "react-native-svg";
 import { useTheme } from "../../context/ThemeContext";
 import { space, type } from "../../theme";
-import { evenDateSlots, evenYearSlots } from "../../utils/dates";
+import { evenDateSlots, evenYearSlots, weekdayAbbreviation } from "../../utils/dates";
 import { wholeNumberLabel } from "../../utils/whoGrowth";
 
 const averageLabel = (value) => value < 10 ? value.toFixed(1) : String(Math.round(value));
@@ -47,6 +47,13 @@ export default function NutritionTrendChart({
         () => (bars || []).map((bar) => ({ ...bar, value: Number(bar.value) || 0 })),
         [bars],
     );
+    const selectedDayCount = useMemo(() => {
+        const start = new Date(`${dateWindow.from}T00:00:00`);
+        const end = new Date(`${dateWindow.to}T00:00:00`);
+        if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return null;
+        return Math.round((end - start) / 86400000) + 1;
+    }, [dateWindow.from, dateWindow.to]);
+    const shortRange = selectedDayCount != null && selectedDayCount <= 7;
     const yAxis = useMemo(() => {
         const highest = Math.max(1, Number(average) || 0, ...points.map((point) => point.value));
         const intervals = Y_TICK_COUNT - 1;
@@ -73,6 +80,9 @@ export default function NutritionTrendChart({
                     point,
                     path: point.value > 0 ? roundedBarPath(x, y, barWidth, baseline) : null,
                     latest: index === latestIndex,
+                    x,
+                    width: barWidth,
+                    centerX: x + barWidth / 2,
                 };
             }),
         };
@@ -83,6 +93,14 @@ export default function NutritionTrendChart({
         const axisX = (index, count) => count === 1
             ? leftPad + plotW / 2
             : leftPad + (index / (count - 1)) * plotW;
+        if (shortRange && geometry) {
+            return geometry.bars.map((bar) => ({
+                label: weekdayAbbreviation(new Date(bar.point.sort)),
+                x: bar.centerX,
+                width: bar.width,
+                fontSize: 13,
+            }));
+        }
         if (datePreset === "year") {
             const fromYear = Number(dateWindow.from.slice(0, 4));
             const toYear = Number(dateWindow.to.slice(0, 4));
@@ -123,7 +141,7 @@ export default function NutritionTrendChart({
                     + (index / (count - 1)) * (plotW - plotW / points.length),
             fontSize: 13,
         }));
-    }, [datePreset, dateWindow.from, dateWindow.to, leftPad, plotW, points.length]);
+    }, [datePreset, dateWindow.from, dateWindow.to, geometry, leftPad, plotW, points.length, shortRange]);
 
     if (loading && !points.length) return null;
     if (!points.length) return <Text style={styles.empty}>{emptyMessage}</Text>;

@@ -66,6 +66,15 @@ export function compactDate(value, includeYear = false) {
     });
 }
 
+const WEEKDAY_ABBREVIATIONS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+export function weekdayAbbreviation(value) {
+    const date = value instanceof Date
+        ? value
+        : new Date(`${String(value || "").slice(0, 10)}T00:00:00`);
+    return isNaN(date.getTime()) ? "" : WEEKDAY_ABBREVIATIONS[date.getDay()];
+}
+
 // Fixed chart slots across an inclusive date range. Short ranges may repeat a
 // date; the chart keeps the slot but suppresses the repeated caption.
 export function evenDateSlots(from, to, count = 7) {

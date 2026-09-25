@@ -2,6 +2,7 @@ const express = require("express");
 const { ApiError } = require("../middleware/error");
 const { requireAuth, requireChildOwnership } = require("../middleware/auth");
 const { createResourceRouter } = require("../utils/resource");
+const { isNumberWithin } = require("../utils/numericValidation");
 
 const router = express.Router();
 
@@ -28,6 +29,12 @@ function checkEnum(value, allowed, message) {
     if (!blank(value) && !allowed.includes(value)) throw new ApiError(400, message);
 }
 
+function validateDecimal(value, label, max) {
+    if (!blank(value) && !isNumberWithin(value, { min: 0.01, max, maxDecimals: 2 })) {
+        throw new ApiError(400, `${label} must be a positive number with no more than 2 decimal places`);
+    }
+}
+
 // Nutrition validation. Branches on HOW the milk was given, not just on the
 // entry type: a breastfeed has no measurable volume, so demanding a quantity
 // for every milk row (as this did) left a parent feeding at the breast with
@@ -43,28 +50,18 @@ function validateNutrition(data, { isCreate }) {
     checkEnum(data.reaction_severity, VALID_SEVERITY, "Reaction must be 'none', 'mild' or 'severe'");
 
     if (!blank(data.duration_minutes)) {
-        const mins = Number(data.duration_minutes);
-        if (!Number.isFinite(mins) || mins <= 0) throw new ApiError(400, "Duration must be greater than 0");
-        if (mins > 240) throw new ApiError(400, "Duration must be 240 minutes or less");
-    }
-    if (!blank(data.quantity) && Number(data.quantity) <= 0) {
-        throw new ApiError(400, "Quantity must be greater than 0");
-    }
-    if (!blank(data.breastmilk_quantity)) {
-        const quantity = Number(data.breastmilk_quantity);
-        if (!Number.isFinite(quantity) || quantity <= 0) {
-            throw new ApiError(400, "Breastmilk quantity must be greater than 0");
+        if (!isNumberWithin(data.duration_minutes, { min: 1, max: 240, integer: true })) {
+            throw new ApiError(400, "Duration must be a whole number from 1 to 240");
         }
+    }
+    validateDecimal(data.quantity, "Quantity", 99999.99);
+    if (!blank(data.breastmilk_quantity)) {
+        validateDecimal(data.breastmilk_quantity, "Breastmilk quantity", 99999.99);
         if (!blank(data.milk_type) && data.milk_type !== "Mixed") {
             throw new ApiError(400, "Breastmilk quantity is only valid for mixed feeds");
         }
     }
-    if (!blank(data.formula_scoops)) {
-        const scoops = Number(data.formula_scoops);
-        if (!Number.isFinite(scoops) || scoops <= 0 || scoops > 999.99) {
-            throw new ApiError(400, "Formula scoops must be between 0 and 999.99");
-        }
-    }
+    validateDecimal(data.formula_scoops, "Formula scoops", 999.99);
 
     if (!isCreate) return;
 
@@ -92,6 +89,33 @@ function validateNutrition(data, { isCreate }) {
         // pre-migration clients and rows valid: they behave exactly as before.
         if (blank(data.quantity)) throw new ApiError(400, "Quantity is required");
         if (blank(data.unit)) throw new ApiError(400, "Unit is required");
+    }
+}
+
+function validateGrowth(data, { isCreate }) {
+    const fields = [
+        ["weight", "Weight", 0.3, 40],
+        ["height", "Height", 20, 140],
+        ["head_circumference", "Head circumference", 20, 65],
+    ];
+    for (const [key, label, min, max] of fields) {
+        if (!blank(data[key]) && !isNumberWithin(data[key], { min, max, maxDecimals: 2 })) {
+            throw new ApiError(400, `${label} must be between ${min} and ${max}`);
+        }
+    }
+    if (isCreate && fields.every(([key]) => blank(data[key]))) {
+        throw new ApiError(400, "Enter at least one measurement");
+    }
+}
+
+function validateMedicalHistory(data) {
+    if (!blank(data.frequency_per_day)
+        && !isNumberWithin(data.frequency_per_day, { min: 1, max: 12, integer: true })) {
+        throw new ApiError(400, "Frequency must be a whole number from 1 to 12");
+    }
+    if (!blank(data.course_days)
+        && !isNumberWithin(data.course_days, { min: 1, max: 365, integer: true })) {
+        throw new ApiError(400, "Course length must be a whole number from 1 to 365");
     }
 }
 
@@ -170,6 +194,7 @@ const RESOURCES = [
         ],
         orderBy: "date_recorded DESC NULLS LAST, id DESC",
         encrypted: ["title", "description", "facility", "notes", "dose_amount", "prescribed_by"],
+        validate: validateMedicalHistory,
         // jsonb, and the client sends an array — see the note in pickBody.
         json: ["dose_times"],
         attachmentTypes: ["medication", "illness", "hospitalization"],
@@ -184,6 +209,7 @@ const RESOURCES = [
         columns: ["medication_id", "given_date", "given_time", "notes"],
         orderBy: "given_date DESC, given_time DESC NULLS LAST, id DESC",
         encrypted: ["notes"],
+        validate: validateGrowth,
     },
     {
         path: "growth",

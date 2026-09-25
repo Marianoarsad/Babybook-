@@ -162,6 +162,8 @@ router.post(
         body("socialToken").isString().notEmpty(),
         body("fullName").trim().notEmpty().withMessage("Full name is required"),
         body("password").isLength({ min: 8 }).withMessage("Password must be at least 8 characters"),
+        body("phoneNumber").optional({ values: "falsy" }).matches(/^\d+$/)
+            .withMessage("Phone number must contain digits only"),
         body("relationship").isIn(RELATIONSHIPS),
     ],
     handleValidation,
@@ -264,6 +266,8 @@ router.put(
     "/me",
     requireAuth,
     [
+        body("phoneNumber").optional({ values: "falsy" }).matches(/^\d+$/)
+            .withMessage("Phone number must contain digits only"),
         body("relationship")
             .optional({ values: "falsy" })
             .isIn(RELATIONSHIPS)
