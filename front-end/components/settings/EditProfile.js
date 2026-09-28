@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Animated } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Animated } from "react-native";
 import { SectionContainerCard } from "../common/Cards";
 import { api } from "../../utils/api";
 import { useToast } from "../ui/Toast";
@@ -12,6 +12,7 @@ import { useScroll } from "../../context/ScrollContext";
 import { RELATIONSHIPS, relationshipLabel } from "../../utils/relationship";
 import { space, radius, type, MIN_TOUCH } from "../../theme";
 import numericInput from "../../utils/numericInput.cjs";
+import Field from "../ui/Field";
 
 const { digitsOnly } = numericInput;
 
@@ -166,17 +167,13 @@ export default function EditProfile({
                     </>
                 ) : (
                     <>
-                        <View style={styles.formGroup}>
-                            <Text style={styles.label}>Full Name</Text>
-                            <TextInput
-                                style={styles.input}
+                        <Field
+                                label="Full Name"
                                 value={nameDraft}
                                 onChangeText={setNameDraft}
-                                accessibilityLabel="Full Name"
                                 autoComplete="name"
                                 textContentType="name"
                             />
-                        </View>
 
                         {/* The same five chips the Create an Account form uses,
                             from the same list, so the two screens cannot offer
@@ -204,33 +201,24 @@ export default function EditProfile({
                             </View>
                         </View>
 
-                        <View style={styles.formGroup}>
-                            <Text style={styles.label}>Phone Number</Text>
-                            <TextInput
-                                style={styles.input}
+                        <Field
+                                label="Phone Number"
                                 keyboardType="phone-pad"
+                                numericMode="digits"
                                 value={phone}
-                                onChangeText={(value) => setPhone(digitsOnly(value))}
-                                accessibilityLabel="Phone Number"
+                                onChangeText={setPhone}
                                 placeholder="09XX XXX XXXX"
-                                placeholderTextColor={colors.placeholder}
                                 autoComplete="tel"
                                 textContentType="telephoneNumber"
                             />
-                        </View>
-                        <View style={styles.formGroup}>
-                            <Text style={styles.label}>City / Municipality</Text>
-                            <TextInput
-                                style={styles.input}
+                        <Field
+                                label="City / Municipality"
                                 value={city}
                                 onChangeText={setCity}
-                                accessibilityLabel="City / Municipality"
                                 placeholder="Where you live"
-                                placeholderTextColor={colors.placeholder}
                                 autoComplete="postal-address-locality"
                                 textContentType="addressCity"
                             />
-                        </View>
                         <TouchableOpacity
                             onPress={handleSaveInfo}
                             disabled={saving}
@@ -259,10 +247,8 @@ export default function EditProfile({
                                 {email || "Not recorded"}
                             </Text>
                         </View>
-                        <View style={styles.formGroup}>
-                            <Text style={styles.label}>New Email Address</Text>
-                            <TextInput
-                                style={[styles.input, emailError && styles.inputError]}
+                        <Field
+                                label="New Email Address"
                                 keyboardType="email-address"
                                 autoCapitalize="none"
                                 value={newEmail}
@@ -271,16 +257,12 @@ export default function EditProfile({
                                     if (emailError) setEmailError("");
                                 }}
                                 placeholder="Enter the new address"
-                                accessibilityLabel="New Email Address"
-                                placeholderTextColor={colors.placeholder}
                                 autoComplete="email"
                                 textContentType="username"
+                                error={!!emailError}
                             />
-                        </View>
-                        <View style={styles.formGroup}>
-                            <Text style={styles.label}>Current Password</Text>
-                            <TextInput
-                                style={[styles.input, emailError && styles.inputError]}
+                        <Field
+                                label="Current Password"
                                 secureTextEntry
                                 value={emailPassword}
                                 onChangeText={(t) => {
@@ -288,17 +270,10 @@ export default function EditProfile({
                                     if (emailError) setEmailError("");
                                 }}
                                 placeholder="Confirm it's you"
-                                accessibilityLabel="Current Password"
-                                placeholderTextColor={colors.placeholder}
                                 autoComplete="current-password"
                                 textContentType="password"
+                                error={emailError}
                             />
-                        </View>
-                        {emailError ? (
-                            <Text selectable style={styles.errorText}>
-                                {emailError}
-                            </Text>
-                        ) : null}
                         <TouchableOpacity
                             onPress={handleChangeEmail}
                             disabled={emailSaving}

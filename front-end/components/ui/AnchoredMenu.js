@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+    AccessibilityInfo,
     View,
     Text,
     StyleSheet,
@@ -18,18 +19,10 @@ import { useTheme } from "../../context/ThemeContext";
 // A menu that opens directly beneath the control that summoned it, rather than
 // sliding a sheet up from the bottom of the screen.
 //
-// This exists alongside ui/OptionSheet.js on purpose, and the split is by
-// SHAPE, not by feature:
+// ui/OptionSheet.js is the long-list wrapper around this same surface:
 //
-//   OptionSheet  — a long list you commit to reading (12 age bands, a vaccine
-//                  catalogue). It owns the bottom of the screen, and its size
-//                  has nothing to do with whatever opened it.
-//   AnchoredMenu — a short list that belongs to a specific control, and reads
-//                  as an extension of it. Losing the connection to the anchor
-//                  is losing the point.
-//
-// If you are adding a third, decide which of those two it is before writing a
-// new component.
+//   OptionSheet  — maps and scrolls long option data (age bands, vaccines).
+//   AnchoredMenu — positions and animates the shared input-bound surface.
 //
 //   anchor: { x, y, width, height } in window coordinates, from the trigger's
 //           measureInWindow(). The menu left-aligns to `x` and drops below
@@ -45,41 +38,84 @@ export default function AnchoredMenu({
     // it and read as a full-width sheet rather than a menu hanging off the
     // title. The reference leaves a visible strip of content down the side.
     maxWidth = 300,
+    dimBackdrop = true,
+    // Input-bound selects fold from their trigger. Icon-bound chart filters can
+    // opt into the non-uniform warp; ordinary menus keep the original scale.
+    animation,
+    initialScrollOffset = 0,
 }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const { width: winW, height: winH } = useWindowDimensions();
+    const select = variant === "select";
+    const animationMode = animation || (select ? "fold" : "scale");
+    const folding = animationMode === "fold";
+    const warping = animationMode === "warp";
 
     // Kept mounted for the exit animation — unmounting on `visible` going false
-    // would snap the menu away instead of letting it scale back down.
+    // would snap the menu away instead of letting it animate closed.
     const [mounted, setMounted] = useState(visible);
+    const [panelHeight, setPanelHeight] = useState(0);
+    const [reduceMotion, setReduceMotion] = useState(true);
     const anim = useRef(new Animated.Value(0)).current;
+    const scrollRef = useRef(null);
 
     useEffect(() => {
+        let active = true;
+        AccessibilityInfo.isReduceMotionEnabled()
+            .then((enabled) => active && setReduceMotion(enabled))
+            .catch(() => {});
+        const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
+        return () => {
+            active = false;
+            subscription?.remove?.();
+        };
+    }, []);
+
+    // Mount/prepare and exit are keyed only by visibility. Fold menus clear the
+    // old measurement on every open because option counts can change while the
+    // menu is closed (for example Nutrition's available measures).
+    useEffect(() => {
         if (visible) {
+            anim.stopAnimation();
+            anim.setValue(0);
+            if (folding) setPanelHeight(0);
             setMounted(true);
-            Animated.timing(anim, {
-                toValue: 1,
-                duration: motion.entrance.duration,
-                easing: Easing.bezier(...motion.entrance.bezier),
-                useNativeDriver: true,
-            }).start();
             return;
         }
+        anim.stopAnimation();
         Animated.timing(anim, {
             toValue: 0,
-            duration: motion.standard.duration,
+            duration: reduceMotion ? 0 : motion.standard.duration,
             easing: Easing.bezier(...motion.standard.bezier),
-            useNativeDriver: true,
+            useNativeDriver: !folding,
         }).start(({ finished }) => {
             if (finished) setMounted(false);
         });
-    }, [visible, anim]);
+    }, [visible, anim, folding, reduceMotion]);
+
+    useEffect(() => {
+        if (!visible || !mounted || (folding && !panelHeight)) return;
+        Animated.timing(anim, {
+            toValue: 1,
+            duration: reduceMotion
+                ? 0
+                : warping
+                  ? motion.entrance.duration
+                  : motion.standard.duration,
+            easing: Easing.bezier(...(warping ? motion.entrance.bezier : motion.standard.bezier)),
+            useNativeDriver: !folding,
+        }).start();
+    }, [visible, mounted, anim, folding, warping, panelHeight, reduceMotion]);
+
+    useEffect(() => {
+        if (!visible || !mounted || !initialScrollOffset || (folding && !panelHeight)) return;
+        scrollRef.current?.scrollTo({ x: 0, y: initialScrollOffset, animated: false });
+    }, [visible, mounted, initialScrollOffset, folding, panelHeight]);
 
     if (!mounted) return null;
 
     const a = anchor || { x: space.lg, y: 0, width: 0, height: 0 };
-    const select = variant === "select";
     const panelWidth = select && a.width
         ? Math.min(a.width, winW - space.sm * 2)
         : maxWidth;
@@ -95,7 +131,7 @@ export default function AnchoredMenu({
         <Modal visible transparent animationType="none" onRequestClose={onClose}>
             {/* A light scrim, not a heavy modal backdrop: this is a menu hanging
                 off a control, and the page behind it should stay legible. */}
-            <Animated.View style={[styles.scrim, select && styles.selectScrim, { opacity: anim }]} />
+            <Animated.View style={[styles.scrim, (select || !dimBackdrop) && styles.selectScrim, { opacity: anim }]} />
             <Pressable
                 style={StyleSheet.absoluteFill}
                 onPress={onClose}
@@ -104,6 +140,9 @@ export default function AnchoredMenu({
             />
             <Animated.View
                 accessibilityViewIsModal
+                onLayout={folding && !panelHeight
+                    ? (event) => setPanelHeight(event.nativeEvent.layout.height)
+                    : undefined}
                 style={[
                     styles.card,
                     select && styles.selectCard,
@@ -113,23 +152,49 @@ export default function AnchoredMenu({
                         ...(select ? { width: panelWidth } : { minWidth, maxWidth }),
                         maxHeight,
                         opacity: anim,
-                        // Grows out of its own top-left corner, so it reads as
-                        // unfolding from the control rather than appearing over
-                        // it. transformOrigin needs RN 0.74+ (this project is
-                        // on 0.85).
-                        transformOrigin: "top left",
-                        transform: [
-                            {
-                                scale: anim.interpolate({
-                                    inputRange: [0, 1],
-                                    outputRange: [0.8, 1],
-                                }),
-                            },
-                        ],
+                        ...(folding && panelHeight
+                            ? {
+                                  height: anim.interpolate({
+                                      inputRange: [0, 1],
+                                      outputRange: [0, panelHeight],
+                                  }),
+                                  overflow: "hidden",
+                              }
+                            : null),
+                        // The default menu scales from its top-left corner;
+                        // fold mode clips its measured height from the top.
+                        // transformOrigin needs RN 0.74+ (this project is on 0.85).
+                        transformOrigin: warping ? "top right" : "top left",
+                        transform: folding
+                            ? []
+                            : warping
+                              ? [
+                                    {
+                                        scaleX: anim.interpolate({
+                                            inputRange: [0, 0.78, 1],
+                                            outputRange: [0.28, 1.04, 1],
+                                        }),
+                                    },
+                                    {
+                                        scaleY: anim.interpolate({
+                                            inputRange: [0, 0.78, 1],
+                                            outputRange: [0.12, 0.98, 1],
+                                        }),
+                                    },
+                                ]
+                              : [
+                                    {
+                                        scale: anim.interpolate({
+                                            inputRange: [0, 1],
+                                            outputRange: [0.8, 1],
+                                        }),
+                                    },
+                                ],
                     },
                 ]}
             >
                 <ScrollView
+                    ref={scrollRef}
                     showsVerticalScrollIndicator={select}
                     keyboardShouldPersistTaps="handled"
                     bounces={false}
@@ -160,7 +225,7 @@ export function AnchoredMenuItem({ label, note, selected, leading, onPress, acce
                 <Text style={[styles.itemLabel, select && styles.selectItemLabel, selected && (select ? styles.selectItemLabelOn : styles.itemLabelOn)]} numberOfLines={2}>
                     {label}
                 </Text>
-                {note ? <Text style={styles.itemNote}>{note}</Text> : null}
+                {note ? <Text style={[styles.itemNote, select && styles.selectItemNote]}>{note}</Text> : null}
             </View>
             {/* A checkmark as well as the tint — colour must never be the only
                 signal that a row is the selected one. */}
@@ -229,6 +294,7 @@ const makeStyles = (colors) =>
         selectItemLabel: { ...type.caption, color: colors.text },
         selectItemLabelOn: { ...type.label, color: colors.text },
         itemNote: { ...type.caption, color: colors.danger },
+        selectItemNote: { color: colors.textMuted },
         footer: {
             flexDirection: "row",
             alignItems: "center",

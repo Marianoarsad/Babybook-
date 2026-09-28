@@ -12,8 +12,8 @@ const strip = (f) =>
 
 // feedingStats depends on dates.js, so both are evaluated in one scope.
 const M = new Function(
-    `${strip("dates.js")}\n${strip("adapters.js")}\n${strip("feedingStats.js")}\n` +
-        `return { byMoment, foodKey, inRangeOf, buildBuckets, milkDurations, longestGap,
+    `${strip("dates.js")}\nconst numericInput = { digitsOnly: (value) => String(value ?? "").replace(/\\D/g, "") };\n${strip("adapters.js")}\n${strip("feedingStats.js")}\n` +
+        `return { byMoment, foodKey, todayNutritionStats, todayFeedingMix, inRangeOf, buildBuckets, milkDurations, longestGap,
                   nightStats, solidFoodStats, recentFoodNames, foodSuggestions,
                   hasBreastDurations, feedVolumeMl, STARTER_FOODS };`,
 )();
@@ -47,6 +47,34 @@ const solid = (date, food, severity) => ({
 
 const R7 = { key: "7d", label: "7 Days", days: 7 };
 const RALL = { key: "all", label: "All Time", days: null };
+
+eq("today summary combines milk, bottle, breast, solids and last feed", M.todayNutritionStats([
+    breast("2026-08-15", "07:00", 20),
+    bottle("2026-08-15", "09:30", 120),
+    solid("2026-08-15", "Banana", "none"),
+], "2026-08-15", "10:00"), {
+    count: 2, volume: 120, breastMinutes: 20, solidCount: 1, sinceLastFeed: 30,
+});
+eq("today summary finds the latest milk feed across midnight", M.todayNutritionStats([
+    bottle("2026-08-14", "23:30", 90),
+], "2026-08-15", "01:00").sinceLastFeed, 90);
+eq("empty today summary is stable", M.todayNutritionStats([], "2026-08-15", "10:00"), {
+    count: 0, volume: 0, breastMinutes: 0, solidCount: 0, sinceLastFeed: null,
+});
+eq("today feeding mix counts the four requested categories", M.todayFeedingMix([
+    breast("2026-08-15", "07:00", 20),
+    bottle("2026-08-15", "09:30", 120),
+    { ...bottle("2026-08-15", "12:00", 90), milkType: "Mixed" },
+    solid("2026-08-15", "Banana", "none"),
+    solid("2026-08-14", "Lugaw", "none"),
+], "2026-08-15"), { solid: 1, breastmilk: 1, formula: 1, mixed: 1, total: 4 });
+eq("legacy breast-method rows count as breast milk", M.todayFeedingMix([
+    { entryType: "milk", milkType: "", feedMethod: "breast", date: "2026-08-15" },
+    { entryType: "milk", milkType: "", feedMethod: "bottle", date: "2026-08-15" },
+], "2026-08-15"), { solid: 0, breastmilk: 1, formula: 0, mixed: 0, total: 1 });
+eq("empty today feeding mix is stable", M.todayFeedingMix([], "2026-08-15"), {
+    solid: 0, breastmilk: 0, formula: 0, mixed: 0, total: 0,
+});
 
 // ---- inRangeOf: the window, and the window before it ----
 const spread = [day(1), day(3), day(6), day(9), day(12)].map((d, i) => bottle(d, "09:00", 100 + i));

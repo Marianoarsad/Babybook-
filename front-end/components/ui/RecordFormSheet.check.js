@@ -70,7 +70,7 @@ async function check() {
     assert(sheet.includes("if (deleteLock.current || busy || !onDelete) return"));
     assert(sheet.includes("submitLock.current"));
     assert(sheet.includes("accessibilityElementsHidden={confirming}"));
-    assert(sheet.includes('height: expandedHeight'));
+    assert(sheet.includes('height: motion.height'));
     assert(/sheet:\s*\{[^}]*width: "100%"/.test(sheet));
     assert(!/sheet:\s*\{[^}]*maxWidth/.test(sheet), "Record sheets must span the screen on every display width");
     assert(sheet.includes('accessibilityLabel={cancelLabel}'));
@@ -78,25 +78,45 @@ async function check() {
     assert(sheet.includes('ScrollView style={{ flex: 1, minHeight: 0 }}'));
     assert(sheet.includes("export function RecordFormScreen"));
     assert(sheet.includes("<Animated.ScrollView"));
-    assert(sheet.includes('bottom: tabBarHeight'));
+    assert(sheet.includes('bottom: 0, left: 0'), "Full-screen forms must extend behind the floating tab bar");
     assert(sheet.includes('submitLabel = "Save Changes"'));
     const menu = fs.readFileSync(path.join(root, "ui/ActionSheet.js"), "utf8");
     for (const source of [sheet, menu]) assert(source.includes("recordSheetHeight("), "Both sheets share their height calculation");
+    for (const source of [sheet, menu]) assert(source.includes("height: motion.height"), "Both sheets measure scrolling against their visible height");
+    for (const source of [sheet, menu]) {
+        assert.equal((source.match(/style=\{styles\.grabber\}/g) || []).length, 2, "Both sheet headers use a double grabber");
+        assert(source.includes("width: 43.2"), "Both grabbers are 20% wider");
+    }
     const app = fs.readFileSync(path.join(root, "../App.js"), "utf8");
     const editStart = app.indexOf("{/* Screen: EDIT BABY PROFILE */}");
-    const editProfile = app.slice(editStart, app.indexOf("{/* Annual data-retention", editStart));
+    const mainContentStart = app.indexOf("{/* Main Container View content */}");
+    const blurTargetClose = app.indexOf("</BlurTargetView>");
+    const editProfile = app.slice(editStart, blurTargetClose);
+    assert(mainContentStart < editStart && editStart < blurTargetClose,
+        "Edit Baby Profile must share the header's BlurTargetView stacking context");
+    assert.equal((app.match(/\{\/\* Screen: EDIT BABY PROFILE \*\/\}/g) || []).length, 1,
+        "Edit Baby Profile must have exactly one render site");
     assert(editProfile.includes('<RecordFormScreen'));
     assert(!editProfile.includes('<RecordFormSheet'));
     assert(app.includes('editBabyProfile: "Edit Baby Profile"'));
     assert(app.includes('changeView("editBabyProfile")'));
+    assert(app.includes("onPress={goBack}"), "The shared Back button must keep the navigation history handler");
+    for (const destination of ["search", "share", "viewProfile"])
+        assert(app.includes(`changeView("${destination}")`), `Missing shared header route to ${destination}`);
     for (const bloodType of ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"])
         assert(app.includes(`"${bloodType}"`), `Missing blood type option ${bloodType}`);
     assert(editProfile.includes("bloodTypeTriggerRef"));
     assert(editProfile.includes('name="chevron-down"'));
     assert(editProfile.includes("accessibilityState={{ expanded: bloodTypeMenuOpen }}"));
-    assert(editProfile.includes("<AnchoredMenu"));
-    assert(editProfile.includes('variant="select"'));
-    assert(editProfile.includes("styles.bloodTypeFloatingLabel"));
+    assert(app.includes("<AnchoredMenu"));
+    assert(app.includes('variant="select"'));
+    assert(editProfile.includes('<FieldShell label="Blood Type"'));
+    assert(!sheet.includes('bottom: tabBarHeight, left: 0, zIndex: 1'), "Full-screen forms must not cover the global header touch layer");
+    assert(app.includes('pointerEvents="box-none"\n                style={[styles.header'), "Global header children must remain interactive over full-screen forms");
+    assert(sheet.includes("const padTop = useScreenPadTop();"), "Full-screen forms must clear the measured global header");
+    assert(sheet.includes('paddingTop: padTop'), "Full-screen form content must retain the shared header inset");
+    assert(sheet.includes("const padBottom = useScreenPadBottom();"), "Full-screen forms must measure bottom navigation clearance");
+    assert(sheet.includes('paddingBottom: padBottom'), "Full-screen form content must remain reachable above the tab bar");
     assert(!editProfile.includes('placeholder="e.g. O+"'), "Edit Baby Profile blood type must not remain free text");
     const anchoredMenu = fs.readFileSync(path.join(root, "ui/AnchoredMenu.js"), "utf8");
     assert(anchoredMenu.includes('variant === "select"'));
@@ -120,6 +140,7 @@ async function check() {
     const medical = fs.readFileSync(path.join(root, "ui/MedicalEventModal.js"), "utf8");
     assert(medical.includes('modalTitle: "Log an illness"'));
     assert(medical.includes('modalTitle: "Log a hospital stay"'));
+    assert(!medical.includes("You can also record the stay itself under"));
     console.log("Record form checks passed: 11 sheets, full-screen Edit Baby Profile, blood-type dropdown, scrolling, delete guards and reduced motion.");
 }
 

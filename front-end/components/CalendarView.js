@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
-import { Animated, View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput } from "react-native";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { Animated, View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, useWindowDimensions } from "react-native";
 import Modal from "./ui/AppModal";
 import { Ionicons } from "@expo/vector-icons";
 import { Calendar } from "react-native-calendars";
@@ -76,10 +76,13 @@ function todayISO() {
 export default function CalendarView({ profile, onNavigate }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+    const legendWidth = Math.min(300, screenWidth - space.lg * 2);
     const padBottom = useScreenPadBottom();
     const padTop = useScreenPadTop();
     const { scrollProps } = useScroll();
     const toast = useToast();
+    const legendButtonRef = useRef(null);
 
     const [selectedDate, setSelectedDate] = useState(todayISO());
     const [loading, setLoading] = useState(true);
@@ -88,8 +91,11 @@ export default function CalendarView({ profile, onNavigate }) {
     const [detailEvent, setDetailEvent] = useState(null);
     const [upcomingVisible, setUpcomingVisible] = useState(LIST_PAGE);
     const [overdueVisible, setOverdueVisible] = useState(LIST_PAGE);
+    const [completedVisible, setCompletedVisible] = useState(LIST_PAGE);
     const [showMonthPicker, setShowMonthPicker] = useState(false);
     const [monthPickerYear, setMonthPickerYear] = useState(new Date().getFullYear());
+    const [showLegend, setShowLegend] = useState(false);
+    const [legendAnchor, setLegendAnchor] = useState({ top: 0, right: space.lg });
     const [savingPlanKey, setSavingPlanKey] = useState(null);
     const [openSwipeId, setOpenSwipeId] = useState(null);
     const [deleteCandidate, setDeleteCandidate] = useState(null);
@@ -150,6 +156,8 @@ export default function CalendarView({ profile, onNavigate }) {
         setOverdueVisible(LIST_PAGE);
         setOpenSwipeId(null);
     }, [selectedDate, childId]);
+
+    useEffect(() => setCompletedVisible(LIST_PAGE), [childId]);
 
     const markedDates = useMemo(() => {
         const marks = {};
@@ -230,8 +238,23 @@ export default function CalendarView({ profile, onNavigate }) {
     const byTime = (a, b) =>
         (a.time || "99:99").localeCompare(b.time || "99:99") || (a.title || "").localeCompare(b.title || "");
     const dayEvents = useMemo(() => [...(eventsByDate[selectedDate] || [])].sort(byTime), [eventsByDate, selectedDate]);
+    const incompleteDayEvents = dayEvents.filter((event) => !event.completed);
     const flatEvents = useMemo(() => Object.values(eventsByDate).flat(), [eventsByDate]);
     const today = todayISO();
+    const completedEvents = useMemo(
+        () =>
+            flatEvents
+                .filter((event) => event.completed && !event.courseOccurrence)
+                .sort((a, b) => {
+                    if (a.date === today && b.date !== today) return -1;
+                    if (a.date !== today && b.date === today) return 1;
+                    return b.date.localeCompare(a.date) || byTime(a, b);
+                }),
+        [flatEvents, today],
+    );
+    const visibleCompletedEvents = completedEvents.slice(0, completedVisible);
+    const visibleTodayCompleted = visibleCompletedEvents.filter((event) => event.date === today);
+    const visibleOtherCompleted = visibleCompletedEvents.filter((event) => event.date !== today);
     const upcomingFrom = selectedDate > today ? selectedDate : today;
     const upcomingEvents = useMemo(
         () =>
@@ -271,6 +294,16 @@ export default function CalendarView({ profile, onNavigate }) {
         const selectedYear = Number(selectedDate.slice(0, 4));
         setMonthPickerYear(Math.max(selectedYear, new Date().getFullYear()));
         setShowMonthPicker(true);
+    };
+
+    const openLegend = () => {
+        legendButtonRef.current?.measureInWindow((x, y, width, height) => {
+            setLegendAnchor({
+                top: Math.max(space.lg, Math.min(y + height + space.xs, screenHeight - 140)),
+                right: Math.min(Math.max(space.lg, screenWidth - x - width), screenWidth - legendWidth - space.lg),
+            });
+            setShowLegend(true);
+        });
     };
 
     const selectMonth = (monthIndex) => {
@@ -390,7 +423,7 @@ export default function CalendarView({ profile, onNavigate }) {
         finally { setSavingPlanKey((current) => current === event.planKey ? null : current); }
     };
 
-    const renderEventContent = (ev, showDate, checklist, tone) => {
+    const renderEventContent = (ev, showDate, checklist, tone, neutral = false) => {
         const meta = CATEGORY_META[ev.category] || { label: ev.category };
         const when = showDate ? shortDate(ev.date) : ev.time ? shortTime(ev.time) : "All day";
         return (
@@ -422,26 +455,36 @@ export default function CalendarView({ profile, onNavigate }) {
                         accessibilityLabel={`${ev.completed ? "Uncheck" : "Complete"} ${ev.title}`}
                         accessibilityState={{ checked: ev.completed, disabled: ev.pending || savingPlanKey === ev.planKey, busy: ev.pending || savingPlanKey === ev.planKey }}
                     >
-                        {(<Ionicons name={ev.completed ? "checkmark-circle" : "ellipse-outline"} size={24} color={ev.completed ? colors.success : colors.textMuted} />)}
+                        {(<Ionicons
+                            name={ev.completed ? "checkmark-circle" : "ellipse-outline"}
+                            size={24}
+                            color={neutral ? colors.textSecondary : ev.completed ? colors.success : colors.textMuted}
+                        />)}
                     </TouchableOpacity>
-                ) : ev.completed ? <Ionicons name="checkmark-circle" size={18} color={colors.success} style={styles.eventComplete} /> : null}
-                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} style={styles.eventChevron} />
+                ) : ev.completed ? (
+                    <Ionicons
+                        name="checkmark-circle"
+                        size={18}
+                        color={neutral ? colors.textSecondary : colors.success}
+                        style={styles.eventComplete}
+                    />
+                ) : null}
             </>
         );
     };
 
     const renderEventRow = (ev, showDate = false, checklist = false) => {
         const meta = CATEGORY_META[ev.category] || { label: ev.category };
-        const tone = categoryColor(colors, ev.category);
+        const tone = colors.textSecondary;
         return (
             <TouchableOpacity
                 key={ev.id}
-                style={[styles.eventRow, { backgroundColor: tone + "12", borderColor: tone + "40" }]}
+                style={[styles.eventRow, { backgroundColor: colors.surface, borderColor: colors.border }]}
                 onPress={() => setDetailEvent(ev)}
                 accessibilityRole="button"
                 accessibilityLabel={`${meta.label}: ${ev.title}`}
             >
-                {renderEventContent(ev, showDate, checklist, tone)}
+                {renderEventContent(ev, showDate, checklist, tone, true)}
             </TouchableOpacity>
         );
     };
@@ -458,7 +501,7 @@ export default function CalendarView({ profile, onNavigate }) {
         if (tab) onNavigate?.("health", tab, { sourceType: ev.sourceType, record: ev.sourceRecord });
     };
 
-    const renderSwipeableRow = (ev, showDate = false, checklist = false, onPress = null) => {
+    const renderSwipeableRow = (ev, showDate = false, checklist = false, onPress = null, neutral = false) => {
         const custom = ev.category === "custom";
         const meta = CATEGORY_META[ev.category] || { label: ev.category };
         const tone = custom ? categoryColor(colors, ev.category) : colors.success;
@@ -486,12 +529,14 @@ export default function CalendarView({ profile, onNavigate }) {
                     style={[
                         styles.eventRow,
                         styles.swipeEventRow,
-                        custom
+                        neutral
+                            ? { backgroundColor: colors.surface, borderColor: colors.border }
+                            : custom
                             ? { backgroundColor: tone + "12", borderColor: tone + "40" }
                             : { backgroundColor: colors.successBg, borderColor: colors.success + "55" },
                     ]}
                 >
-                    {renderEventContent(ev, showDate, checklist, tone)}
+                    {renderEventContent(ev, showDate, checklist, neutral ? colors.textSecondary : tone, neutral)}
                 </View>
             </SwipeActionRow>
         );
@@ -540,6 +585,16 @@ export default function CalendarView({ profile, onNavigate }) {
                 keyboardShouldPersistTaps="handled"
             >
                 <View style={styles.monthCard}>
+                    <TouchableOpacity
+                        ref={legendButtonRef}
+                        onPress={openLegend}
+                        style={styles.legendButton}
+                        accessibilityRole="button"
+                        accessibilityLabel="Show calendar legend"
+                        accessibilityState={{ expanded: showLegend }}
+                    >
+                        <Ionicons name="information-circle-outline" size={24} color={colors.primary} />
+                    </TouchableOpacity>
                     <Text style={styles.selectedDate} selectable>
                         {shortDate(selectedDate)}
                     </Text>
@@ -584,24 +639,15 @@ export default function CalendarView({ profile, onNavigate }) {
                     />
                 </View>
 
-                <View style={styles.legendRow}>
-                    {Object.entries(CATEGORY_META).map(([key, meta]) => (
-                        <View key={key} style={styles.legendItem}>
-                            <View style={[styles.legendBand, { backgroundColor: categoryColor(colors, key) }]} />
-                            <Text style={styles.legendText} numberOfLines={1}>{meta.label}</Text>
-                        </View>
-                    ))}
-                </View>
-
                 <View style={styles.planSection}>
                     <View style={styles.planHeader}>
-                        <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text style={styles.planTitle}>
+                        <View style={styles.planTitleGroup}>
+                            <Text style={[styles.planTitle, styles.selectedPlanTitle]} numberOfLines={1}>
                                 {selectedDate === today ? "Today's plan" : `Plan for ${shortDate(selectedDate)}`}
                             </Text>
-                            <Text style={styles.planCount} selectable>
-                                {dayEvents.length} {dayEvents.length === 1 ? "plan" : "plans"}
-                            </Text>
+                            <View style={styles.countBadge}>
+                                <Text style={styles.countBadgeText} selectable>{incompleteDayEvents.length}</Text>
+                            </View>
                         </View>
                         <TouchableOpacity
                             onPress={openCreateModal}
@@ -614,8 +660,10 @@ export default function CalendarView({ profile, onNavigate }) {
                     </View>
                     {loading && !dayEvents.length ? (
                         <AppointmentsSkeleton />
+                    ) : incompleteDayEvents.length ? (
+                        incompleteDayEvents.map((event) => renderSwipeableRow(event, false, true, () => setDetailEvent(event), true))
                     ) : dayEvents.length ? (
-                        dayEvents.map((event) => renderSwipeableRow(event, false, true, () => setDetailEvent(event)))
+                        <Text style={styles.planEmpty}>No unfinished plans for this day.</Text>
                     ) : (
                         <Text style={styles.planEmpty}>No plans recorded for this day.</Text>
                     )}
@@ -666,7 +714,55 @@ export default function CalendarView({ profile, onNavigate }) {
                         <Text style={styles.planEmpty}>No overdue vaccines or checkups.</Text>
                     )}
                 </View>
+
+                <View style={styles.planSection}>
+                    <View style={styles.planHeader}>
+                        <Text style={styles.planTitle}>Completed</Text>
+                        <View style={styles.countBadge}>
+                            <Text style={styles.countBadgeText} selectable>{completedEvents.length}</Text>
+                        </View>
+                    </View>
+                    {completedEvents.length ? (
+                        <>
+                            {visibleTodayCompleted.length ? (
+                                <>
+                                    <Text style={styles.completedGroupTitle}>Today</Text>
+                                    {visibleTodayCompleted.map((event) => renderSwipeableRow(event, true, true, () => setDetailEvent(event), true))}
+                                </>
+                            ) : null}
+                            {visibleOtherCompleted.map((event) => renderSwipeableRow(event, true, true, () => setDetailEvent(event), true))}
+                            <ShowMore
+                                total={completedEvents.length}
+                                visible={completedVisible}
+                                noun="completed plans"
+                                onPress={() => setCompletedVisible((value) => Math.min(value + 10, completedEvents.length))}
+                            />
+                        </>
+                    ) : (
+                        <Text style={styles.planEmpty}>No completed plans.</Text>
+                    )}
+                </View>
             </Animated.ScrollView>
+
+            <Modal visible={showLegend} transparent animationType="fade" onRequestClose={() => setShowLegend(false)}>
+                <TouchableOpacity activeOpacity={1} style={styles.legendBackdrop} onPress={() => setShowLegend(false)}>
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        style={[styles.legendPopover, { top: legendAnchor.top, right: legendAnchor.right, width: legendWidth }]}
+                        onPress={() => {}}
+                        accessibilityViewIsModal
+                    >
+                        <View style={styles.legendRow}>
+                            {Object.entries(CATEGORY_META).map(([key, meta]) => (
+                                <View key={key} style={styles.legendItem}>
+                                    <View style={[styles.legendBand, { backgroundColor: categoryColor(colors, key) }]} />
+                                    <Text style={styles.legendText} numberOfLines={1}>{meta.label}</Text>
+                                </View>
+                            ))}
+                        </View>
+                    </TouchableOpacity>
+                </TouchableOpacity>
+            </Modal>
 
             <Modal visible={showMonthPicker} transparent animationType="fade" onRequestClose={() => setShowMonthPicker(false)}>
                 <TouchableOpacity activeOpacity={1} style={styles.modalBg} onPress={() => setShowMonthPicker(false)}>
@@ -797,11 +893,25 @@ const makeStyles = (colors) =>
             marginBottom: space.md,
             ...shadow.card,
         },
+        legendButton: {
+            position: "absolute",
+            top: space.sm,
+            right: space.sm,
+            zIndex: 1,
+            width: MIN_TOUCH,
+            height: MIN_TOUCH,
+            borderRadius: radius.pill,
+            borderCurve: "continuous",
+            alignItems: "center",
+            justifyContent: "center",
+        },
         selectedDate: {
             ...type.label,
+            fontSize: type.label.fontSize * 1.1,
             color: colors.textSecondary,
             textAlign: "center",
             fontVariant: ["tabular-nums"],
+            paddingTop: 33,
             marginBottom: space.md,
         },
         monthStrip: { flexDirection: "row", alignItems: "center", gap: space.sm, marginBottom: space.md },
@@ -847,12 +957,22 @@ const makeStyles = (colors) =>
             textAlign: "center",
         },
         monthCalendar: { backgroundColor: colors.surface },
-        // Six equal, centered cells keep the legend aligned with the calendar.
+        legendBackdrop: { flex: 1 },
+        legendPopover: {
+            position: "absolute",
+            padding: space.md,
+            borderWidth: 1,
+            borderColor: colors.hairline,
+            borderRadius: radius.lg,
+            borderCurve: "continuous",
+            backgroundColor: colors.surface,
+            ...shadow.raised,
+        },
+        // Six equal, centered cells keep the popover compact and scannable.
         legendRow: {
             flexDirection: "row",
             flexWrap: "wrap",
             rowGap: space.md,
-            marginBottom: space.md,
         },
         legendItem: {
             // Explicit longhand, never `flex: 0` — react-native-web passes
@@ -894,7 +1014,8 @@ const makeStyles = (colors) =>
             marginBottom: space.sm,
         },
         planTitle: { ...type.heading, color: colors.text },
-        planCount: { ...type.caption, color: colors.textMuted, marginTop: 2, fontVariant: ["tabular-nums"] },
+        planTitleGroup: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space.sm },
+        selectedPlanTitle: { flexShrink: 1 },
         countBadge: {
             minWidth: 28,
             height: 28,
@@ -921,6 +1042,7 @@ const makeStyles = (colors) =>
         },
         addPlanText: { ...type.label, color: colors.primaryDark },
         planEmpty: { ...type.caption, color: colors.textMuted, paddingVertical: space.md },
+        completedGroupTitle: { ...type.label, color: colors.textSecondary, marginBottom: space.sm },
         eventRow: {
             flexDirection: "row",
             alignItems: "center",
@@ -942,7 +1064,6 @@ const makeStyles = (colors) =>
         },
         eventWhenText: { ...type.caption, fontWeight: "700", fontVariant: ["tabular-nums"] },
         eventComplete: { marginLeft: space.sm, flexShrink: 0 },
-        eventChevron: { marginLeft: space.xs, flexShrink: 0 },
         checkButton: { width: MIN_TOUCH, height: MIN_TOUCH, marginLeft: space.xs, alignItems: "center", justifyContent: "center", flexShrink: 0 },
         eventTitle: { ...type.label, color: colors.text },
         eventSubtitle: { ...type.caption, color: colors.textMuted, marginTop: 2 },

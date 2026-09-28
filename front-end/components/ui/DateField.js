@@ -5,8 +5,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { MIN_TOUCH, radius, shadow, space, type } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
 import { useRecordForm } from "./RecordFormSheet";
+import { FieldShell } from "./Field";
 import { shortDate, todayLocal } from "../../utils/dates";
 import {
+    availablePickerDates,
+    closestAvailableDate,
     pickerDateParts,
     pickerDateValue,
     pickerYears,
@@ -118,8 +121,8 @@ function TextButton({ label, onPress, styles }) {
     return <TouchableOpacity style={styles.textButton} onPress={onPress} accessibilityRole="button"><Text style={styles.textButtonLabel}>{label}</Text></TouchableOpacity>;
 }
 
-function PrimaryButton({ label, onPress, styles }) {
-    return <TouchableOpacity style={styles.primaryButton} onPress={onPress} accessibilityRole="button"><Text style={styles.primaryButtonLabel}>{label}</Text></TouchableOpacity>;
+function PrimaryButton({ label, onPress, styles, disabled = false }) {
+    return <TouchableOpacity style={[styles.primaryButton, disabled && styles.primaryButtonDisabled]} disabled={disabled} onPress={onPress} accessibilityRole="button" accessibilityState={{ disabled }}><Text style={styles.primaryButtonLabel}>{label}</Text></TouchableOpacity>;
 }
 
 export function DateWheelPicker({
@@ -129,23 +132,54 @@ export function DateWheelPicker({
     onClose,
     minimumDate,
     maximumDate,
+    availableDates,
     accessibilityLabel = "Choose date",
 }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const [draft, setDraft] = useState(() => clampDate(value, minimumDate, maximumDate));
 
+    const restricted = Array.isArray(availableDates);
+    const allowedDates = useMemo(
+        () => restricted ? availablePickerDates(availableDates, minimumDate, maximumDate) : null,
+        [availableDates, maximumDate, minimumDate, restricted],
+    );
+
     useEffect(() => {
-        if (visible) setDraft(clampDate(value, minimumDate, maximumDate));
-    }, [visible, value, minimumDate, maximumDate]);
+        if (!visible) return;
+        const initial = clampDate(value, minimumDate, maximumDate);
+        setDraft(restricted ? closestAvailableDate(allowedDates, initial) : initial);
+    }, [allowedDates, maximumDate, minimumDate, restricted, value, visible]);
 
     const parts = pickerDateParts(draft, todayLocal());
-    const years = pickerYears(draft, minimumDate, maximumDate);
-    const days = Array.from(
-        { length: new Date(parts.year, parts.month, 0).getDate() },
-        (_, index) => index + 1,
-    );
+    const years = restricted
+        ? [...new Set(allowedDates.map((date) => Number(date.slice(0, 4))))]
+        : pickerYears(draft, minimumDate, maximumDate);
+    const months = restricted
+        ? [...new Set(allowedDates
+            .filter((date) => Number(date.slice(0, 4)) === parts.year)
+            .map((date) => Number(date.slice(5, 7))))]
+        : MONTHS.map((_, index) => index + 1);
+    const days = restricted
+        ? allowedDates
+            .filter((date) => Number(date.slice(0, 4)) === parts.year && Number(date.slice(5, 7)) === parts.month)
+            .map((date) => Number(date.slice(8, 10)))
+        : Array.from(
+            { length: new Date(parts.year, parts.month, 0).getDate() },
+            (_, index) => index + 1,
+        );
     const choose = (part, selected) => {
+        if (restricted) {
+            const candidates = allowedDates.filter((date) => {
+                const dateParts = pickerDateParts(date, date);
+                if (part === "year") return dateParts.year === selected;
+                if (part === "month") return dateParts.year === parts.year && dateParts.month === selected;
+                return dateParts.year === parts.year && dateParts.month === parts.month && dateParts.day === selected;
+            });
+            const target = pickerDateValue({ ...parts, [part]: selected });
+            setDraft(closestAvailableDate(candidates, target));
+            return;
+        }
         const next = pickerDateValue({ ...parts, [part]: selected }, minimumDate, maximumDate);
         setDraft(next);
     };
@@ -170,16 +204,20 @@ export function DateWheelPicker({
                         <Text style={styles.title}>{accessibilityLabel}</Text>
                         <Text style={styles.subtitle}>{shortDate(draft)}</Text>
                     </View>
-                    <View style={styles.dateWheels}>
-                        <View pointerEvents="none" style={[styles.selectionBand, styles.compactSelectionBand]} />
-                        <WheelColumn values={days} value={parts.day} onChange={(day) => choose("day", day)} label="Day" styles={styles} compact weight={0.7} active={visible} />
-                        <WheelColumn values={MONTHS.map((_, index) => index + 1)} value={parts.month} onChange={(month) => choose("month", month)} format={(month) => MONTHS[month - 1]} label="Month" styles={styles} compact weight={1.45} active={visible} />
-                        <WheelColumn values={years} value={parts.year} onChange={(year) => choose("year", year)} label="Year" styles={styles} compact active={visible} />
-                    </View>
+                    {restricted && !allowedDates.length ? (
+                        <View style={styles.dateEmpty}><Text style={styles.dateEmptyText}>No recorded dates available.</Text></View>
+                    ) : (
+                        <View style={styles.dateWheels}>
+                            <View pointerEvents="none" style={[styles.selectionBand, styles.compactSelectionBand]} />
+                            <WheelColumn values={days} value={parts.day} onChange={(day) => choose("day", day)} label="Day" styles={styles} compact weight={0.7} active={visible} />
+                            <WheelColumn values={months} value={parts.month} onChange={(month) => choose("month", month)} format={(month) => MONTHS[month - 1]} label="Month" styles={styles} compact weight={1.45} active={visible} />
+                            <WheelColumn values={years} value={parts.year} onChange={(year) => choose("year", year)} label="Year" styles={styles} compact active={visible} />
+                        </View>
+                    )}
                     <View style={styles.actionsEnd}>
                         <View style={styles.actionGroup}>
                             <TextButton label="Cancel" onPress={onClose} styles={styles} />
-                            <PrimaryButton label="Done" onPress={() => { onChange(draft); onClose(); }} styles={styles} />
+                            <PrimaryButton label="Done" disabled={restricted && !allowedDates.length} onPress={() => { onChange(draft); onClose(); }} styles={styles} />
                         </View>
                     </View>
                 </TouchableOpacity>
@@ -203,6 +241,8 @@ function PickerField({
     minimumDate,
     maximumDate,
     placeholder,
+    disabled = false,
+    error,
 }) {
     const { colors } = useTheme();
     const recordForm = useRecordForm();
@@ -212,6 +252,7 @@ function PickerField({
     const [pendingTime, setPendingTime] = useState(timeParts(value));
 
     const openPicker = () => {
+        if (disabled) return;
         if (mode === "time") setPendingTime(timeParts(value));
         else {
             const initial = clampDate(value, minimumDate, maximumDate);
@@ -222,18 +263,19 @@ function PickerField({
     const hours = Array.from({ length: 12 }, (_, index) => index + 1);
     const minutes = Array.from({ length: 60 }, (_, index) => index);
 
-    return (
-        <View style={[styles.fieldWrap, recordForm && { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.sm,
-            paddingVertical: space.sm, marginBottom: label ? space.md : 0, borderBottomWidth: label ? StyleSheet.hairlineWidth : 0, borderBottomColor: colors.hairline }]}>
-            {label ? <Text style={[styles.label, recordForm && { flex: 1, marginBottom: 0, color: colors.text }]}>{label}{required ? <Text style={{ color: colors.danger }}> *</Text> : null}</Text> : null}
-            <TouchableOpacity onPress={openPicker} accessibilityRole="button" accessibilityLabel={`${label || (mode === "time" ? "Time" : "Date")}: ${value || "not set"}`} style={[styles.input,
-                recordForm && { flex: 1.35, minWidth: 0, backgroundColor: colors.surfaceAlt, borderWidth: 0, borderRadius: radius.lg }]}>
+    const trigger = <TouchableOpacity onPress={openPicker} disabled={disabled} accessibilityRole="button"
+            accessibilityState={{ disabled }} accessibilityLabel={`${label || (mode === "time" ? "Time" : "Date")}: ${value || "not set"}`}
+            style={styles.input}>
                 <Text style={[styles.inputText, !value && styles.placeholder]}>
                     {value ? (mode === "date" ? shortDate(value) : formatTime(value)) : placeholder || `Select a ${mode}`}
                 </Text>
                 <Ionicons name={mode === "time" ? "time-outline" : "calendar-outline"} size={18} color={colors.textMuted} />
-            </TouchableOpacity>
-            {helper ? <Text style={[styles.helper, recordForm && { flexBasis: "100%" }]}>{helper}</Text> : null}
+            </TouchableOpacity>;
+
+    return (
+        <>
+            {recordForm && !label ? trigger : <FieldShell label={label} required={required} focused={open} disabled={disabled}
+                error={error} helper={helper}>{trigger}</FieldShell>}
 
             <Modal visible={open && mode === "time"} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
                 <TouchableOpacity activeOpacity={1} style={styles.backdrop} onPress={() => setOpen(false)}>
@@ -263,7 +305,7 @@ function PickerField({
                 }}
                 onClose={() => setOpen(false)}
             />
-        </View>
+        </>
     );
 }
 
@@ -278,6 +320,7 @@ export function MeasurementField({
     helper,
     required = false,
     error = false,
+    disabled = false,
 }) {
     const { colors } = useTheme();
     const recordForm = useRecordForm();
@@ -286,6 +329,7 @@ export function MeasurementField({
     const [draft, setDraft] = useState(() => measurementParts(value, min, max, defaultValue));
 
     const openPicker = () => {
+        if (disabled) return;
         setDraft(measurementParts(value, min, max, defaultValue));
         setOpen(true);
     };
@@ -304,19 +348,22 @@ export function MeasurementField({
         ? "Select measurement"
         : `${Number(value).toFixed(1)} ${unit}`;
 
-    return (
-        <View style={[styles.fieldWrap, recordForm && styles.recordFieldWrap]}>
-            {label ? <Text style={[styles.label, recordForm && styles.recordLabel]}>{label}{required ? <Text style={{ color: colors.danger }}> *</Text> : null}</Text> : null}
-            <TouchableOpacity
+    const trigger = <TouchableOpacity
                 onPress={openPicker}
+                disabled={disabled}
                 accessibilityRole="button"
+                accessibilityState={{ disabled }}
                 accessibilityLabel={`${label || "Measurement"}: ${displayValue}`}
-                style={[styles.input, recordForm && styles.recordInput, error && styles.inputError]}
+                style={styles.input}
             >
                 <Text style={[styles.inputText, (value === "" || value == null) && styles.placeholder]}>{displayValue}</Text>
                 <Ionicons name="chevron-expand" size={18} color={colors.textMuted} />
-            </TouchableOpacity>
-            {helper ? <Text style={[styles.helper, recordForm && { flexBasis: "100%" }]}>{helper}</Text> : null}
+            </TouchableOpacity>;
+
+    return (
+        <>
+            {recordForm && !label ? trigger : <FieldShell label={label} required={required} focused={open} disabled={disabled}
+                error={error} helper={helper}>{trigger}</FieldShell>}
 
             <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
                 <TouchableOpacity activeOpacity={1} style={styles.backdrop} onPress={() => setOpen(false)}>
@@ -361,21 +408,14 @@ export function MeasurementField({
                     </TouchableOpacity>
                 </TouchableOpacity>
             </Modal>
-        </View>
+        </>
     );
 }
 
 const makeStyles = (colors) => StyleSheet.create({
-    fieldWrap: { gap: space.xs, marginBottom: space.md },
-    label: { ...type.label, color: colors.textSecondary },
-    helper: { ...type.caption, color: colors.textMuted },
-    input: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, borderCurve: "continuous", paddingHorizontal: space.md },
+    input: { minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "transparent", paddingHorizontal: space.lg },
     inputText: { ...type.body, color: colors.text },
-    inputError: { borderWidth: 1, borderColor: colors.danger },
     placeholder: { color: colors.placeholder },
-    recordFieldWrap: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.sm, paddingVertical: space.sm, marginBottom: space.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.hairline },
-    recordLabel: { flex: 1, marginBottom: 0, color: colors.text },
-    recordInput: { flex: 1.35, minWidth: 0, backgroundColor: colors.surfaceAlt, borderWidth: 0, borderRadius: radius.lg },
     backdrop: { flex: 1, justifyContent: "center", padding: space.lg, backgroundColor: "rgba(0,0,0,0.48)" },
     card: { width: "100%", maxWidth: 380, alignSelf: "center", padding: space.md, borderRadius: radius.xl, borderCurve: "continuous", backgroundColor: colors.surface, ...shadow.raised },
     heading: { paddingHorizontal: space.sm, paddingTop: space.sm, gap: 2 },
@@ -387,6 +427,7 @@ const makeStyles = (colors) => StyleSheet.create({
     textButton: { minHeight: MIN_TOUCH, justifyContent: "center", paddingHorizontal: space.sm },
     textButtonLabel: { ...type.label, color: colors.textSecondary },
     primaryButton: { minHeight: MIN_TOUCH, justifyContent: "center", paddingHorizontal: space.lg, borderRadius: radius.pill, backgroundColor: colors.primary },
+    primaryButtonDisabled: { opacity: 0.45 },
     primaryButtonLabel: { ...type.label, color: colors.onPrimary },
     wheels: { height: 240, flexDirection: "row", alignItems: "center", position: "relative" },
     measurementWheels: { height: 240, justifyContent: "center", position: "relative" },
@@ -411,6 +452,8 @@ const makeStyles = (colors) => StyleSheet.create({
         alignItems: "center",
         position: "relative",
     },
+    dateEmpty: { height: 240, alignItems: "center", justifyContent: "center", paddingHorizontal: space.lg },
+    dateEmptyText: { ...type.body, color: colors.textMuted, textAlign: "center" },
     selectionBand: {
         position: "absolute",
         left: 0,

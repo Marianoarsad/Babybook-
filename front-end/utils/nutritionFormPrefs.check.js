@@ -61,11 +61,11 @@ assert.deepEqual(parseNutritionPrefs('{"solid":{"foodIntroduced":"Pear"}}', '{"u
 const tracker = fs.readFileSync(path.join(__dirname, "../components/NutritionTracker.js"), "utf8");
 assert(tracker.indexOf(">Formula Brand<") < tracker.indexOf(">Scoops<"));
 assert(tracker.indexOf(">Scoops<") < tracker.indexOf('form.milkType === "Mixed" ? "Formula Amount" : "Amount"'));
-assert(tracker.indexOf('form.milkType === "Mixed" ? "Formula Amount" : "Amount"') < tracker.indexOf(">Breastmilk Amount<"));
+assert(tracker.indexOf('form.milkType === "Mixed" ? "Formula Amount" : "Amount"') < tracker.indexOf('label="Breastmilk Amount"'));
 assert(tracker.includes('form.milkType === "Breastmilk" ? ('));
 assert(tracker.includes("prefsChildId === id && prefs"));
 assert(tracker.includes('accessibilityLabel="Decrease formula scoops"'));
 assert(tracker.includes('accessibilityLabel="Increase formula scoops"'));
 assert(!tracker.includes('placeholder="e.g. 4"'));
-assert.equal((tracker.match(/<RecordFormRow divider={false}/g) || []).length, 7);
+assert.equal((tracker.match(/<RecordFormRow/g) || []).length, 7);
 console.log("Nutrition form preference and layout checks passed.");

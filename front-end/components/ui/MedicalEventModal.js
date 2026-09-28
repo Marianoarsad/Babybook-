@@ -10,13 +10,15 @@ import { medHistoryToIllness } from "../../utils/adapters";
 import { todayLocal } from "../../utils/dates";
 import { suggestedConditions } from "../../utils/commonConditions";
 import { useToast } from "./Toast";
+import conditionRecords from "../../utils/conditions.cjs";
 
 import { DateField } from "./DateField";
 import PhotoAttach from "./PhotoAttach";
 
 import RecordFormSheet, { RecordFormGroup, RecordFormRow } from "./RecordFormSheet";
 
-// One form for the two things that go wrong: an illness, and a hospital stay.
+// One medical-history form for illnesses, allergies, hereditary conditions,
+// and hospital stays.
 //
 // They are the same row underneath (medical_history, differing only by
 // `category`), they had the same three bugs, and keeping one implementation is
@@ -40,10 +42,9 @@ import RecordFormSheet, { RecordFormGroup, RecordFormRow } from "./RecordFormShe
 // `onSaved(adapted, kind)` hands back the adapted row so the caller updates its
 // list without refetching.
 
-const COPY = {
-    illness: {
+const CONDITION_COPY = {
+    Illness: {
         modalTitle: "Log an illness",
-
         editTitle: "Edit illness",
         category: "Illness",
         attachType: "illness",
@@ -62,6 +63,46 @@ const COPY = {
         savedToast: "Illness saved",
         failToast: "Could not save the illness",
     },
+    Allergy: {
+        modalTitle: "Log an allergy",
+        editTitle: "Edit allergy",
+        category: "Allergy",
+        attachType: "allergy",
+        titleLabel: "What is the allergy or sensitivity?",
+        titlePlaceholder: "Egg allergy",
+        titleError: "Please name the allergy or sensitivity",
+        startLabel: "When was it first noticed?",
+        statusLabel: "Is it still active?",
+        ongoing: "Still active",
+        ended: "No longer active",
+        endLabel: "When did it stop?",
+        notesLabel: "Notes (optional)",
+        notesPlaceholder: "Reaction, triggers, or what the doctor said",
+        photoLabel: "Photo (optional)",
+        photoHelper: "A reaction photo, test result, or clinic note — if you have one.",
+        savedToast: "Allergy saved",
+        failToast: "Could not save the allergy",
+    },
+    "Hereditary Condition": {
+        modalTitle: "Log a hereditary condition",
+        editTitle: "Edit hereditary condition",
+        category: "Hereditary Condition",
+        attachType: "hereditary",
+        titleLabel: "What is the hereditary condition?",
+        titlePlaceholder: "Asthma (paternal grandfather)",
+        titleError: "Please name the hereditary condition",
+        startLabel: "When was it recorded?",
+        hasStatus: false,
+        notesLabel: "Notes (optional)",
+        notesPlaceholder: "Which relative has it, or what the doctor said",
+        photoLabel: "Photo (optional)",
+        photoHelper: "A family-history note or clinic document — if you have one.",
+        savedToast: "Hereditary condition saved",
+        failToast: "Could not save the hereditary condition",
+    },
+};
+
+const COPY = {
     hospitalization: {
         modalTitle: "Log a hospital stay",
 
@@ -84,6 +125,11 @@ const COPY = {
         failToast: "Could not save the hospital stay",
     },
 };
+
+const CATEGORY_OPTIONS = conditionRecords.CONDITION_CATEGORIES.map((category) => ({
+    category,
+    label: category === "Hereditary Condition" ? "Hereditary" : category,
+}));
 
 // Where the child was cared for. A record of what the family DID, never a
 // severity rating — PRODUCT.md Principle 5. "At home" is not "mild", and the
@@ -108,10 +154,13 @@ export default function MedicalEventModal({
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const { t } = useLanguage();
     const toast = useToast();
-    const copy = COPY[kind] || COPY.illness;
-    const isIllness = kind === "illness";
+    const [category, setCategory] = useState("Illness");
+    const isCondition = kind === "illness";
+    const copy = isCondition ? CONDITION_COPY[category] || CONDITION_COPY.Illness : COPY.hospitalization;
+    const isIllness = isCondition && category === "Illness";
+    const supportsStatus = copy.hasStatus !== false;
     const editing = !!record;
-    const saveRecord = useRecordSave(visible, profile.id, "medical-history", record?.id);
+    const saveRecord = useRecordSave(visible, profile.id, "medical-history", record?.legacy ? null : record?.id);
 
     const [title, setTitle] = useState("");
     const [facility, setFacility] = useState("");
@@ -128,6 +177,7 @@ export default function MedicalEventModal({
     // than the object so a parent re-render mid-typing does not wipe the form.
     useEffect(() => {
         if (!visible) return;
+        setCategory(record && CONDITION_COPY[record.category] ? record.category : "Illness");
         setTitle(record ? record.title || "" : "");
         setFacility(record ? record.facility || "" : "");
         setStartDate(record && record.date ? record.date : todayLocal());
@@ -164,12 +214,12 @@ export default function MedicalEventModal({
                 title: name,
                 description: notes.trim() || null,
                 date_recorded: startDate || todayLocal(),
-                resolved: over,
+                resolved: supportsStatus ? over : false,
                 // Clearing the flag has to clear the date with it, or a record
                 // reopened after being marked better keeps a stale end date.
-                resolved_date: over ? endDate || todayLocal() : null,
+                resolved_date: supportsStatus && over ? endDate || todayLocal() : null,
                 care_level: isIllness ? careLevel || null : null,
-                facility: isIllness ? null : facility.trim() || null,
+                facility: kind === "hospitalization" ? facility.trim() || null : null,
             };
             const saved = await saveRecord(body);
             // Optional now. A fever managed at home has no document to
@@ -187,7 +237,7 @@ export default function MedicalEventModal({
                     throw new Error(`Record saved, but its photo could not be saved: ${e.message}. Retry to finish without creating another record.`);
                 }
             }
-            if (onSaved) onSaved(medHistoryToIllness(saved), kind, editing);
+            if (onSaved) await onSaved(medHistoryToIllness(saved), kind, editing && !record?.legacy);
             toast.success(copy.savedToast);
             onClose();
         } catch (e) {
@@ -204,13 +254,43 @@ export default function MedicalEventModal({
     ];
 
     return (
-        <RecordFormSheet visible={visible} title={editing ? copy.editTitle : copy.modalTitle}
+        <RecordFormSheet visible={visible} title={editing ? copy.editTitle : isCondition ? "Log a condition" : copy.modalTitle}
             onClose={onClose} onSubmit={handleSave} busy={saving}
             cancelLabel={t("cancel")} submitLabel={t("save")} error={titleError}
-            record={record} onDelete={kind === "illness" && onDelete ? () => onDelete(record) : undefined} deleteTitle={"Delete illness record?"} deleteMessage={`Delete "${record?.title || ""}"? This cannot be undone.`}>
+            record={record} onDelete={kind === "illness" && onDelete ? () => onDelete(record) : undefined} deleteTitle={`Delete ${copy.category.toLowerCase()} record?`} deleteMessage={`Delete "${record?.title || ""}"? This cannot be undone.`}>
             <RecordFormGroup>
 
-                            <RecordFormRow label={<Text style={styles.label}>{copy.titleLabel}</Text>}>
+                            {isCondition && (
+                                <>
+                                    <Text style={styles.label}>Record type</Text>
+                                    <View style={styles.categoryRow}>
+                                        {CATEGORY_OPTIONS.map((option) => {
+                                            const selected = category === option.category;
+                                            return (
+                                                <TouchableOpacity
+                                                    key={option.category}
+                                                    style={[styles.categoryBtn, selected && styles.optionBtnOn, editing && styles.categoryBtnDisabled]}
+                                                    onPress={() => {
+                                                        if (editing) return;
+                                                        setCategory(option.category);
+                                                        setTitleError("");
+                                                    }}
+                                                    disabled={editing}
+                                                    accessibilityRole="button"
+                                                    accessibilityState={{ selected, disabled: editing }}
+                                                    accessibilityLabel={`${option.label} record type`}
+                                                >
+                                                    <Text style={[styles.categoryText, selected && styles.optionTextOn]} numberOfLines={1}>
+                                                        {option.label}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            );
+                                        })}
+                                    </View>
+                                </>
+                            )}
+
+                            <RecordFormRow error={!!titleError} label={<Text style={styles.label}>{copy.titleLabel}</Text>}>
 
                             <TextInput
                                 style={[styles.input, titleError && styles.inputError]}
@@ -244,7 +324,7 @@ export default function MedicalEventModal({
                                 </View>
                             )}
 
-                            {!isIllness && (
+                            {kind === "hospitalization" && (
                                 <>
                                     <RecordFormRow label={<Text style={styles.label}>Which hospital? (optional)</Text>}>
 
@@ -270,6 +350,8 @@ export default function MedicalEventModal({
                                 maximumDate={todayLocal()}
                             />
 
+                            {supportsStatus && (
+                            <>
                             <Text style={styles.label}>{copy.statusLabel}</Text>
                             <View style={styles.row}>
                                 {STATUS.map((s) => {
@@ -361,24 +443,9 @@ export default function MedicalEventModal({
                                             );
                                         })}
                                     </View>
-
-                                    {/* Names the other record rather than
-                                        creating it, so the two do not silently
-                                        duplicate. No advice, no warning. */}
-                                    {careLevel === "hospital" && (
-                                        <View style={styles.noteBox}>
-                                            <Ionicons
-                                                name="information-circle-outline"
-                                                size={15}
-                                                color={colors.info}
-                                            />
-                                            <Text style={styles.noteText}>
-                                                You can also record the stay itself under
-                                                Hospitalizations, on the Checkups tab.
-                                            </Text>
-                                        </View>
-                                    )}
                                 </>
+                            )}
+                            </>
                             )}
 
                             <RecordFormRow stacked label={<Text style={styles.label}>{copy.notesLabel}</Text>}>
@@ -466,6 +533,22 @@ const makeStyles = (colors) =>
         chipText: { ...type.caption, color: colors.textSecondary },
 
         row: { flexDirection: "row", gap: space.sm, marginBottom: space.lg },
+        categoryRow: { flexDirection: "row", gap: space.sm, marginBottom: space.lg },
+        categoryBtn: {
+            flex: 1,
+            minWidth: 0,
+            minHeight: MIN_TOUCH,
+            alignItems: "center",
+            justifyContent: "center",
+            paddingHorizontal: space.xs,
+            borderRadius: radius.pill,
+            borderCurve: "continuous",
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: colors.surface,
+        },
+        categoryBtnDisabled: { opacity: 0.78 },
+        categoryText: { ...type.caption, fontWeight: "600", color: colors.textSecondary },
         stack: { gap: space.sm, marginBottom: space.lg },
         optionBtn: {
             flex: 1,
@@ -486,18 +569,5 @@ const makeStyles = (colors) =>
         optionBtnOn: { backgroundColor: colors.primary, borderColor: colors.primary },
         optionText: { ...type.label, color: colors.textSecondary, flexShrink: 1 },
         optionTextOn: { color: colors.onPrimary },
-
-        noteBox: {
-            flexDirection: "row",
-            alignItems: "flex-start",
-            gap: space.sm,
-            padding: space.md,
-            borderRadius: radius.md,
-            borderCurve: "continuous",
-            backgroundColor: colors.infoBg,
-            marginBottom: space.lg,
-            marginTop: -space.sm,
-        },
-        noteText: { ...type.caption, color: colors.text, flex: 1 },
 
     });

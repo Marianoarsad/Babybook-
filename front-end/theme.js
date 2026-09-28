@@ -11,7 +11,7 @@
 // runtime through the ThemeProvider / useTheme() hook (see
 // context/ThemeContext.js). Structural tokens — ink, status, record-type
 // tints, elevation, spacing, radius, type, motion — are IDENTICAL across all
-// three palettes; only `primary`/`primaryDark`/`accent`/`primarySoft` vary.
+// three palettes; only the brand ramp and values derived from it vary.
 // This is deliberate: a document doesn't change color depending on whose
 // record it is, only its accent ribbon does.
 //
@@ -91,13 +91,10 @@ const SHARED = {
     recNutrition: { on: "#38702F", bg: "#E2EEDD" },
     recMemory: { on: "#963A66", bg: "#F4E2EA" },
     recHospitalization: { on: "#94293A", bg: "#F4E0E3" },
-
-    // Physical-growth series. These identify measurements; they are not
-    // success/warning/danger states and must stay stable across child themes.
-    growthMetric: {
-        weight: "#5A4FB8",
-        height: "#0E6E7C",
-        head: "#A8412A",
+    conditionCategory: {
+        illness: { on: "#5B3FA3", bg: "#EEE9FA" },
+        allergy: { on: "#7A5700", bg: "#FFF2C7" },
+        hereditary: { on: "#C22B3C", bg: "#FBE2E5" },
     },
 
     // Calendar event categories — the colour of a dot on a day cell.
@@ -177,6 +174,8 @@ export const PALETTES = {
         primaryDark: "#9E2D57",
         accent: "#DD6E97",
         accentStrong: "#C43D6E",
+        growthMetric: { weight: "#C43D6E", height: "#DD6E97", head: "#9E2D57" },
+        nutritionMix: { solid: SHARED.success, breastmilk: "#C43D6E", formula: SHARED.warning, mixed: SHARED.info },
         pageGradient: ["#F2D4DF", "#F9ECF1", "#F2F5F7"],
         // ponytail: deprecated aliases (softGreen/softCoral collapsed into
         // one primarySoft — they were two near-identical tints doing the
@@ -193,6 +192,8 @@ export const PALETTES = {
         primaryDark: "#0F4F8C",
         accent: "#4A93D6",
         accentStrong: "#1768B3",
+        growthMetric: { weight: "#1768B3", height: "#4A93D6", head: "#0F4F8C" },
+        nutritionMix: { solid: SHARED.success, breastmilk: "#1768B3", formula: SHARED.warning, mixed: SHARED.info },
         pageGradient: ["#CCDEEE", "#E8F0F7", "#F2F5F7"],
         primarySoft: "#E4EEF8",
         softGreen: "#E4EEF8",
@@ -204,6 +205,8 @@ export const PALETTES = {
         primaryDark: "#423699",
         accent: "#8478D6",
         accentStrong: "#5A4FB8",
+        growthMetric: { weight: "#5A4FB8", height: "#8478D6", head: "#423699" },
+        nutritionMix: { solid: SHARED.success, breastmilk: "#5A4FB8", formula: SHARED.warning, mixed: SHARED.info },
         pageGradient: ["#DBD8EF", "#EFEDF8", "#F2F5F7"],
         primarySoft: "#E9E7F7",
         softGreen: "#E9E7F7",
@@ -265,11 +268,10 @@ const SHARED_DARK = {
     recNutrition: { on: "#9BD98A", bg: "#1E3016" },
     recMemory: { on: "#E895C0", bg: "#3A1F2C" },
     recHospitalization: { on: "#F0839A", bg: "#3A1620" },
-
-    growthMetric: {
-        weight: "#B0A8F0",
-        height: "#4FD6E8",
-        head: "#F0977D",
+    conditionCategory: {
+        illness: { on: "#B7A0FF", bg: "#2A2047" },
+        allergy: { on: "#F2C75C", bg: "#3B2D0D" },
+        hereditary: { on: "#F2677B", bg: "#3A1620" },
     },
 
     // Dark-mode variants of the calendar category colours. Same constraints,
@@ -304,6 +306,8 @@ export const DARK_PALETTES = {
         primaryDark: "#F5B8CE",
         accent: "#F080A8",
         accentStrong: "#E8598C",
+        growthMetric: { weight: "#E8598C", height: "#F080A8", head: "#F5B8CE" },
+        nutritionMix: { solid: SHARED_DARK.success, breastmilk: "#E8598C", formula: SHARED_DARK.warning, mixed: SHARED_DARK.info },
         // Same rule as the light ramps: last stop IS `background` (#12151A).
         // Tinting a DARK ground makes it lighter, so the contrast risk here is
         // the mirror of light mode's — it squeezes light text, not dark text.
@@ -318,6 +322,8 @@ export const DARK_PALETTES = {
         primaryDark: "#B8DCF5",
         accent: "#7CBBED",
         accentStrong: "#4B9FE0",
+        growthMetric: { weight: "#4B9FE0", height: "#7CBBED", head: "#B8DCF5" },
+        nutritionMix: { solid: SHARED_DARK.success, breastmilk: "#4B9FE0", formula: SHARED_DARK.warning, mixed: SHARED_DARK.info },
         pageGradient: ["#1F3346", "#18232E", "#12151A"],
         primarySoft: "#1A2833",
         softGreen: "#1A2833",
@@ -329,6 +335,8 @@ export const DARK_PALETTES = {
         primaryDark: "#D2CCF5",
         accent: "#A89EF0",
         accentStrong: "#8B7FE8",
+        growthMetric: { weight: "#8B7FE8", height: "#A89EF0", head: "#D2CCF5" },
+        nutritionMix: { solid: SHARED_DARK.success, breastmilk: "#8B7FE8", formula: SHARED_DARK.warning, mixed: SHARED_DARK.info },
         pageGradient: ["#2D2C47", "#1E202F", "#12151A"],
         primarySoft: "#241F38",
         softGreen: "#241F38",

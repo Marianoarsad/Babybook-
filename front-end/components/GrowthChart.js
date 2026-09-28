@@ -145,14 +145,14 @@ export default function GrowthChart({
                 visible={metricMenuOpen}
                 anchor={metricMenuAnchor}
                 onClose={() => setMetricMenuOpen(false)}
-                minWidth={Math.min(metricMenuAnchor?.width || 140, 220)}
-                maxWidth={220}
+                variant="select"
             >
                 {METRICS.map((m) => (
                     <AnchoredMenuItem
                         key={m.key}
                         label={t(m.labelKey)}
                         selected={metric === m.key}
+                        variant="select"
                         leading={
                             <View style={[styles.metricDot, { backgroundColor: colors.growthMetric?.[m.key] || colors.primary }]} />
                         }
@@ -202,7 +202,7 @@ const makeStyles = (colors) =>
             borderColor: colors.border,
             borderRadius: radius.pill,
             borderCurve: "continuous",
-            backgroundColor: colors.surfaceAlt,
+            backgroundColor: colors.surface,
         },
         metricSelectText: { ...type.label, color: colors.text },
         metricDot: { width: 8, height: 8, borderRadius: 4, borderCurve: "continuous" },

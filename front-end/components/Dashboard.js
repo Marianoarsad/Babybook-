@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
-    Animated,View,
+    AccessibilityInfo,
+    Animated,
+    Easing,
+    View,
     Text,
     StyleSheet,
     Image,
@@ -15,17 +18,21 @@ import GrowthChart from "./GrowthChart";
 import Gradient from "./ui/Gradient";
 import { DashboardSkeleton } from "./ui/Skeleton";
 import { Ionicons } from "@expo/vector-icons";
-import { radius, space, shadow, type, MIN_TOUCH } from "../theme";
+import { radius, space, shadow, type, MIN_TOUCH, motion } from "../theme";
 import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
 import { useScroll } from "../context/ScrollContext";
 import { useTheme } from "../context/ThemeContext";
 import { api } from "../utils/api";
 import { useRecords } from "../utils/useRecords";
-import { memoryToApp, toMilliliters, feedRowSummary } from "../utils/adapters";
+import { memoryToApp, nutritionToApp, feedRowSummary } from "../utils/adapters";
 import { useToast } from "./ui/Toast";
 import { useRefreshControl } from "./ui/useRefreshControl";
 import { seen, markSeen } from "../utils/firstRun";
-import { todayLocal, durationText, dateRangePreset } from "../utils/dates";
+import { todayLocal, nowLocalTime, durationText, dateRangePreset } from "../utils/dates";
+import { todayNutritionStats } from "../utils/feedingStats";
+import conditionRecords from "../utils/conditions.cjs";
+
+const { conditionSummaries } = conditionRecords;
 
 // Age in a friendly form ("15 months", "2y 3m") from a YYYY-MM-DD DOB.
 export function ageText(dob) {
@@ -216,9 +223,12 @@ export default function Dashboard({
     const [nextVax, setNextVax] = useState(null);
     const [overdueVax, setOverdueVax] = useState([]);
     const [ongoingConcern, setOngoingConcern] = useState([]);
-    const [todayFeeding, setTodayFeeding] = useState(null);
     const [activeShares, setActiveShares] = useState([]);
     const [detailsExpanded, setDetailsExpanded] = useState(false);
+    const [attentionCollapsed, setAttentionCollapsed] = useState(false);
+    const [attentionContentHeight, setAttentionContentHeight] = useState(0);
+    const [reduceMotion, setReduceMotion] = useState(true);
+    const attentionFold = useRef(new Animated.Value(1)).current;
     // Tracks profile IDs whose avatar URL is present but failed to actually
     // load — e.g. an upload that's since been wiped (see PRODUCT.md's known
     // gap: uploads sit on an ephemeral filesystem). A truthy-but-dead URL
@@ -228,10 +238,31 @@ export default function Dashboard({
     const vax = useRecords(profile.id, "vaccinations");
     const checkups = useRecords(profile.id, "checkups");
     const nutrition = useRecords(profile.id, "nutrition");
+    const nutritionEntries = useMemo(() => nutrition.map(nutritionToApp), [nutrition]);
+    const today = todayLocal();
+    const nutritionToday = useMemo(
+        () => todayNutritionStats(nutritionEntries, today, nowLocalTime()),
+        [nutritionEntries, today],
+    );
     const milestones = useRecords(profile.id, "milestones");
     const medHistory = useRecords(profile.id, "medical-history");
     const events = useRecords(profile.id, "calendar-events");
     const [shares, setBundleShares] = useState([]);
+    useEffect(() => {
+        let mounted = true;
+        AccessibilityInfo.isReduceMotionEnabled()
+            .then((enabled) => mounted && setReduceMotion(enabled))
+            .catch(() => {});
+        const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
+        return () => {
+            mounted = false;
+            subscription?.remove?.();
+        };
+    }, []);
+    useEffect(() => {
+        setAttentionCollapsed(false);
+        attentionFold.setValue(1);
+    }, [profile.id, attentionFold]);
     useEffect(() => {
         const todayStr = todayLocal();
                 const items = [];
@@ -359,37 +390,6 @@ export default function Dashboard({
                     (shares || []).filter((s) => s.status === "active" && s.expiration_date > nowIso),
                 );
 
-                // Today's feeding summary — reuses the nutrition rows already
-                // loaded for Recent Activity, no extra request.
-                const todayEntries = (nutrition || []).filter(
-                    (n) => String(n.entry_date).slice(0, 10) === todayStr,
-                );
-                if (todayEntries.length) {
-                    const milkToday = todayEntries.filter((n) => (n.entry_type || "milk") === "milk");
-                    // A breastfeed has no volume, so millilitres alone can't
-                    // describe the day — a breastfed baby totalled 0 mL and
-                    // the card fell through to claiming solid food was logged.
-                    const totalMl = milkToday
-                        .filter((n) => n.feed_method !== "breast")
-                        .reduce((sum, n) => sum + toMilliliters(Number(n.quantity) || 0, n.unit), 0);
-                    const breastMinutes = milkToday
-                        .filter((n) => n.feed_method === "breast")
-                        .reduce((sum, n) => sum + (Number(n.duration_minutes) || 0), 0);
-                    const lastTime = todayEntries
-                        .map((n) => n.entry_time)
-                        .filter(Boolean)
-                        .sort()
-                        .pop();
-                    setTodayFeeding({
-                        count: todayEntries.length,
-                        totalMl: Math.round(totalMl),
-                        breastMinutes: Math.round(breastMinutes),
-                        solidCount: todayEntries.length - milkToday.length,
-                        lastTime,
-                    });
-                } else {
-                    setTodayFeeding(null);
-                }
     }, [vax, checkups, nutrition, milestones, medHistory, events, shares]);
     const loadActivityBundle = useCallback(async (isActive) => {
         const failed = [];
@@ -532,19 +532,20 @@ export default function Dashboard({
     // to tell those apart. ProfessionalView uses "None recorded" too.
     const NONE_RECORDED = "None recorded";
     const listValue = (arr) => (Array.isArray(arr) && arr.length ? arr.join(", ") : "");
+    const conditionFacts = conditionSummaries(medHistory, profile.allergies, profile.hereditaryConditions);
     const vitalFacts = [
-        { key: "allergies", icon: "alert-circle-outline", label: "Allergies", value: listValue(profile.allergies), flag: true },
+        { key: "allergies", icon: "alert-circle-outline", label: "Allergies", value: listValue(conditionFacts.allergies), flag: true },
         { key: "blood", icon: "water-outline", label: "Blood type", value: profile.bloodType || "" },
-        { key: "hereditary", icon: "pulse-outline", label: "Hereditary", value: listValue(profile.hereditaryConditions), flag: true },
+        { key: "hereditary", icon: "pulse-outline", label: "Hereditary", value: listValue(conditionFacts.hereditary), flag: true },
     ];
     // Rows with nothing in them are dropped rather than padded with
     // "None recorded" — unlike the vitals above, an unlisted pediatrician is
     // not a fact a clinician needs stated, it's just an empty field.
     const careFacts = [
-        { key: "ped", icon: "medkit-outline", label: "Pediatrician", value: profile.pediatricianName || "" },
+        { key: "ped", icon: "medkit-outline", label: "Pediatrician", value: profile.pediatricianName || "", enlargedIcon: true },
         { key: "clinic", icon: "business-outline", label: "Pediatrician Clinic/Hospital", value: profile.pediatricianClinicHospital || "" },
-        { key: "emergency", icon: "call-outline", label: "Emergency", value: profile.emergencyContact || "" },
-        { key: "born", icon: "location-outline", label: "Born at", value: profile.hospital || profile.placeOfBirth || "" },
+        { key: "emergency", icon: "call-outline", label: "Emergency", value: profile.emergencyContact || "", enlargedIcon: true },
+        { key: "born", icon: "location-outline", label: "Born at", value: profile.hospital || profile.placeOfBirth || "", enlargedIcon: true },
     ].filter((f) => f.value);
 
     // Birth weight/length are deliberately not used as a fallback here. They're
@@ -623,6 +624,32 @@ export default function Dashboard({
         return Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0] || "immunizations";
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [attentionItems.length, attentionItems[0]?.tab]);
+    const toggleAttention = () => {
+        const collapsed = !attentionCollapsed;
+        setAttentionCollapsed(collapsed);
+        Animated.timing(attentionFold, {
+            toValue: collapsed ? 0 : 1,
+            duration: reduceMotion ? 0 : motion.standard.duration,
+            easing: Easing.bezier(...motion.standard.bezier),
+            useNativeDriver: false,
+        }).start();
+    };
+    const nutritionTiles = [
+        { key: "feeds", label: "Feeds today", value: String(nutritionToday.count) },
+        nutritionToday.breastMinutes > 0
+            ? { key: "breast", label: "At the breast", value: durationText(nutritionToday.breastMinutes) }
+            : null,
+        nutritionToday.volume > 0
+            ? { key: "volume", label: "Bottle today", value: `${Math.round(nutritionToday.volume)} mL` }
+            : null,
+        {
+            key: "since",
+            label: "Since last feed",
+            value: nutritionToday.sinceLastFeed != null
+                ? durationText(nutritionToday.sinceLastFeed) || "Just now"
+                : "—",
+        },
+    ].filter(Boolean);
     const soonestShare = activeShares.length
         ? activeShares.slice().sort((a, b) => a.expiration_date.localeCompare(b.expiration_date))[0]
         : null;
@@ -735,50 +762,82 @@ export default function Dashboard({
                         <Ionicons name="warning" size={17} color={colors.danger} />
                         <Text style={styles.attentionTitle}>Needs attention</Text>
                         <View style={styles.attentionCount}>
-                            <Text style={styles.attentionCountText}>{attentionItems.length}</Text>
+                            <Text style={styles.attentionCountText} selectable>{attentionItems.length}</Text>
                         </View>
+                        <TouchableOpacity
+                            style={styles.attentionToggle}
+                            onPress={toggleAttention}
+                            accessibilityRole="button"
+                            accessibilityLabel={attentionCollapsed ? "Expand Needs attention" : "Minimize Needs attention"}
+                            accessibilityState={{ expanded: !attentionCollapsed }}
+                        >
+                            <Ionicons
+                                name={attentionCollapsed ? "add" : "remove"}
+                                size={22}
+                                color={colors.danger}
+                            />
+                        </TouchableOpacity>
                     </View>
-                    {attentionItems.slice(0, 3).map((item) => (
-                        <Pressable
-                            key={item.key}
-                            style={({ pressed, hovered, focused }) => [
-                                styles.attentionRow,
-                                { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.99 : 1 }] },
-                                focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.danger, "59")}` } : null,
-                            ]}
-                            onPress={() => nav("health", item.tab)}
-                            accessibilityRole="button"
-                            accessibilityLabel={`${item.title}. ${item.sub}.`}
+                    <Animated.View
+                        style={[
+                            styles.attentionContentClip,
+                            attentionContentHeight
+                                ? {
+                                      height: attentionFold.interpolate({
+                                          inputRange: [0, 1],
+                                          outputRange: [0, attentionContentHeight],
+                                      }),
+                                      opacity: attentionFold,
+                                  }
+                                : null,
+                        ]}
+                        pointerEvents={attentionCollapsed ? "none" : "auto"}
+                        accessibilityElementsHidden={attentionCollapsed}
+                        importantForAccessibility={attentionCollapsed ? "no-hide-descendants" : "auto"}
+                    >
+                        <View
+                            style={styles.attentionContent}
+                            onLayout={(event) => setAttentionContentHeight(event.nativeEvent.layout.height)}
                         >
-                            <View style={[styles.attentionIcon, { backgroundColor: item.tint.bg }]}>
-                                <Ionicons name={item.icon} size={18} color={item.tint.on} />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                                <Text style={styles.attentionText} numberOfLines={2}>
-                                    {item.title}
-                                </Text>
-                                <Text style={[styles.attentionSub, { color: item.tone }]}>{item.sub}</Text>
-                            </View>
-                            <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-                        </Pressable>
-                    ))}
-                    {attentionItems.length > 3 ? (
-                        <Pressable
-                            style={({ pressed, hovered, focused }) => [
-                                styles.attentionMore,
-                                { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.99 : 1 }] },
-                                focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.danger, "59")}` } : null,
-                            ]}
-                            onPress={() => nav("health", attentionTab)}
-                            accessibilityRole="button"
-                            accessibilityLabel={`See all ${attentionItems.length} items needing attention`}
-                        >
-                            <Text style={styles.attentionMoreText}>
-                                See all {attentionItems.length}
-                            </Text>
-                            <Ionicons name="chevron-forward" size={16} color={colors.danger} />
-                        </Pressable>
-                    ) : null}
+                            {attentionItems.slice(0, 3).map((item) => (
+                                <Pressable
+                                    key={item.key}
+                                    style={({ pressed, hovered, focused }) => [
+                                        styles.attentionRow,
+                                        { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.99 : 1 }] },
+                                        focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.danger, "59")}` } : null,
+                                    ]}
+                                    onPress={() => nav("health", item.tab)}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`${item.title}. ${item.sub}.`}
+                                >
+                                    <View style={[styles.attentionIcon, { backgroundColor: item.tint.bg }]}>
+                                        <Ionicons name={item.icon} size={18} color={item.tint.on} />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.attentionText} numberOfLines={2}>{item.title}</Text>
+                                        <Text style={[styles.attentionSub, { color: item.tone }]}>{item.sub}</Text>
+                                    </View>
+                                    <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                                </Pressable>
+                            ))}
+                            {attentionItems.length > 3 ? (
+                                <Pressable
+                                    style={({ pressed, hovered, focused }) => [
+                                        styles.attentionMore,
+                                        { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.99 : 1 }] },
+                                        focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.danger, "59")}` } : null,
+                                    ]}
+                                    onPress={() => nav("health", attentionTab)}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`See all ${attentionItems.length} items needing attention`}
+                                >
+                                    <Text style={styles.attentionMoreText}>See all {attentionItems.length}</Text>
+                                    <Ionicons name="chevron-forward" size={16} color={colors.danger} />
+                                </Pressable>
+                            ) : null}
+                        </View>
+                    </Animated.View>
                 </View>
             ) : null}
 
@@ -812,6 +871,48 @@ export default function Dashboard({
                     </View>
                     <Ionicons name="chevron-forward" size={18} color={colors.info} />
                 </Pressable>
+            ) : null}
+
+            {/* Vaccination progress */}
+            {vaxProgress && vaxProgress.total > 0 ? (
+                <Gradient colors={[colors.primaryDark, colors.primary]} style={styles.progressCard}>
+                    <View style={styles.progressHeader}>
+                        <Ionicons name="shield-checkmark-outline" size={16} color={cardForeground} />
+                        <Text style={styles.progressTitle} numberOfLines={1}>
+                            Vaccination Progress
+                        </Text>
+                        <Text style={styles.progressCount} numberOfLines={1}>
+                            {vaxProgress.completed} of {vaxProgress.total} doses
+                        </Text>
+                    </View>
+                    <View style={styles.progressTrack}>
+                        <View style={[styles.progressFill, { width: `${vaxPct}%` }]} />
+                    </View>
+                    {nextVax ? (
+                        <Pressable
+                            style={({ pressed, hovered, focused }) => [
+                                styles.nextVaxRow,
+                                { opacity: hovered ? 0.99 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
+                                focused ? { boxShadow: `0 0 0 3px ${cardForeground}` } : null,
+                            ]}
+                            onPress={() => nav("health", "immunizations")}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Next vaccine: ${nextVax.vaccine_name || "Vaccination"}, due ${nextVax.due_date}`}
+                        >
+                            <Ionicons name="medkit-outline" size={15} color={cardForeground} />
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.nextVaxLabel}>
+                                    Next vaccine: {nextVax.vaccine_name || "Vaccination"}
+                                </Text>
+                                <Text style={styles.nextVaxSub}>
+                                    {nextVax.due_date}
+                                    {nextVax.visit_name ? ` · ${nextVax.visit_name}` : ""}
+                                </Text>
+                            </View>
+                            <Ionicons name="chevron-forward" size={16} color={cardForeground} />
+                        </Pressable>
+                    ) : null}
+                </Gradient>
             ) : null}
 
             {/* Child Health ID — who this child is and the standing facts a
@@ -907,9 +1008,9 @@ export default function Dashboard({
                         >
                             <Ionicons
                                 name={f.icon}
-                                size={17}
+                                size={22.1}
                                 color={flagged ? colors.warning : colors.textMuted}
-                                style={{ marginTop: 2 }}
+                                style={{ alignSelf: "center" }}
                             />
                             <View style={styles.factBody}>
                                 <Text style={styles.factLabel}>{f.label}</Text>
@@ -1036,9 +1137,9 @@ export default function Dashboard({
                                   >
                                       <Ionicons
                                           name={f.icon}
-                                          size={17}
+                                          size={f.enlargedIcon ? 22.1 : 17}
                                           color={colors.textMuted}
-                                          style={{ marginTop: 2 }}
+                                          style={f.enlargedIcon ? { alignSelf: "center" } : { marginTop: 2 }}
                                       />
                                       <View style={styles.factBody}>
                                           <Text style={styles.factLabel}>{f.label}</Text>
@@ -1065,47 +1166,30 @@ export default function Dashboard({
                 plain
             />
 
-            {/* Vaccination progress */}
-            {vaxProgress && vaxProgress.total > 0 ? (
-                <Gradient colors={[colors.primaryDark, colors.primary]} style={styles.progressCard}>
-                    <View style={styles.progressHeader}>
-                        <Ionicons name="shield-checkmark-outline" size={16} color={cardForeground} />
-                        <Text style={styles.progressTitle} numberOfLines={1}>
-                            Vaccination Progress
-                        </Text>
-                        <Text style={styles.progressCount} numberOfLines={1}>
-                            {vaxProgress.completed} of {vaxProgress.total} doses
-                        </Text>
-                    </View>
-                    <View style={styles.progressTrack}>
-                        <View style={[styles.progressFill, { width: `${vaxPct}%` }]} />
-                    </View>
-                    {nextVax && upcoming?.key !== `vax-${nextVax.id}` ? (
-                        <Pressable
-                            style={({ pressed, hovered, focused }) => [
-                                styles.nextVaxRow,
-                                { opacity: hovered ? 0.99 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
-                                focused ? { boxShadow: `0 0 0 3px ${cardForeground}` } : null,
-                            ]}
-                            onPress={() => nav("health", "immunizations")}
-                            accessibilityRole="button"
-                            accessibilityLabel={`Next vaccine: ${nextVax.vaccine_name || "Vaccination"}, due ${nextVax.due_date}`}
-                        >
-                            <Ionicons name="medkit-outline" size={15} color={cardForeground} />
-                            <View style={{ flex: 1 }}>
-                                <Text style={styles.nextVaxLabel}>
-                                    Next vaccine: {nextVax.vaccine_name || "Vaccination"}
-                                </Text>
-                                <Text style={styles.nextVaxSub}>
-                                    {nextVax.due_date}
-                                    {nextVax.visit_name ? ` · ${nextVax.visit_name}` : ""}
-                                </Text>
-                            </View>
-                            <Ionicons name="chevron-forward" size={16} color={cardForeground} />
-                        </Pressable>
-                    ) : null}
-                </Gradient>
-            ) : null}
+            <SectionContainerCard title="Today" subtitle={shortDate(today)}>
+                <View style={styles.nutritionTileRow}>
+                    {nutritionTiles.map((tile) => (
+                        <View key={tile.key} style={styles.nutritionTile}>
+                            <Text style={styles.nutritionTileValue} numberOfLines={1}>{tile.value}</Text>
+                            <Text style={styles.nutritionTileLabel} numberOfLines={2}>{tile.label}</Text>
+                        </View>
+                    ))}
+                </View>
+                {nutritionToday.solidCount > 0 ? (
+                    <Text style={styles.nutritionTileFootnote}>
+                        Plus {nutritionToday.solidCount} solid-food {nutritionToday.solidCount === 1 ? "entry" : "entries"}
+                    </Text>
+                ) : null}
+                <TouchableOpacity
+                    style={styles.detailButton}
+                    onPress={() => nav("nutrition")}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("growthViewDetail")}
+                >
+                    <Text style={styles.detailButtonText}>{t("growthViewDetail")}</Text>
+                    <Ionicons name="arrow-forward" size={17} color={colors.primary} />
+                </TouchableOpacity>
+            </SectionContainerCard>
 
             {/* Upcoming appointment — the only way to Calendar from this screen. */}
             {upcoming ? (
@@ -1132,53 +1216,6 @@ export default function Dashboard({
                     <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
                 </Pressable>
             ) : null}
-
-            {/* Today's feeding summary — reuses nutrition rows already loaded
-                for Recent Activity. */}
-            <Pressable
-                style={({ pressed, hovered, focused }) => [
-                    styles.feedingCard,
-                    { opacity: hovered ? 0.94 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] },
-                    focused ? { boxShadow: `0 0 0 3px ${withAlpha(colors.primary, "59")}` } : null,
-                ]}
-                onPress={() => nav("nutrition")}
-                accessibilityRole="button"
-                accessibilityLabel={
-                    todayFeeding ? `Fed ${todayFeeding.count} times today` : "Log today's first feeding"
-                }
-            >
-                <View style={styles.feedingIcon}>
-                    <Ionicons name="restaurant-outline" size={18} color={colors.primary} />
-                </View>
-                {todayFeeding ? (
-                    <View style={{ flex: 1 }}>
-                        <Text style={styles.feedingLabel}>
-                            Fed {todayFeeding.count} time{todayFeeding.count === 1 ? "" : "s"} today
-                        </Text>
-                        <Text style={styles.feedingSub}>
-                            {[
-                                todayFeeding.totalMl > 0 ? `${todayFeeding.totalMl} mL` : null,
-                                todayFeeding.breastMinutes > 0
-                                    ? `${durationText(todayFeeding.breastMinutes)} at the breast`
-                                    : null,
-                                todayFeeding.solidCount > 0
-                                    ? `${todayFeeding.solidCount} solid${todayFeeding.solidCount === 1 ? "" : "s"}`
-                                    : null,
-                                todayFeeding.lastTime ? `last at ${todayFeeding.lastTime.slice(0, 5)}` : null,
-                            ]
-                                .filter(Boolean)
-                                .join(" · ")}
-                        </Text>
-                    </View>
-                ) : (
-                    <View style={{ flex: 1 }}>
-                        <Text style={styles.feedingLabel}>No feedings logged today</Text>
-                        <Text style={styles.feedingSub}>Tap to log the first one</Text>
-                    </View>
-                )}
-                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-            </Pressable>
-
 
             {/* Square photo gallery. Adding lives in the floating log button's
                 menu, alongside Log Milk, Log Food, etc., instead of a second
@@ -1431,9 +1468,8 @@ const makeStyles = (colors, cardForeground) => StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         gap: space.sm,
-        marginBottom: space.xs,
     },
-    attentionTitle: { ...type.heading, color: colors.danger, flex: 1 },
+    attentionTitle: { ...type.heading, color: colors.danger },
     // The total, stated instead of inferred from "1 + 8 more".
     attentionCount: {
         minWidth: 24,
@@ -1445,7 +1481,16 @@ const makeStyles = (colors, cardForeground) => StyleSheet.create({
         alignItems: "center",
         justifyContent: "center",
     },
-    attentionCountText: { ...type.label, color: colors.onPrimary },
+    attentionCountText: { ...type.label, color: colors.onPrimary, fontVariant: ["tabular-nums"] },
+    attentionToggle: {
+        width: MIN_TOUCH,
+        height: MIN_TOUCH,
+        marginLeft: "auto",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    attentionContentClip: { overflow: "hidden" },
+    attentionContent: { paddingTop: space.xs },
     attentionRow: {
         flexDirection: "row",
         alignItems: "center",
@@ -1502,6 +1547,36 @@ const makeStyles = (colors, cardForeground) => StyleSheet.create({
     },
     feedingLabel: { ...type.bodyStrong, color: colors.text },
     feedingSub: { ...type.caption, color: colors.textSecondary, marginTop: space.xs },
+
+    nutritionTileRow: { flexDirection: "row", gap: space.sm },
+    nutritionTile: {
+        flex: 1,
+        minWidth: 0,
+        alignItems: "center",
+        gap: 2,
+        paddingVertical: space.md,
+        paddingHorizontal: space.xs,
+        borderRadius: radius.lg,
+        borderCurve: "continuous",
+        backgroundColor: colors.surfaceAlt,
+        borderWidth: 1,
+        borderColor: colors.hairline,
+    },
+    nutritionTileValue: { ...type.heading, color: colors.text },
+    nutritionTileLabel: { ...type.caption, color: colors.textMuted, textAlign: "center" },
+    nutritionTileFootnote: { ...type.caption, color: colors.textMuted, marginTop: space.sm },
+    detailButton: {
+        minHeight: MIN_TOUCH,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: space.xs,
+        marginTop: space.md,
+        paddingTop: space.sm,
+        borderTopWidth: 1,
+        borderTopColor: colors.hairline,
+    },
+    detailButtonText: { ...type.label, color: colors.primary },
 
     // Active share-code notice — teal/info tint so it's clearly noticeable
     // next to the plain white cards around it, without reading as a medical

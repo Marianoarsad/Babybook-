@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Animated } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Animated } from "react-native";
 import { SectionContainerCard } from "../common/Cards";
 import { api } from "../../utils/api";
 import { useToast } from "../ui/Toast";
@@ -8,6 +8,7 @@ import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
 import { useScroll } from "../../context/ScrollContext";
 import { space, radius, type } from "../../theme";
 import KeyboardAvoider from "../ui/KeyboardAvoider";
+import Field from "../ui/Field";
 
 // Cosmetic-only heuristic (length + character variety) driving the 4-segment
 // meter below. Not a security gate — the actual submit validation is
@@ -79,18 +80,15 @@ export default function ChangePassword() {
             {...scrollProps}
         >
             <SectionContainerCard title="Change Password" subtitle="Use your current password to set a new one">
-                <View style={styles.formGroup}>
-                    <Text style={styles.label}>Current Password</Text>
-                    <TextInput
-                        style={styles.input}
+                <Field
+                        label="Current Password"
                         secureTextEntry
+                        hideReveal
                         value={currentPassword}
                         onChangeText={setCurrentPassword}
                     />
-                </View>
                 <View style={styles.formGroup}>
-                    <Text style={styles.label}>New Password</Text>
-                    <TextInput style={styles.input} secureTextEntry value={newPassword} onChangeText={setNewPassword} />
+                    <Field label="New Password" secureTextEntry hideReveal value={newPassword} onChangeText={setNewPassword} />
                     {newPassword ? (
                         <View style={styles.meterRow}>
                             <View style={styles.meterBars}>
@@ -110,15 +108,13 @@ export default function ChangePassword() {
                         </View>
                     ) : null}
                 </View>
-                <View style={styles.formGroup}>
-                    <Text style={styles.label}>Confirm New Password</Text>
-                    <TextInput
-                        style={styles.input}
+                <Field
+                        label="Confirm New Password"
                         secureTextEntry
+                        hideReveal
                         value={confirmPassword}
                         onChangeText={setConfirmPassword}
                     />
-                </View>
                 <TouchableOpacity
                     onPress={handleSubmit}
                     style={styles.saveBtn}

@@ -5,6 +5,8 @@ import {
     StyleSheet,
     ScrollView,
     TouchableOpacity,
+    Switch,
+    Platform,
     Image,
     } from "react-native";
 import Modal from "./ui/AppModal";
@@ -54,8 +56,9 @@ import OptionSheet from "./ui/OptionSheet";
 import PlanDetail from "./ui/PlanDetail";
 import SwipeActionRow from "./ui/SwipeActionRow";
 import { DeleteConfirmation } from "./ui/RecordFormSheet";
-import AnchoredMenu, { AnchoredMenuItem } from "./ui/AnchoredMenu";
+import AnchoredMenu from "./ui/AnchoredMenu";
 import { DateWheelPicker } from "./ui/DateField";
+import { GROWTH_METRIC_KEYS, toggleGrowthMetric } from "../utils/growthMetricFilter.cjs";
 import {
     CHECKPOINTS,
     DOMAINS,
@@ -79,7 +82,6 @@ const METRIC_TABS = [
     { key: "height", labelKey: "growthHeight", field: "height", unit: "cm" },
     { key: "head", labelKey: "growthHeadCirc", filterLabelKey: "growthHeadFilter", field: "head_circumference", unit: "cm" },
 ];
-const METRIC_FILTERS = [{ key: "all", labelKey: "growthAll" }, ...METRIC_TABS];
 const QUICK_DATE_ACTIONS = [
     { key: "week", labelKey: "growthThisWeek", shortLabelKey: "growthWeekShort" },
     { key: "month", labelKey: "growthThisMonth", shortLabelKey: "growthMonthShort" },
@@ -163,6 +165,8 @@ export default function Growth({
     const ownBand = useMemo(() => checkpointFor(ageMonths), [ageMonths]);
     const [selectedBand, setSelectedBand] = useState(ownBand);
     const [bandSheetOpen, setBandSheetOpen] = useState(false);
+    const [bandMenuAnchor, setBandMenuAnchor] = useState(null);
+    const bandTriggerRef = useRef(null);
 
     // Rows for the age menu. "Your baby" is suppressed when the birth date was
     // never recorded: monthsBetween returns null there and checkpointFor falls
@@ -232,7 +236,7 @@ export default function Growth({
     // cached on the profile, so there was no history and nothing to plot.
     const growthRows = useRecords(profile.id, "growth");
     const [metricsVisible, setMetricsVisible] = useState(10);
-    const [metricKey, setMetricKey] = useState("all");
+    const [metricKeys, setMetricKeys] = useState(() => [...GROWTH_METRIC_KEYS]);
     const [metricMenuOpen, setMetricMenuOpen] = useState(false);
     const [metricMenuAnchor, setMetricMenuAnchor] = useState(null);
     const metricTriggerRef = useRef(null);
@@ -298,11 +302,16 @@ export default function Growth({
         const restoredYears = restored.yearRange;
         setYearRange(restoredYears);
         setDraftYearRange(restoredYears);
+        setMetricKeys([...GROWTH_METRIC_KEYS]);
+        setMetricMenuOpen(false);
     }, [profile.id, profile.dateOfBirth]);
 
     const refreshControl = useRefreshControl(growthLoading, () => setReloadTick((n) => n + 1));
 
-    const selectedMetricFilter = METRIC_FILTERS.find((m) => m.key === metricKey) || METRIC_FILTERS[0];
+    const visibleMetrics = useMemo(
+        () => METRIC_TABS.filter((metric) => metricKeys.includes(metric.key)),
+        [metricKeys],
+    );
 
     const measurements = useMemo(() => {
         return (growthRows || [])
@@ -331,17 +340,22 @@ export default function Growth({
     // A shared date must describe one visit, so this strip is the newest log as
     // a snapshot rather than a mix of values taken on different dates.
     const latestMeasurement = measurements[0] || null;
+    const availableMeasurementDates = useMemo(
+        () => [...new Set(measurements
+            .filter((measurement) => METRIC_TABS.some((metric) => Number(measurement[metric.field]) > 0))
+            .map((measurement) => measurement.date))].sort(),
+        [measurements],
+    );
     const availableWeeksByMonth = useMemo(() => {
         const available = {};
-        measurements.forEach((measurement) => {
-            if (!METRIC_TABS.some((metric) => Number(measurement[metric.field]) > 0)) return;
-            const month = measurement.date.slice(0, 7);
-            const week = weekOfMonth(measurement.date);
+        availableMeasurementDates.forEach((date) => {
+            const month = date.slice(0, 7);
+            const week = weekOfMonth(date);
             if (!available[month]) available[month] = new Set();
             if (week) available[month].add(week);
         });
         return available;
-    }, [measurements]);
+    }, [availableMeasurementDates]);
     const measurementYears = useMemo(
         () => [...new Set(measurements.map((m) => Number(m.date.slice(0, 4))))].sort((a, b) => b - a),
         [measurements],
@@ -377,11 +391,11 @@ export default function Growth({
     );
     const sharedChartWindow = useMemo(() => {
         const dates = filteredGrowthRows
-            .filter((row) => METRIC_TABS.some((metric) => Number(row[metric.field]) > 0))
+            .filter((row) => visibleMetrics.some((metric) => Number(row[metric.field]) > 0))
             .map((row) => String(row.date_recorded).slice(0, 10))
             .sort();
         return dates.length ? { from: dates[0], to: dates[dates.length - 1] } : null;
-    }, [filteredGrowthRows]);
+    }, [filteredGrowthRows, visibleMetrics]);
     // The API returns growth rows by date DESC, id DESC, so the first valid
     // value is also the last plotted value for that metric in this filter.
     const latestChartValues = useMemo(
@@ -779,8 +793,12 @@ export default function Growth({
                             read it without opening anything, and it starts on
                             their own child's band. */}
                         <TouchableOpacity
+                            ref={bandTriggerRef}
                             style={styles.bandTrigger}
-                            onPress={() => setBandSheetOpen(true)}
+                            onPress={() => bandTriggerRef.current?.measureInWindow((x, y, width, height) => {
+                                setBandMenuAnchor({ x, y, width, height });
+                                setBandSheetOpen(true);
+                            })}
                             accessibilityRole="button"
                             accessibilityLabel={`Age ${bandLabel(selectedBand)}. Choose a different age`}
                         >
@@ -1130,99 +1148,52 @@ export default function Growth({
                             <TouchableOpacity
                                 ref={metricTriggerRef}
                                 onPress={openMetricMenu}
-                                style={styles.metricSelect}
+                                style={styles.metricFilterButton}
                                 accessibilityRole="button"
                                 accessibilityState={{ expanded: metricMenuOpen }}
-                                accessibilityLabel={t("growthShowChart").replace(
-                                    "{metric}",
-                                    t(selectedMetricFilter.labelKey),
+                                accessibilityLabel={t("growthChartFilterButton").replace(
+                                    "{count}",
+                                    metricKeys.length,
                                 )}
                             >
-                                <View style={styles.metricSelectValue}>
-                                    {metricKey !== "all" ? (
-                                        <View
-                                            style={[
-                                                styles.metricDot,
-                                                { backgroundColor: colors.growthMetric[metricKey] },
-                                            ]}
-                                        />
-                                    ) : null}
-                                    <Text style={styles.metricSelectText} numberOfLines={1}>
-                                        {t(selectedMetricFilter.filterLabelKey || selectedMetricFilter.labelKey)}
-                                    </Text>
-                                </View>
-                                <Ionicons
-                                    name={metricMenuOpen ? "chevron-up" : "chevron-down"}
-                                    size={20}
-                                    color={colors.textSecondary}
-                                />
+                                <Ionicons name="funnel" size={26} color={colors.primary} />
                             </TouchableOpacity>
                         </View>
 
                         <Text style={styles.chartHelp}>{t("growthAllChartHelp")}</Text>
 
-                        {metricKey === "all" ? (
-                            <View style={styles.allCharts}>
-                                {METRIC_TABS.map((metric, index) => (
-                                    <View key={metric.key} style={[styles.allChart, index > 0 && styles.allChartDivider]}>
-                                        <View style={styles.allChartTitleRow}>
-                                            <Text style={styles.allChartTitle}>{t(metric.labelKey)}</Text>
-                                            {latestChartValues[metric.key] ? (
-                                                <Text selectable style={styles.allChartLatest}>
-                                                    {latestChartValues[metric.key]}
-                                                </Text>
-                                            ) : null}
-                                        </View>
-                                        <PercentileChart
-                                            indicator={metric.key}
-                                            dateOfBirth={profile.dateOfBirth}
-                                            rows={filteredGrowthRows}
-                                            compact
-                                            name={t(metric.labelKey)}
-                                            showReference={false}
-                                            seriesColor={colors.growthMetric[metric.key]}
-                                            areaFill
-                                            dateWindow={chartDateWindow}
-                                            datePreset={appliedDatePreset}
-                                            yearRange={appliedDatePreset === "year" ? yearRange : null}
-                                            axisWindow={sharedChartWindow}
-                                            pointAlignedShortRange
-                                            emptyMessage={appliedDatePreset === "year"
-                                                ? t("growthNoMeasurementsYears").replace("{from}", yearRange.from).replace("{to}", yearRange.to)
-                                                : t("growthNoMeasurementsRange")}
-                                        />
+                        <View style={styles.allCharts}>
+                            {visibleMetrics.map((metric, index) => (
+                                <View key={metric.key} style={[styles.allChart, index > 0 && styles.allChartDivider]}>
+                                    <View style={styles.allChartTitleRow}>
+                                        <Text style={styles.allChartTitle}>{t(metric.labelKey)}</Text>
+                                        {latestChartValues[metric.key] ? (
+                                            <Text selectable style={styles.allChartLatest}>
+                                                {latestChartValues[metric.key]}
+                                            </Text>
+                                        ) : null}
                                     </View>
-                                ))}
-                            </View>
-                        ) : (
-                            <>
-                                <View style={styles.allChartTitleRow}>
-                                    <Text style={styles.allChartTitle}>{t(selectedMetricFilter.labelKey)}</Text>
-                                    {latestChartValues[metricKey] ? (
-                                        <Text selectable style={styles.allChartLatest}>
-                                            {latestChartValues[metricKey]}
-                                        </Text>
-                                    ) : null}
+                                    <PercentileChart
+                                        indicator={metric.key}
+                                        dateOfBirth={profile.dateOfBirth}
+                                        rows={filteredGrowthRows}
+                                        compact
+                                        name={t(metric.labelKey)}
+                                        showReference={false}
+                                        seriesColor={colors.growthMetric[metric.key]}
+                                        areaFill
+                                        dateWindow={chartDateWindow}
+                                        datePreset={appliedDatePreset}
+                                        yearRange={appliedDatePreset === "year" ? yearRange : null}
+                                        axisWindow={sharedChartWindow}
+                                        pointAlignedShortRange
+                                        emptyMessage={appliedDatePreset === "year"
+                                            ? t("growthNoMeasurementsYears").replace("{from}", yearRange.from).replace("{to}", yearRange.to)
+                                            : t("growthNoMeasurementsRange")}
+                                    />
                                 </View>
-                                <PercentileChart
-                                    indicator={metricKey}
-                                    dateOfBirth={profile.dateOfBirth}
-                                    rows={filteredGrowthRows}
-                                    name={t("growthLegendSaved")}
-                                    simple
-                                    showReference={false}
-                                    seriesColor={colors.growthMetric[metricKey]}
-                                    areaFill
-                                    dateWindow={chartDateWindow}
-                                    datePreset={appliedDatePreset}
-                                    yearRange={appliedDatePreset === "year" ? yearRange : null}
-                                    pointAlignedShortRange
-                                    emptyMessage={appliedDatePreset === "year"
-                                        ? t("growthNoMeasurementsYears").replace("{from}", yearRange.from).replace("{to}", yearRange.to)
-                                        : t("growthNoMeasurementsRange")}
-                                />
-                            </>
-                        )}
+                            ))}
+                        </View>
 
                             </>
                         )}
@@ -1246,12 +1217,6 @@ export default function Growth({
                         ) : (
                             <>
                                 {measurements.slice(0, metricsVisible).map((m) => {
-                                    const parts = [];
-                                    if (m.weight != null) parts.push(`${m.weight} kg`);
-                                    if (m.height != null) parts.push(`${m.height} cm`);
-                                    if (m.head_circumference != null)
-                                        parts.push(`head ${m.head_circumference} cm`);
-                                    const place = PLACE_LABELS[m.measured_at] || null;
                                     const label = `${t("growthViewMeasurement")}: ${shortDate(m.date)}`;
                                     return (
                                         <SwipeActionRow
@@ -1283,16 +1248,10 @@ export default function Growth({
                                         >
                                             <ListEntryCard
                                                 style={styles.swipeListCard}
-                                                title={parts.join("  ·  ") || t("growthNoValues")}
-                                                subtitle={[
-                                                    shortDate(m.date),
-                                                    m.day != null ? ageLabel(m.day) : null,
-                                                    place,
-                                                ].filter(Boolean).join(" · ")}
-                                                notes={m.notes || null}
+                                                title={shortDate(m.date)}
+                                                subtitle={m.day != null ? ageLabel(m.day) : null}
                                                 icon={<MaterialCommunityIcons name="scale" size={18} color={colors.recGrowth.on} />}
                                                 iconBg={colors.recGrowth.bg}
-                                                showChevron
                                             />
                                         </SwipeActionRow>
                                     );
@@ -1780,6 +1739,7 @@ export default function Growth({
                 value={pendingDate || draftDateRange?.[editingDate] || today}
                 minimumDate={activeDateBounds.min || undefined}
                 maximumDate={activeDateBounds.max || undefined}
+                availableDates={availableMeasurementDates}
                 accessibilityLabel={t(editingDate === "to" ? "growthEndingDate" : "growthStartingDate")}
                 onChange={(selected) => {
                     setPendingDate(selected);
@@ -1794,6 +1754,7 @@ export default function Growth({
 
             <OptionSheet
                 visible={bandSheetOpen}
+                anchor={bandMenuAnchor}
                 title="Choose an age"
                 options={bandOptions}
                 selectedKey={selectedBand}
@@ -1808,33 +1769,52 @@ export default function Growth({
                 visible={metricMenuOpen}
                 anchor={metricMenuAnchor}
                 onClose={() => setMetricMenuOpen(false)}
-                minWidth={Math.min(metricMenuAnchor?.width || 240, 300)}
+                minWidth={232}
+                maxWidth={232}
+                dimBackdrop={false}
+                animation="warp"
             >
-                {METRIC_FILTERS.map((metric) => (
-                    <AnchoredMenuItem
-                        key={metric.key}
-                        label={t(metric.filterLabelKey || metric.labelKey)}
-                        selected={metricKey === metric.key}
-                        leading={
-                            metric.key === "all" ? null : (
-                                <View
-                                    style={[
-                                        styles.metricDot,
-                                        { backgroundColor: colors.growthMetric[metric.key] },
-                                    ]}
-                                />
-                            )
-                        }
-                        onPress={() => {
-                            setMetricKey(metric.key);
-                            setMetricMenuOpen(false);
-                        }}
-                        accessibilityLabel={t("growthShowChart").replace(
-                            "{metric}",
-                            t(metric.labelKey),
-                        )}
-                    />
-                ))}
+                <View style={styles.metricChecklistHeader}>
+                    <TouchableOpacity
+                        style={styles.metricChecklistBack}
+                        onPress={() => setMetricMenuOpen(false)}
+                        accessibilityRole="button"
+                        accessibilityLabel={t("growthCloseChartFilter")}
+                    >
+                        <Ionicons name="chevron-back" size={24} color={colors.text} />
+                    </TouchableOpacity>
+                    <Text style={styles.metricChecklistTitle}>{t("growthChartFilterTitle")}</Text>
+                    <View style={styles.metricChecklistHeaderSpacer} />
+                </View>
+                {METRIC_TABS.map((metric) => {
+                    const checked = metricKeys.includes(metric.key);
+                    const disabled = checked && metricKeys.length === 1;
+                    return (
+                        <TouchableOpacity
+                            key={metric.key}
+                            style={[styles.metricChecklistRow, disabled && styles.metricChecklistRowDisabled]}
+                            onPress={() => setMetricKeys((current) => toggleGrowthMetric(current, metric.key))}
+                            disabled={disabled}
+                            accessibilityRole="switch"
+                            accessibilityState={{ checked, disabled }}
+                            accessibilityLabel={t(metric.filterLabelKey || metric.labelKey)}
+                        >
+                            <Text style={styles.metricChecklistLabel}>
+                                {t(metric.filterLabelKey || metric.labelKey)}
+                            </Text>
+                            <Switch
+                                value={checked}
+                                disabled={disabled}
+                                pointerEvents="none"
+                                accessible={false}
+                                trackColor={{ false: colors.border, true: colors.primary }}
+                                thumbColor={colors.onPrimary}
+                                {...(Platform.OS === "web" ? { activeThumbColor: colors.onPrimary } : {})}
+                                ios_backgroundColor={colors.border}
+                            />
+                        </TouchableOpacity>
+                    );
+                })}
             </AnchoredMenu>
 
             {/* One form for both kinds. `milestones` feeds its suggestion
@@ -2057,8 +2037,9 @@ const makeStyles = (colors, cardForeground) => StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         gap: space.xs,
-        flex: 1,
         minWidth: 0,
+        maxWidth: "100%",
+        flexShrink: 1,
         paddingHorizontal: space.sm,
         borderWidth: 1,
         borderColor: colors.border,
@@ -2067,29 +2048,39 @@ const makeStyles = (colors, cardForeground) => StyleSheet.create({
         backgroundColor: colors.surface,
     },
     dateSelectText: { ...type.label, color: colors.text, flexShrink: 1 },
-    metricSelect: {
+    metricFilterButton: {
+        width: MIN_TOUCH,
+        height: MIN_TOUCH,
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: radius.pill,
+        flexShrink: 0,
+    },
+    metricChecklistHeader: {
+        minHeight: 52,
+        flexDirection: "row",
+        alignItems: "center",
+        borderBottomWidth: 1,
+        borderBottomColor: colors.hairline,
+    },
+    metricChecklistBack: {
+        width: MIN_TOUCH,
+        minHeight: MIN_TOUCH,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    metricChecklistTitle: { ...type.bodyStrong, color: colors.text, flex: 1, textAlign: "center" },
+    metricChecklistHeaderSpacer: { width: MIN_TOUCH },
+    metricChecklistRow: {
+        minHeight: 52,
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
-        minHeight: MIN_TOUCH,
+        gap: space.md,
         paddingHorizontal: space.md,
-        borderWidth: 1,
-        borderColor: colors.primary,
-        borderRadius: radius.md,
-        borderCurve: "continuous",
-        backgroundColor: colors.surface,
-        flex: 1,
-        minWidth: 0,
     },
-    metricSelectValue: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: space.sm,
-        flex: 1,
-        minWidth: 0,
-    },
-    metricSelectText: { ...type.body, flexShrink: 1, color: colors.text },
-    metricDot: { width: 8, height: 8, borderRadius: 4 },
+    metricChecklistRowDisabled: { opacity: 0.65 },
+    metricChecklistLabel: { ...type.body, color: colors.text, flex: 1 },
     chartHelp: { ...type.body, color: colors.textSecondary, marginBottom: space.md },
     allCharts: { gap: space.md },
     allChart: { paddingTop: space.sm },

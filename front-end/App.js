@@ -118,7 +118,7 @@ import AllActivity from "./components/AllActivity";
 import Search from "./components/Search";
 import Splash from "./components/Splash";
 import { DateField, TimeField, MeasurementField } from "./components/ui/DateField";
-import Field from "./components/ui/Field";
+import Field, { FieldShell } from "./components/ui/Field";
 
 import RecordFormSheet, { RecordFormGroup, RecordFormRow, RecordFormScreen } from "./components/ui/RecordFormSheet";
 import ViewProfile, { PROFILE_TITLES } from "./components/settings/ViewProfile";
@@ -1080,6 +1080,7 @@ function MainAppShell({
                 it, which is what lets content scroll beneath the bar and makes
                 its white background mean something. */}
             <Animated.View
+                pointerEvents="box-none"
                 style={[styles.header, { paddingTop: insets.top }]}
                 onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
             >
@@ -1358,6 +1359,157 @@ function MainAppShell({
                 {currentView === "privacySettings" && (
                     <PrivacySettings onAccountDeleted={handleLogOut} />
                 )}
+
+                {/* Screen: EDIT BABY PROFILE */}
+                {currentView === "editBabyProfile" ? <RecordFormScreen
+                    onSubmit={handleEditProfile} busy={profileSaving === "edit"} submitLabel="Save Changes">
+                    <RecordFormGroup>
+
+                                {renderAvatarPicker(activeProfile.avatarUrl)}
+
+                                <RecordFormRow label={<Text style={styles.modalLabel}>
+                                    {t("profileNameLabel")}
+                                </Text>}>
+
+                                <TextInput
+                                    style={styles.modalInput}
+                                    value={formName}
+                                    onChangeText={setFormName}
+                                />
+                                </RecordFormRow>
+
+                                <RecordFormRow label={<Text style={styles.modalLabel}>Nickname</Text>}>
+
+                                <TextInput
+                                    style={styles.modalInput}
+                                    placeholder="e.g. Baby E"
+                                    placeholderTextColor={colors.placeholder}
+                                    value={formNickname}
+                                    onChangeText={setFormNickname}
+                                />
+                                </RecordFormRow>
+
+                                <DateField
+                                    label={t("profileDobLabel")}
+                                    value={formDob}
+                                    onChange={setFormDob}
+                                    maximumDate={todayLocal()}
+                                />
+
+                                <Text style={styles.modalLabel}>
+                                    {t("profileGenderLabel")}
+                                </Text>
+                                <View style={styles.genderContainer}>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.genderButton,
+                                            formGender === "girl" &&
+                                                styles.genderButtonActive,
+                                        ]}
+                                        onPress={() => setFormGender("girl")}
+                                    >
+                                        <Text
+                                            style={[
+                                                styles.genderButtonText,
+                                                formGender === "girl" &&
+                                                    styles.genderButtonTextActive,
+                                            ]}
+                                        >
+                                            {t("female")}
+                                        </Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.genderButton,
+                                            formGender === "boy" &&
+                                                styles.genderButtonActive,
+                                        ]}
+                                        onPress={() => setFormGender("boy")}
+                                    >
+                                        <Text
+                                            style={[
+                                                styles.genderButtonText,
+                                                formGender === "boy" &&
+                                                    styles.genderButtonTextActive,
+                                            ]}
+                                        >
+                                            {t("male")}
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                <FieldShell label="Blood Type" focused={bloodTypeMenuOpen}>
+                                <TouchableOpacity
+                                    ref={bloodTypeTriggerRef}
+                                    style={styles.bloodTypeTrigger}
+                                    onPress={openBloodTypeMenu}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Blood Type, ${formBloodType || "Select blood type"}`}
+                                    accessibilityState={{ expanded: bloodTypeMenuOpen }}
+                                >
+                                    <Text
+                                        style={[styles.dropdownText, !formBloodType && styles.dropdownPlaceholder]}
+                                        numberOfLines={1}
+                                    >
+                                        {formBloodType || "Select blood type"}
+                                    </Text>
+                                    <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
+                                </TouchableOpacity>
+                                </FieldShell>
+                                <RecordFormRow label={<Text style={styles.modalLabel}>Birth Hospital</Text>}>
+
+                                <TextInput
+                                    style={styles.modalInput}
+                                    value={formHospital}
+                                    onChangeText={setFormHospital}
+                                />
+                                </RecordFormRow>
+                                <Field label="Pediatrician" prefix="Dr." placeholder="Doctor's name"
+                                    value={formPediatrician}
+                                    onChangeText={(value) => setFormPediatrician(stripDoctorPrefix(value))}
+                                    autoCapitalize="words" />
+                                <Field label="Pediatrician Contact Number" placeholder="Contact number"
+                                    value={formPediatricianContact} onChangeText={setFormPediatricianContact}
+                                    numericMode="digits" keyboardType="phone-pad" textContentType="telephoneNumber" />
+                                <Field label="Pediatrician Clinic/Hospital" placeholder="Clinic or hospital name"
+                                    value={formPediatricianClinic} onChangeText={setFormPediatricianClinic}
+                                    autoCapitalize="words" />
+                                <Field label="OB-GYNE" prefix="Dr." placeholder="Doctor's name"
+                                    value={formObgyne}
+                                    onChangeText={(value) => setFormObgyne(stripDoctorPrefix(value))}
+                                    autoCapitalize="words" />
+                                <Field label="OB-GYNE Contact Number" placeholder="Contact number"
+                                    value={formObgyneContact} onChangeText={setFormObgyneContact}
+                                    numericMode="digits" keyboardType="phone-pad" textContentType="telephoneNumber" />
+                                <Field label="Emergency Contact First Name" placeholder="First name"
+                                    value={formEmergencyFirstName} onChangeText={setFormEmergencyFirstName}
+                                    autoCapitalize="words" />
+                                <Field label="Emergency Contact Last Name" placeholder="Last name"
+                                    value={formEmergencyLastName} onChangeText={setFormEmergencyLastName}
+                                    autoCapitalize="words" />
+                                <Field label="Emergency Contact Relationship" placeholder="e.g. Mother"
+                                    value={formEmergencyRelationship} onChangeText={setFormEmergencyRelationship}
+                                    autoCapitalize="words" />
+                                <Field label="Emergency Contact Number" placeholder="Contact number"
+                                    value={formEmergencyNumber} onChangeText={setFormEmergencyNumber}
+                                    numericMode="digits" keyboardType="phone-pad" textContentType="telephoneNumber" />
+
+                                <RecordFormRow label={<Text style={styles.modalLabel}>Place of Birth</Text>}>
+
+                                <TextInput
+                                    style={styles.modalInput}
+                                    value={formPlaceOfBirth}
+                                    onChangeText={setFormPlaceOfBirth}
+                                />
+                                </RecordFormRow>
+                                <TimeField
+                                    label="Time of Birth (Optional)"
+                                    value={formTimeOfBirth}
+                                    onChange={setFormTimeOfBirth}
+                                />
+
+                    </RecordFormGroup>
+                </RecordFormScreen> : null}
             </Animated.View>
             </BlurTargetView>
 
@@ -1548,158 +1700,6 @@ function MainAppShell({
 
                 </RecordFormGroup>
             </RecordFormSheet>
-
-            {/* Screen: EDIT BABY PROFILE */}
-            {currentView === "editBabyProfile" ? <RecordFormScreen
-                onSubmit={handleEditProfile} busy={profileSaving === "edit"} submitLabel="Save Changes">
-                <RecordFormGroup>
-
-                            {renderAvatarPicker(activeProfile.avatarUrl)}
-
-                            <RecordFormRow label={<Text style={styles.modalLabel}>
-                                {t("profileNameLabel")}
-                            </Text>}>
-
-                            <TextInput
-                                style={styles.modalInput}
-                                value={formName}
-                                onChangeText={setFormName}
-                            />
-                            </RecordFormRow>
-
-                            <RecordFormRow label={<Text style={styles.modalLabel}>Nickname</Text>}>
-
-                            <TextInput
-                                style={styles.modalInput}
-                                placeholder="e.g. Baby E"
-                                placeholderTextColor={colors.placeholder}
-                                value={formNickname}
-                                onChangeText={setFormNickname}
-                            />
-                            </RecordFormRow>
-
-                            <DateField
-                                label={t("profileDobLabel")}
-                                value={formDob}
-                                onChange={setFormDob}
-                                maximumDate={todayLocal()}
-                            />
-
-                            <Text style={styles.modalLabel}>
-                                {t("profileGenderLabel")}
-                            </Text>
-                            <View style={styles.genderContainer}>
-                                <TouchableOpacity
-                                    style={[
-                                        styles.genderButton,
-                                        formGender === "girl" &&
-                                            styles.genderButtonActive,
-                                    ]}
-                                    onPress={() => setFormGender("girl")}
-                                >
-                                    <Text
-                                        style={[
-                                            styles.genderButtonText,
-                                            formGender === "girl" &&
-                                                styles.genderButtonTextActive,
-                                        ]}
-                                    >
-                                        {t("female")}
-                                    </Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={[
-                                        styles.genderButton,
-                                        formGender === "boy" &&
-                                            styles.genderButtonActive,
-                                    ]}
-                                    onPress={() => setFormGender("boy")}
-                                >
-                                    <Text
-                                        style={[
-                                            styles.genderButtonText,
-                                            formGender === "boy" &&
-                                                styles.genderButtonTextActive,
-                                        ]}
-                                    >
-                                        {t("male")}
-                                    </Text>
-                                </TouchableOpacity>
-                            </View>
-
-                            <View style={styles.bloodTypeField}>
-                            <Text style={styles.bloodTypeFloatingLabel}>Blood Type</Text>
-                            <TouchableOpacity
-                                ref={bloodTypeTriggerRef}
-                                style={styles.bloodTypeTrigger}
-                                onPress={openBloodTypeMenu}
-                                accessibilityRole="button"
-                                accessibilityLabel={`Blood Type, ${formBloodType || "Select blood type"}`}
-                                accessibilityState={{ expanded: bloodTypeMenuOpen }}
-                            >
-                                <Text
-                                    style={[styles.dropdownText, !formBloodType && styles.dropdownPlaceholder]}
-                                    numberOfLines={1}
-                                >
-                                    {formBloodType || "Select blood type"}
-                                </Text>
-                                <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
-                            </TouchableOpacity>
-                            </View>
-                            <RecordFormRow label={<Text style={styles.modalLabel}>Birth Hospital</Text>}>
-
-                            <TextInput
-                                style={styles.modalInput}
-                                value={formHospital}
-                                onChangeText={setFormHospital}
-                            />
-                            </RecordFormRow>
-                            <Field label="Pediatrician" prefix="Dr." placeholder="Doctor's name"
-                                value={formPediatrician}
-                                onChangeText={(value) => setFormPediatrician(stripDoctorPrefix(value))}
-                                autoCapitalize="words" />
-                            <Field label="Pediatrician Contact Number" placeholder="Contact number"
-                                value={formPediatricianContact} onChangeText={setFormPediatricianContact}
-                                numericMode="digits" keyboardType="phone-pad" textContentType="telephoneNumber" />
-                            <Field label="Pediatrician Clinic/Hospital" placeholder="Clinic or hospital name"
-                                value={formPediatricianClinic} onChangeText={setFormPediatricianClinic}
-                                autoCapitalize="words" />
-                            <Field label="OB-GYNE" prefix="Dr." placeholder="Doctor's name"
-                                value={formObgyne}
-                                onChangeText={(value) => setFormObgyne(stripDoctorPrefix(value))}
-                                autoCapitalize="words" />
-                            <Field label="OB-GYNE Contact Number" placeholder="Contact number"
-                                value={formObgyneContact} onChangeText={setFormObgyneContact}
-                                numericMode="digits" keyboardType="phone-pad" textContentType="telephoneNumber" />
-                            <Field label="Emergency Contact First Name" placeholder="First name"
-                                value={formEmergencyFirstName} onChangeText={setFormEmergencyFirstName}
-                                autoCapitalize="words" />
-                            <Field label="Emergency Contact Last Name" placeholder="Last name"
-                                value={formEmergencyLastName} onChangeText={setFormEmergencyLastName}
-                                autoCapitalize="words" />
-                            <Field label="Emergency Contact Relationship" placeholder="e.g. Mother"
-                                value={formEmergencyRelationship} onChangeText={setFormEmergencyRelationship}
-                                autoCapitalize="words" />
-                            <Field label="Emergency Contact Number" placeholder="Contact number"
-                                value={formEmergencyNumber} onChangeText={setFormEmergencyNumber}
-                                numericMode="digits" keyboardType="phone-pad" textContentType="telephoneNumber" />
-
-                            <RecordFormRow label={<Text style={styles.modalLabel}>Place of Birth</Text>}>
-
-                            <TextInput
-                                style={styles.modalInput}
-                                value={formPlaceOfBirth}
-                                onChangeText={setFormPlaceOfBirth}
-                            />
-                            </RecordFormRow>
-                            <TimeField
-                                label="Time of Birth (Optional)"
-                                value={formTimeOfBirth}
-                                onChange={setFormTimeOfBirth}
-                            />
-
-                </RecordFormGroup>
-            </RecordFormScreen> : null}
 
             <AnchoredMenu
                 visible={currentView === "editBabyProfile" && bloodTypeMenuOpen}
@@ -2191,34 +2191,15 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     dropdownText: { ...type.body, color: colors.text, flex: 1, minWidth: 0 },
     dropdownPlaceholder: { color: colors.placeholder },
-    bloodTypeField: {
-        position: "relative",
-        marginVertical: space.sm,
-    },
     bloodTypeTrigger: {
         minHeight: 52,
         paddingHorizontal: space.md,
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: radius.lg,
-        borderCurve: "continuous",
+        backgroundColor: "transparent",
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
         gap: space.sm,
     },
-    bloodTypeFloatingLabel: {
-        ...type.caption,
-        position: "absolute",
-        zIndex: 1,
-        top: -8,
-        left: space.md,
-        paddingHorizontal: space.xs,
-        backgroundColor: colors.surface,
-        color: colors.textSecondary,
-    },
-
     modalSaveBtn: {
         paddingVertical: 12,
         paddingHorizontal: space.lg,

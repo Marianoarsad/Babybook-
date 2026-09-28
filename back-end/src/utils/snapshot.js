@@ -51,9 +51,27 @@ async function buildSnapshot(child, keys, visitReason) {
     }
 
     if (keys.includes("allergies")) {
+        const { rows } = await query(
+            `SELECT category, title FROM medical_history
+             WHERE child_id = $1 AND category IN ('Allergy', 'Hereditary Condition')
+             ORDER BY date_recorded DESC NULLS LAST, id DESC`,
+            [child.id],
+        );
+        const facts = rows.map((row) => decryptRow(row, ["title"]));
+        const merge = (legacy, category) => {
+            const values = [...facts.filter((row) => row.category === category).map((row) => row.title), ...(legacy || [])];
+            const seen = new Set();
+            return values.filter((value) => {
+                const text = String(value || "").trim();
+                const key = text.toLocaleLowerCase();
+                if (!text || seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+        };
         snap.allergies = {
-            allergies: child.allergies || [],
-            hereditaryConditions: child.hereditary_conditions || [],
+            allergies: merge(child.allergies, "Allergy"),
+            hereditaryConditions: merge(child.hereditary_conditions, "Hereditary Condition"),
         };
     }
 

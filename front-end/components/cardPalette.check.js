@@ -116,7 +116,7 @@ for (const gender of ["boy", "girl", "neutral"]) for (const scheme of ["light", 
     assert.deepEqual(destination, ["health", "immunizations"]);
     assert.equal(row.props.style({ focused: true }).at(-1).boxShadow, `0 0 0 3px ${expectedForeground}`);
     assert.equal(row.props.style({ hovered: true })[1].opacity, 0.99);
-    assert.equal(find(vaccination(colors, scheme, { nextVax: next, upcoming: { key: "vax-dose" } }).rendered,
-        (node) => node.type === "Pressable"), null, "Already-promoted next vaccine stays hidden");
+    assert(find(vaccination(colors, scheme, { nextVax: next, upcoming: { key: "vax-dose" } }).rendered,
+        (node) => node.type === "Pressable"), "Soonest vaccine stays visible when also promoted as Next plan");
 }
 console.log("Card palette checks passed: six themes, gradient contrast, empty/partial measurements, progress states and vaccine navigation.");

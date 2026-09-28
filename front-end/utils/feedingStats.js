@@ -10,6 +10,7 @@
 // durationMinutes, foodIntroduced, reactionSeverity, date, time }`.
 // `durationMinutes` is null on plenty of real breastfeeds — it is optional.
 import { minutesBetween, todayLocal } from "./dates";
+import { feedVolumeMl } from "./adapters";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -18,6 +19,46 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 export const byMoment = (a, b) => (a.date + (a.time || "")).localeCompare(b.date + (b.time || ""));
 
 export const foodKey = (name) => String(name || "").trim().toLowerCase();
+
+export function todayNutritionStats(entries, today, currentTime) {
+    const rows = entries || [];
+    const milk = rows.filter((e) => (e.entryType || "milk") === "milk");
+    const todayMilk = milk.filter((e) => e.date === today);
+    const lastFeed = milk.filter((e) => e.time && e.date <= today).sort(byMoment).pop();
+    const sinceLastFeed = lastFeed
+        ? minutesBetween(lastFeed.date, lastFeed.time, today, currentTime)
+        : null;
+    return {
+        count: todayMilk.length,
+        volume: todayMilk.reduce((sum, e) => sum + feedVolumeMl(e), 0),
+        breastMinutes: todayMilk.reduce(
+            (sum, e) => sum + (e.feedMethod === "breast" ? Number(e.durationMinutes) || 0 : 0),
+            0,
+        ),
+        solidCount: rows.filter((e) => e.entryType === "solid" && e.date === today).length,
+        sinceLastFeed: sinceLastFeed != null && sinceLastFeed >= 0 ? sinceLastFeed : null,
+    };
+}
+
+export function todayFeedingMix(entries, today = todayLocal()) {
+    const counts = { solid: 0, breastmilk: 0, formula: 0, mixed: 0 };
+    for (const entry of entries || []) {
+        if (entry.date !== today) continue;
+        if (entry.entryType === "solid") {
+            counts.solid++;
+            continue;
+        }
+        if ((entry.entryType || "milk") !== "milk") continue;
+        if (entry.milkType === "Breastmilk" || (!entry.milkType && entry.feedMethod === "breast")) {
+            counts.breastmilk++;
+        } else if (entry.milkType === "Formula") {
+            counts.formula++;
+        } else if (entry.milkType === "Mixed") {
+            counts.mixed++;
+        }
+    }
+    return { ...counts, total: counts.solid + counts.breastmilk + counts.formula + counts.mixed };
+}
 
 const DAY_MS = 86400000;
 const isoLocal = (time) => {

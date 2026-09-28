@@ -5,12 +5,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../../context/ThemeContext";
 import { useLanguage } from "../../context/LanguageContext";
-import { expandedSheetHeight, recordSheetHeight, useScreenPadTop } from "../../utils/responsive";
+import { expandedSheetHeight, recordSheetHeight, useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
 import { useScroll } from "../../context/ScrollContext";
 import { MIN_TOUCH, radius, shadow, space, type } from "../../theme";
 import { canDeleteRecord, deleteRecordAndClose, headerActionIcon } from "./recordFormActions.cjs";
 import KeyboardAvoider from "./KeyboardAvoider";
 import useBottomSheetMotion from "./useBottomSheetMotion";
+import { FieldShell } from "./Field";
 
 const RecordFormContext = createContext(false);
 export const useRecordForm = () => useContext(RecordFormContext);
@@ -22,10 +23,23 @@ export function RecordFormGroup({ children, style }) {
 }
 
 // The original label/control are retained, including their validation and copy.
-export function RecordFormRow({ label, children, stacked = false, divider = true }) {
+function labelText(label) {
+    if (typeof label === "string") return label;
+    return React.isValidElement(label) ? label.props.children : label;
+}
+
+export function RecordFormRow({ label, children, stacked = false, divider = true, outlined = true, error, helper }) {
     const { colors } = useTheme();
     const [width, setWidth] = useState(0);
+    const [focused, setFocused] = useState(false);
     const vertical = stacked || (width > 0 && width < 280);
+    if (outlined) return <FieldShell label={labelText(label)} focused={focused} error={error} helper={helper} multiline={stacked}>
+        {React.isValidElement(children) ? React.cloneElement(children, { style: [children.props.style, {
+            backgroundColor: "transparent", borderWidth: 0, borderRadius: 0, marginBottom: 0,
+            minHeight: stacked ? 94 : 50, paddingHorizontal: space.lg,
+        }], onFocus: (event) => { setFocused(true); children.props.onFocus?.(event); },
+            onBlur: (event) => { setFocused(false); children.props.onBlur?.(event); } }) : children}
+    </FieldShell>;
     return <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)} style={{
         flexDirection: vertical ? "column" : "row", alignItems: vertical ? "stretch" : "center",
         gap: space.sm, paddingVertical: space.sm, borderBottomWidth: divider ? StyleSheet.hairlineWidth : 0,
@@ -46,18 +60,19 @@ export function RecordFormRow({ label, children, stacked = false, divider = true
 
 export function RecordFormScreen({ children, onSubmit, submitLabel = "Save Changes", busy = false }) {
     const { colors } = useTheme();
-    const { scrollProps, tabBarHeight } = useScroll();
+    const { scrollProps } = useScroll();
     const padTop = useScreenPadTop();
+    const padBottom = useScreenPadBottom();
     const submitLock = useRef(false);
     const submit = async () => {
         if (busy || submitLock.current) return;
         submitLock.current = true;
         try { await onSubmit(); } finally { submitLock.current = false; }
     };
-    return <KeyboardAvoider style={{ position: "absolute", top: 0, right: 0, bottom: tabBarHeight, left: 0, zIndex: 1 }}>
+    return <KeyboardAvoider style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}>
         <RecordFormContext.Provider value>
             <Animated.ScrollView style={{ flex: 1 }} {...scrollProps} keyboardShouldPersistTaps="handled"
-                contentContainerStyle={{ padding: space.lg, paddingTop: padTop, paddingBottom: space.xl }}>
+                contentContainerStyle={{ padding: space.lg, paddingTop: padTop, paddingBottom: padBottom }}>
                 {children}
                 <Pressable onPress={submit} disabled={busy} accessibilityRole="button"
                     accessibilityLabel={submitLabel} accessibilityState={{ disabled: busy, busy }}
@@ -139,6 +154,8 @@ export default function RecordFormSheet({ visible, title, children, onClose, onS
             backgroundColor: colors.background, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl,
             borderCurve: "continuous", overflow: "hidden", ...shadow.raised },
         header: { padding: space.lg, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.hairline, gap: space.sm },
+        grabberStack: { alignItems: "center", gap: space.xs },
+        grabber: { width: 43.2, height: 4, borderRadius: radius.pill, backgroundColor: colors.border },
         heading: { ...type.heading, fontSize: type.heading.fontSize * 1.3, lineHeight: type.heading.lineHeight * 1.3,
             color: colors.text, textAlign: "center", flex: 1.5, minWidth: 0 },
         actions: { flexDirection: "row", alignItems: "center", gap: space.sm },
@@ -175,12 +192,16 @@ export default function RecordFormSheet({ visible, title, children, onClose, onS
                 <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.text + "66", opacity: motion.shade }]} />
                 <Pressable style={StyleSheet.absoluteFill} onPress={() => canDismiss && motion.dismiss()}
                     accessibilityRole="button" accessibilityLabel={cancelLabel} disabled={!canDismiss} />
-                <Animated.View style={[styles.sheet, { height: expandedHeight, transform: [{ translateY: motion.offset }] }]}
+                <Animated.View style={[styles.sheet, { height: motion.height }]}
                     accessibilityViewIsModal onAccessibilityEscape={() => canDismiss && motion.dismiss()}>
                     <RecordFormContext.Provider value>
                         <View style={{ flex: 1, minHeight: 0 }} pointerEvents={confirming ? "none" : "auto"}
                             accessibilityElementsHidden={confirming} importantForAccessibility={confirming ? "no-hide-descendants" : "auto"}>
                             <View {...motion.pan.panHandlers} style={[styles.header, { touchAction: "none" }]}>
+                                <View style={styles.grabberStack}>
+                                    <View style={styles.grabber} />
+                                    <View style={styles.grabber} />
+                                </View>
                                 <View style={styles.actions}>
                                     <Pressable onPress={() => !blocked && motion.dismiss()} disabled={blocked} style={[styles.action, cancelIcon && styles.actionIcon]}
                                         accessibilityRole="button" accessibilityLabel={cancelLabel} accessibilityState={{ disabled: blocked }}>

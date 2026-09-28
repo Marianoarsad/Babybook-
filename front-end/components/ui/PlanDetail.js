@@ -33,7 +33,7 @@ function DetailRow({ label, value, color, styles }) {
     );
 }
 
-export default function PlanDetail({ visible, plan, onClose, onEdit, onDelete, deleting = false }) {
+export default function PlanDetail({ visible, plan, onClose, onEdit, onDelete, onViewAttachment, deleting = false }) {
     const { colors } = useTheme();
     const insets = useSafeAreaInsets();
     const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -92,6 +92,19 @@ export default function PlanDetail({ visible, plan, onClose, onEdit, onDelete, d
                             <DetailRow label="Alert" value={plan.reminderLabel || "None"} styles={styles} />
                         )}
                     </View>
+
+                    {onViewAttachment ? (
+                        <TouchableOpacity
+                            onPress={onViewAttachment}
+                            style={styles.attachmentButton}
+                            accessibilityRole="button"
+                            accessibilityLabel="View attached photo"
+                        >
+                            <Ionicons name="image-outline" size={20} color={colors.primary} />
+                            <Text style={styles.attachmentText}>View attached photo</Text>
+                            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                        </TouchableOpacity>
+                    ) : null}
 
                     <View style={styles.notesCard}>
                         <Text style={styles.notesLabel}>Notes</Text>
@@ -169,6 +182,18 @@ const makeStyles = (colors) => StyleSheet.create({
         backgroundColor: colors.surface,
         ...shadow.card,
     },
+    attachmentButton: {
+        minHeight: 54,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.sm,
+        paddingHorizontal: space.lg,
+        borderRadius: radius.xl,
+        borderCurve: "continuous",
+        backgroundColor: colors.surface,
+        ...shadow.card,
+    },
+    attachmentText: { ...type.bodyStrong, color: colors.text, flex: 1 },
     notesLabel: { ...type.subheading, color: colors.text, marginBottom: space.sm },
     notes: { ...type.body, lineHeight: 24, color: colors.textSecondary },
     notesEmpty: { ...type.body, color: colors.textMuted, fontStyle: "italic" },

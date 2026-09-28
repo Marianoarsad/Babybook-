@@ -75,23 +75,39 @@ function adapter(mode, values, options = {}) {
         assert.equal(test.removed.length, 0);
     }
     const home = read("components/Dashboard.js");
+    const nutrition = read("components/NutritionTracker.js");
+    const growthChart = read("components/GrowthChart.js");
+    const anchoredMenu = read("components/ui/AnchoredMenu.js");
     const app = read("App.js");
     assert(!/offlineSummary|OfflineSummary|cacheSummary|getSummary|offlinePrompt/.test(home + app));
     assert(!fs.existsSync(path.join(root, "components/OfflineSummaryView.js")));
     assert(!fs.existsSync(path.join(root, "utils/offlineSummary.js")));
     assert(app.includes("void removeLegacyOfflineSummaries();"), "Cleanup must not block startup");
-    const growth = home.indexOf("<GrowthChart");
     const vaccines = home.indexOf("{/* Vaccination progress */}");
+    const profile = home.indexOf("{/* Child Health ID");
+    const growth = home.indexOf("<GrowthChart");
+    const today = home.indexOf('<SectionContainerCard title="Today"');
     const plans = home.indexOf("{/* Upcoming appointment");
-    const fed = home.indexOf("{/* Today's feeding summary");
-    assert(growth < vaccines && vaccines < plans && plans < fed, "Home card order");
-    const next = home.slice(plans, fed);
+    assert(vaccines < profile && profile < growth && growth < today && today < plans, "Home card order");
+    const next = home.slice(plans);
     for (const style of ["feedingCard", "feedingIcon", "feedingLabel", "feedingSub"]) {
         assert(next.includes("styles." + style), "Next plan shares Fed style: " + style);
     }
     assert(next.includes('nav("calendar")'));
-    assert(home.slice(fed).includes('nav("nutrition")'));
-    assert(home.slice(growth, vaccines).includes('nav("growth")'));
-    assert(home.slice(vaccines, plans).includes('nav("health", "immunizations")'));
-    console.log("Home card checks passed: targeted web/native cleanup, retries, removed feature, card order, shared Fed palette and navigation.");
+    assert(home.slice(today, plans).includes('nav("nutrition")'));
+    assert(home.slice(growth, today).includes('nav("growth")'));
+    assert(home.slice(vaccines, profile).includes('nav("health", "immunizations")'));
+    assert(!home.includes("todayFeeding"), "Compact Fed card is removed");
+    assert(!nutrition.includes('<SectionContainerCard title="Today"'), "Today card moved out of Nutrition");
+    assert(!home.includes('upcoming?.key !== `vax-${nextVax.id}`'), "Soonest vaccine always remains visible");
+    for (const contract of ["Animated.timing(attentionFold", "motion.standard.duration", "isReduceMotionEnabled", "accessibilityState={{ expanded: !attentionCollapsed }}"]) {
+        assert(home.includes(contract), "Needs attention fold contract: " + contract);
+    }
+    assert(growthChart.includes('variant="select"'), "Home growth selector uses anchored select behavior");
+    assert(!growthChart.includes(" fold"), "Input selects inherit the shared fold instead of opting in per screen");
+    assert(!growthChart.includes("minWidth={Math.min(metricMenuAnchor"), "Home growth menu follows trigger width");
+    for (const contract of ['animationMode = animation || (select ? "fold" : "scale")', "folding && !panelHeight", "outputRange: [0, panelHeight]", "motion.standard.duration", "isReduceMotionEnabled"]) {
+        assert(anchoredMenu.includes(contract), "Anchored menu fold contract: " + contract);
+    }
+    console.log("Home card checks passed: cleanup, card order, collapsible attention, persistent next vaccine, moved Today summary, and anchored growth selector.");
 })().catch((error) => { console.error(error); process.exitCode = 1; });

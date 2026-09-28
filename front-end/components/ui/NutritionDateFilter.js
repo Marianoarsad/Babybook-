@@ -7,7 +7,6 @@ import { useTheme } from "../../context/ThemeContext";
 import { useLanguage } from "../../context/LanguageContext";
 import { MIN_TOUCH, radius, shadow, space, type } from "../../theme";
 import {
-    dateRangePreset,
     monthLabel,
     monthRangeFromSelection,
     setRangeEndpoint,
@@ -15,6 +14,7 @@ import {
     shortDate,
     numericDateRange,
     todayLocal,
+    toLocalISO,
     weekOfMonth,
     weekRangeFromSelection,
 } from "../../utils/dates";
@@ -32,8 +32,8 @@ const monthSelection = (range) => ({
     to: range?.to?.slice(0, 7) || todayLocal().slice(0, 7),
 });
 
-export function nutritionDateView(saved, minimumDate) {
-    const today = todayLocal();
+export function nutritionDateView(saved, minimumDate, referenceDate = todayLocal()) {
+    const today = String(referenceDate).slice(0, 10);
     const year = Number(today.slice(0, 4));
     if (saved?.dateRange?.from && saved?.dateRange?.to) {
         return {
@@ -42,9 +42,15 @@ export function nutritionDateView(saved, minimumDate) {
             yearRange: saved.yearRange || { from: year, to: year },
         };
     }
+    const start = new Date(`${today}T00:00:00`);
+    start.setDate(start.getDate() - 6);
+    const rollingFrom = toLocalISO(start);
+    const from = minimumDate && minimumDate > rollingFrom && minimumDate <= today
+        ? minimumDate
+        : rollingFrom;
     return {
-        dateRange: dateRangePreset("month", minimumDate),
-        preset: "month",
+        dateRange: { from, to: today },
+        preset: null,
         yearRange: { from: year, to: year },
     };
 }
@@ -279,6 +285,7 @@ export default function NutritionDateFilter({
                 value={dateWheelEndpoint ? draft.dateRange[dateWheelEndpoint] : today}
                 minimumDate={(dateWheelEndpoint === "to" ? draft.dateRange.from : minDate) || undefined}
                 maximumDate={dateWheelEndpoint === "from" ? draft.dateRange.to : today}
+                availableDates={availableDates}
                 accessibilityLabel={`${dateWheelEndpoint === "to" ? "Ending" : "Starting"} date`}
                 onChange={(selected) => setDraft((old) => ({
                     ...old,
@@ -309,8 +316,8 @@ function GridButton({ label, selected, disabled, onPress, styles, style }) {
 }
 
 const makeStyles = (colors) => StyleSheet.create({
-    trigger: { minHeight: MIN_TOUCH, flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space.xs, paddingHorizontal: space.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, borderCurve: "continuous", backgroundColor: colors.surface },
-    triggerText: { ...type.label, color: colors.text, flex: 1 },
+    trigger: { minHeight: MIN_TOUCH, minWidth: 0, maxWidth: "100%", flexShrink: 1, flexDirection: "row", alignItems: "center", gap: space.xs, paddingHorizontal: space.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, borderCurve: "continuous", backgroundColor: colors.surface },
+    triggerText: { ...type.label, color: colors.text, flexShrink: 1 },
     backdrop: { flex: 1, justifyContent: "center", padding: space.lg, backgroundColor: "rgba(0,0,0,0.48)" },
     card: { width: "100%", maxWidth: 380, alignSelf: "center", padding: space.md, borderRadius: radius.xl, borderCurve: "continuous", backgroundColor: colors.surface, ...shadow.raised },
     heading: { paddingHorizontal: space.sm, paddingTop: space.sm, gap: 2 },

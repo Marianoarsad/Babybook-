@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
     Animated,View,
     Text,
@@ -55,11 +55,16 @@ import OptionSheet from "./ui/OptionSheet";
 import MedicalEventModal from "./ui/MedicalEventModal";
 import MedicineModal from "./ui/MedicineModal";
 import TipStrip from "./ui/TipStrip";
+import Field, { FieldShell } from "./ui/Field";
 
 import RecordFormSheet, { DeleteConfirmation, RecordFormGroup, RecordFormRow } from "./ui/RecordFormSheet";
 import PlanDetail from "./ui/PlanDetail";
+import SwipeActionRow from "./ui/SwipeActionRow";
 import { shortDate, shortTime, overdueBy, todayLocal, nowLocalTime, spanText } from "../utils/dates";
+import conditionRecords from "../utils/conditions.cjs";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+
+const { CONDITION_CATEGORIES, conditionAttachmentType, mergeConditions } = conditionRecords;
 
 // How the care level a parent picked reads back on the row. A record of what
 // the family did, never a severity grade — "At home" is not "mild".
@@ -408,43 +413,65 @@ export default function Health({
         return Array.from(groups.entries());
     }, [filteredVaccines, vaxVisibleCount]);
 
-    // Care Team state. No invented fallbacks: these used to default to
-    // "Dr. Sarah Chen" and "St. Jude Medical Center", which presented made-up
-    // names as though they were this child's actual providers whenever the
-    // real fields were blank. PRODUCT.md is explicit that the app must never
-    // fabricate a clinic or provider — and a parent in a consultation could
-    // reasonably read that as a record.
-    const [pediatrician, setPediatrician] = useState(profile.pediatricianName || "");
-    const [hospital, setHospital] = useState(profile.hospital || "");
-
     // Vaccination rows whose attachment photo is present in the record but
     // fails to actually load — see the comment at the thumbnail below.
     const [brokenThumbs, setBrokenThumbs] = useState(() => new Set());
 
-    // Medical conditions states
-    const [allergies, setAllergies] = useState(profile.allergies || []);
-    const [newAllergy, setNewAllergy] = useState("");
-    const [allergyBusy, setAllergyBusy] = useState(null);
+    // Old profiles stored allergies and hereditary conditions as child-level
+    // string arrays. Keep those facts visible beside detailed medical-history
+    // rows until the parent edits or deletes them; a detailed row wins when
+    // both stores contain the same category/title.
+    const [legacyAllergies, setLegacyAllergies] = useState(profile.allergies || []);
+    const [legacyHereditary, setLegacyHereditary] = useState(profile.hereditaryConditions || []);
+    const [legacyBusy, setLegacyBusy] = useState(false);
+    useEffect(() => {
+        setLegacyAllergies(profile.allergies || []);
+        setLegacyHereditary(profile.hereditaryConditions || []);
+    }, [profile.id, profile.allergies, profile.hereditaryConditions]);
 
-    // Update the allergy list locally and persist it to the child record.
-    const persistAllergies = async (updated, action) => {
-        if (allergyBusy) return;
-        setAllergyBusy(action);
+    const persistLegacyFacts = async (category, updated) => {
+        if (legacyBusy) return false;
+        const hereditary = category === "Hereditary Condition";
+        setLegacyBusy(true);
         try {
-            const saved = await api.updateChild(profile.id, { allergies: updated });
-            setAllergies(saved.allergies || updated);
-            onUpdateProfile({ id: profile.id, allergies: saved.allergies || updated });
+            const saved = await api.updateChild(profile.id, hereditary
+                ? { hereditary_conditions: updated }
+                : { allergies: updated });
+            const values = hereditary ? saved.hereditary_conditions || updated : saved.allergies || updated;
+            (hereditary ? setLegacyHereditary : setLegacyAllergies)(values);
+            onUpdateProfile({ id: profile.id, [hereditary ? "hereditaryConditions" : "allergies"]: values });
             return true;
-        } catch (e) {
-            toast.error(e.message || "Could not save allergies");
-            return false;
         } finally {
-            setAllergyBusy(null);
+            setLegacyBusy(false);
         }
     };
 
-    const [illnesses, setIllnesses] = useState([]);
-    const [illnessVisible, setIllnessVisible] = useState(10);
+    const removeLegacyFact = async (record) => {
+        if (!record || !["Allergy", "Hereditary Condition"].includes(record.category)) return true;
+        const source = record.category === "Allergy" ? legacyAllergies : legacyHereditary;
+        const title = String(record.title || "").trim().toLocaleLowerCase();
+        const updated = source.filter((item) => String(item || "").trim().toLocaleLowerCase() !== title);
+        return updated.length === source.length || persistLegacyFacts(record.category, updated);
+    };
+
+    const [conditions, setConditions] = useState([]);
+    const [conditionFilter, setConditionFilter] = useState("all");
+    const [conditionVisible, setConditionVisible] = useState(10);
+    const [openConditionSwipeId, setOpenConditionSwipeId] = useState(null);
+    const mergedConditions = useMemo(
+        () => mergeConditions(conditions, legacyAllergies, legacyHereditary),
+        [conditions, legacyAllergies, legacyHereditary],
+    );
+    const filteredConditions = useMemo(
+        () => conditionFilter === "all"
+            ? mergedConditions
+            : mergedConditions.filter((record) => record.category === conditionFilter),
+        [mergedConditions, conditionFilter],
+    );
+    useEffect(() => {
+        setConditionVisible(10);
+        setOpenConditionSwipeId(null);
+    }, [conditionFilter]);
 
     const [medications, setMedications] = useState([]);
     const [medsVisible, setMedsVisible] = useState(10);
@@ -465,11 +492,16 @@ export default function Health({
     // on the Dashboard and in the healthcare professional's view.
     const [medEvent, setMedEvent] = useState(null); // { kind, record } | null
 
-    const handleMedEventSaved = (saved, kind, wasEdit) => {
-        const setList = kind === "illness" ? setIllnesses : setHospitalizations;
-        setList((prev) =>
-            wasEdit ? prev.map((r) => (r.id === saved.id ? saved : r)) : [saved, ...prev.filter((r) => r.id !== saved.id)],
-        );
+    const handleMedEventSaved = async (saved, kind) => {
+        if (kind === "illness") {
+            const previous = medEvent?.record;
+            if (previous && !(await removeLegacyFact(previous))) {
+                throw new Error("The record was saved, but the old profile fact could not be removed. Retry to finish.");
+            }
+            setConditions((items) => [saved, ...items.filter((item) => item.id !== saved.id)]);
+        } else {
+            setHospitalizations((items) => [saved, ...items.filter((item) => item.id !== saved.id)]);
+        }
         // A newly attached photo is not in attachMap yet, and an edit may have
         // replaced the old one. Cheaper and more honest than guessing.
         loadAttachments();
@@ -490,6 +522,22 @@ export default function Health({
         return [span, CARE_LABELS[r.careLevel], r.facility].filter(Boolean).join("  ·  ");
     };
 
+    const conditionMeta = (record) => {
+        if (record.category === "Allergy") {
+            return { label: "Allergy", icon: "alert-circle-outline", tone: colors.conditionCategory.allergy };
+        }
+        if (record.category === "Hereditary Condition") {
+            return { label: "Hereditary", icon: "pulse-outline", tone: colors.conditionCategory.hereditary };
+        }
+        return { label: "Illness", icon: "thermometer-outline", tone: colors.conditionCategory.illness };
+    };
+
+    const conditionStatus = (record) => record.category === "Hereditary Condition"
+        ? "Recorded"
+        : record.category === "Allergy"
+          ? record.resolved ? "No longer active" : "Active"
+          : record.resolved ? "Better" : "Ongoing";
+
     // Amber while it is still going, green once it is over. DESIGN.md reserves
     // coral for overdue / error / destructive, and something a child is still
     // getting over is none of those. The word carries the state as well as the
@@ -497,8 +545,8 @@ export default function Health({
     // The illness a medicine is linked to, by id. Illnesses and hospital stays
     // are both offered, since a medicine can follow either.
     const linkableConditions = useMemo(
-        () => [...illnesses, ...hospitalizations],
-        [illnesses, hospitalizations],
+        () => [...conditions.filter((record) => record.category === "Illness"), ...hospitalizations],
+        [conditions, hospitalizations],
     );
     const conditionTitle = (id) => {
         if (!id) return "";
@@ -513,7 +561,7 @@ export default function Health({
         return [span, m.doseAmount, treats ? `for ${treats}` : ""].filter(Boolean).join("  ·  ");
     };
 
-    const statusPill = (resolved, doneWord) => (
+    const statusPill = (resolved, doneWord, openWord = "Ongoing") => (
         <View style={[styles.statusPill, resolved ? styles.statusPillDone : styles.statusPillOpen]}>
             <Text
                 style={[
@@ -521,7 +569,7 @@ export default function Health({
                     { color: resolved ? colors.success : colors.warning },
                 ]}
             >
-                {resolved ? doneWord : "Ongoing"}
+                {resolved ? doneWord : openWord}
             </Text>
         </View>
     );
@@ -555,7 +603,7 @@ export default function Health({
             try {
                 const rows = await api.listRecords(profile.id, "medical-history", { loading: "nonblocking" });
                 if (!active) return;
-                setIllnesses(rows.filter((r) => r.category === "Illness").map(medHistoryToIllness));
+                setConditions(rows.filter((r) => CONDITION_CATEGORIES.includes(r.category)).map(medHistoryToIllness));
                 setMedications(rows.filter((r) => r.category === "Medication").map(medHistoryToMed));
                 setHospitalizations(rows.filter((r) => r.category === "Hospitalization").map(medHistoryToIllness));
             } catch (e) {
@@ -713,6 +761,8 @@ export default function Health({
     const [vaxDose, setVaxDose] = useState(1);
     const [vaxDue, setVaxDue] = useState("");
     const [vaxPickerOpen, setVaxPickerOpen] = useState(false);
+    const [vaxPickerAnchor, setVaxPickerAnchor] = useState(null);
+    const vaxPickerRef = useRef(null);
     const [addingVaccine, setAddingVaccine] = useState(false);
 
     // The DOH vaccine list, fetched once. Falls back to the names already in
@@ -932,11 +982,6 @@ export default function Health({
         }
     };
 
-    const handleAddAllergy = async () => {
-        if (!newAllergy.trim()) return;
-        if (await persistAllergies([...allergies, newAllergy.trim()], "add")) setNewAllergy("");
-    };
-
     // Courses running today, and the ones already done.
     const activeMeds = useMemo(
         () => medications.filter((m) => isActiveOn(m, todayLocal())),
@@ -1063,20 +1108,31 @@ export default function Health({
         const target = candidate?.record ? candidate : healthDeleteCandidate;
         if (!target || deletingHealthRecord) return false;
         const { kind, record } = target;
-        const illness = kind === "illness";
+        const condition = kind === "illness";
         const medication = kind === "medication";
         const vaccination = kind === "vaccination";
-        const medicalHistory = illness || medication;
-        const recordLabel = vaccination ? "Vaccination" : medication ? "Medicine" : illness ? "Illness record" : "Appointment";
+        const medicalHistory = condition || medication;
+        const conditionLabel = record.category === "Hereditary Condition" ? "Hereditary condition" : record.category || "Illness";
+        const recordLabel = vaccination ? "Vaccination" : medication ? "Medicine" : condition ? `${conditionLabel} record` : "Appointment";
         setDeletingHealthRecord(true);
         try {
-            await api.deleteRecord(profile.id, vaccination ? "vaccinations" : medicalHistory ? "medical-history" : "checkups", record.id);
-            (vaccination ? setVaccines : medication ? setMedications : illness ? setIllnesses : setAppts)(
+            if (condition && !(await removeLegacyFact(record))) return false;
+            if (!record.legacy) {
+                await api.deleteRecord(profile.id, vaccination ? "vaccinations" : medicalHistory ? "medical-history" : "checkups", record.id);
+            }
+            (vaccination ? setVaccines : medication ? setMedications : condition ? setConditions : setAppts)(
                 (prev) => prev.filter((item) => item.id !== record.id),
             );
             setAttachMap((prev) => {
                 const next = { ...prev };
-                delete next[`${vaccination ? "vaccination" : medicalHistory ? kind : "checkup"}:${record.id}`];
+                const attachmentType = vaccination
+                    ? "vaccination"
+                    : medication
+                      ? "medication"
+                      : condition
+                        ? conditionAttachmentType(record.category)
+                        : "checkup";
+                delete next[`${attachmentType}:${record.id}`];
                 return next;
             });
             setHealthDeleteCandidate(null);
@@ -1092,18 +1148,19 @@ export default function Health({
     };
 
     const selectedHealthRecord = detailHealthRecord?.record;
-    const selectedIsIllness = detailHealthRecord?.kind === "illness";
+    const selectedIsCondition = detailHealthRecord?.kind === "illness";
     const selectedIsMedication = detailHealthRecord?.kind === "medication";
+    const selectedConditionMeta = selectedIsCondition && selectedHealthRecord ? conditionMeta(selectedHealthRecord) : null;
     const healthDetailPlan = selectedHealthRecord ? {
         ...selectedHealthRecord,
-        categoryLabel: selectedIsMedication ? "Medicine" : selectedIsIllness ? "Illness / Condition" : "Checkup",
+        categoryLabel: selectedIsMedication ? "Medicine" : selectedIsCondition ? selectedConditionMeta.label : "Checkup",
         color: selectedIsMedication
             ? colors.recMedication.on
-            : selectedIsIllness ? colors.recIllness.on : colors.recCheckup.on,
+            : selectedIsCondition ? selectedConditionMeta.tone.on : colors.recCheckup.on,
         status: selectedIsMedication
             ? "Finished"
-            : selectedIsIllness
-            ? selectedHealthRecord.resolved ? "Better" : "Ongoing"
+            : selectedIsCondition
+            ? conditionStatus(selectedHealthRecord)
             : selectedHealthRecord.isCompleted
               ? "Done"
               : selectedHealthRecord.date < todayLocal() ? "Overdue" : "Scheduled",
@@ -1131,7 +1188,7 @@ export default function Health({
                       ? { label: "For", value: conditionTitle(selectedHealthRecord.treatsId) }
                       : null,
               ].filter(Boolean)
-            : selectedIsIllness
+            : selectedIsCondition
             ? [
                   selectedHealthRecord.resolvedDate
                       ? { label: "Ended", value: shortDate(selectedHealthRecord.resolvedDate) }
@@ -1145,11 +1202,11 @@ export default function Health({
               : [],
         notes: selectedIsMedication
             ? selectedHealthRecord.instructions
-            : selectedIsIllness ? selectedHealthRecord.desc : selectedHealthRecord.notes,
+            : selectedIsCondition ? selectedHealthRecord.desc : selectedHealthRecord.notes,
         showReminder: false,
         deleteLabel: selectedIsMedication
             ? "Delete medicine"
-            : selectedIsIllness ? "Delete illness record" : "Delete appointment",
+            : selectedIsCondition ? `Delete ${selectedConditionMeta.label.toLowerCase()} record` : "Delete appointment",
     } : null;
 
     // The PDF export used to live here. It moved to Share Records, where the
@@ -1169,31 +1226,6 @@ export default function Health({
                 Every vaccine in the DOH schedule is already here, dated from your child's birthday. Tap one to
                 mark it given.
             </TipStrip>
-
-            {/* Care Team Banner Card */}
-            <View style={styles.careTeamBox}>
-                <View style={styles.careTeamHeader}>
-                    <Ionicons
-                        name="medical-outline"
-                        size={20}
-                        color={colors.primary}
-                    />
-                    <Text style={styles.careTeamTitle}>
-                        Care Team Directory
-                    </Text>
-                </View>
-                <Text style={styles.careTeamText}>
-                    Pediatrician: {pediatrician || "Not recorded"}
-                </Text>
-                <Text style={styles.careTeamText}>
-                    Hospital: {hospital || "Not recorded"}
-                </Text>
-                {!pediatrician && !hospital ? (
-                    <Text style={styles.careTeamHint}>
-                        Add these in your child's profile so they're on hand at a consultation.
-                    </Text>
-                ) : null}
-            </View>
 
             {/* Tabs */}
             <View style={styles.tabContainer}>
@@ -1559,62 +1591,6 @@ export default function Health({
                         )}
                     </SectionContainerCard>
 
-                    {/* Barangay / NCR vaccine stock bulletin.
-                        This content is INVENTED. There is no DOH, barangay or
-                        health-centre feed behind it, and PRODUCT.md lists such
-                        a partnership under "absences that must never be
-                        fabricated". It is kept deliberately, as a placeholder
-                        showing where a real integration would sit — so it must
-                        stay unmistakably labelled as a sample. Do not remove
-                        the badge, and do not reintroduce a specific date: the
-                        original said "replenishment by July 5th", which was
-                        over a year stale and read as live reporting. */}
-                    <SectionContainerCard
-                        title={t("healthVaccineNCRStock")}
-                        subtitle={t("healthVaccineNCRStockSub")}
-                    >
-                        <View style={styles.sampleBanner}>
-                            <Ionicons name="information-circle" size={16} color={colors.info} />
-                            <Text style={styles.sampleBannerText}>
-                                Sample data — not a live feed. BabyBook+ is not connected to any DOH
-                                or barangay system.
-                            </Text>
-                        </View>
-                        <View style={styles.bulletRow}>
-                            <Ionicons
-                                name="alert-circle-outline"
-                                size={16}
-                                color={colors.warning}
-                                style={{ marginRight: 6 }}
-                            />
-                            <View style={{ flex: 1 }}>
-                                <Text style={styles.bulletTitle}>
-                                    Pentavalent vaccine stocks low in NCR
-                                    District III
-                                </Text>
-                                <Text style={styles.bulletDesc}>
-                                    Example of a supply notice a health centre might publish.
-                                </Text>
-                            </View>
-                        </View>
-                        <View style={styles.bulletRow}>
-                            <Ionicons
-                                name="checkmark-circle-outline"
-                                size={16}
-                                color={colors.success}
-                                style={{ marginRight: 6 }}
-                            />
-                            <View style={{ flex: 1 }}>
-                                <Text style={styles.bulletTitle}>
-                                    Measles MMR stocks fully replenished in
-                                    Quezon City
-                                </Text>
-                                <Text style={styles.bulletDesc}>
-                                    Example of a restocking notice.
-                                </Text>
-                            </View>
-                        </View>
-                    </SectionContainerCard>
                 </View>
             )}
 
@@ -1687,7 +1663,6 @@ export default function Health({
                                     subtitle={medicineSubtitle(med)}
                                     notes={med.instructions}
                                     onPress={() => setDetailHealthRecord({ kind: "medication", record: med })}
-                                    showChevron
                                     accessibilityLabel={`View ${med.title} details`}
                                 />
                             ))}
@@ -1705,108 +1680,98 @@ export default function Health({
             {/* TAB: ILLNESSES & ALLERGIES */}
             {activeTab === "illnesses" && (
                 <View>
-                    {/* Allergies Box */}
-                    <SectionContainerCard
-                        title="Allergies & Sensitivities"
-                        subtitle="Active warnings & hereditary conditions"
-                    >
-                        <View style={styles.allergyInputRow}>
-                            <TextInput
-                                style={[styles.inlineInput, { backgroundColor: colors.surfaceAlt, borderWidth: 0, borderRadius: radius.lg, minHeight: 52 }]}
-                                placeholder="Add new allergy target..."
-                                placeholderTextColor={colors.placeholder}
-                                value={newAllergy}
-                                onChangeText={setNewAllergy}
-                            />
-                            <TouchableOpacity
-                                onPress={handleAddAllergy}
-                                style={styles.addInlineBtn}
-                                disabled={allergyBusy}
-                                accessibilityRole="button"
-                                accessibilityState={{ disabled: allergyBusy, busy: allergyBusy }}
-                            >
-                                {(<Text style={styles.addInlineBtnText}>Add</Text>)}
-                            </TouchableOpacity>
-                        </View>
-                        <View style={styles.allergyChips}>
-                            {allergies.map((all, index) => (
-                                <View key={index} style={styles.chip}>
-                                    <Text style={styles.chipText} numberOfLines={2}>
-                                        {all}
-                                    </Text>
-                                    {/* hitSlop, because the visible target is a
-                                        14px glyph — about 14pt of tappable area
-                                        inside a chip that is itself only ~26pt
-                                        tall. The chip must stay small, so the
-                                        touch area grows instead of the icon. */}
-                                    <TouchableOpacity
-                                        onPress={() =>
-                                            persistAllergies(
-                                                allergies.filter((_, i) => i !== index),
-                                                `remove:${index}`,
-                                            )
-                                        }
-                                        hitSlop={{ top: 12, bottom: 12, left: 10, right: 14 }}
-                                        disabled={allergyBusy}
-                                        accessibilityRole="button"
-                                        accessibilityLabel={`Remove allergy ${all}`}
-                                        accessibilityState={{ disabled: allergyBusy, busy: allergyBusy }}
-                                    >
-                                        {(<Ionicons
-                                                name="close"
-                                                size={14}
-                                                color={colors.danger}
-                                                style={{ marginLeft: 4 }}
-                                            />)}
-                                    </TouchableOpacity>
-                                </View>
-                            ))}
-                            {allergies.length === 0 && (
-                                <Text style={{ ...type.caption, color: colors.textMuted }}>
-                                    No allergies specified.
-                                </Text>
-                            )}
-                        </View>
-                    </SectionContainerCard>
-
-                    {/* Active Illness Conditions */}
                     <SectionContainerCard
                         title="Illnesses & Conditions"
-                        subtitle="Colds, fevers, and anything else your child has been through"
+                        subtitle="Illnesses, allergies, and hereditary conditions"
                         action={
                             <TouchableOpacity
                                 onPress={() => setMedEvent({ kind: "illness", record: null })}
                                 style={styles.actionBtn}
                                 accessibilityRole="button"
-                                accessibilityLabel="Log an illness"
+                                accessibilityLabel="Log a condition"
                             >
                                 <Ionicons name="add" size={16} color="#FFFFFF" />
                             </TouchableOpacity>
                         }
                     >
+                        <View style={styles.filterRow}>
+                            {[
+                                { key: "all", label: "All" },
+                                { key: "Illness", label: "Illness" },
+                                { key: "Allergy", label: "Allergy" },
+                                { key: "Hereditary Condition", label: "Hereditary" },
+                            ].map((filter) => (
+                                <TouchableOpacity
+                                    key={filter.key}
+                                    onPress={() => setConditionFilter(filter.key)}
+                                    style={[styles.filterChip, conditionFilter === filter.key && styles.filterChipActive]}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Filter: ${filter.label}`}
+                                    accessibilityState={{ selected: conditionFilter === filter.key }}
+                                >
+                                    <Text
+                                        numberOfLines={1}
+                                        style={[styles.filterChipText, conditionFilter === filter.key && styles.filterChipTextActive]}
+                                    >
+                                        {filter.label}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
                         {histLoading && <AppointmentsSkeleton count={3} />}
-                        {!histLoading && illnesses.length === 0 && (
+                        {!histLoading && filteredConditions.length === 0 && (
                             <EmptyStateCard message="Nothing recorded yet." icon="pulse-outline" />
                         )}
-                        {!histLoading && illnesses.slice(0, illnessVisible).map((ill, idx) => (
-                            <ListEntryCard
-                                key={ill.id || idx}
-                                thumbnailUrl={attachUrlFor("illness", ill.id)}
-                                onThumbnailPress={() => openViewer("illness", ill.id)}
-                                title={ill.title}
-                                label={statusPill(ill.resolved, "Better")}
-                                subtitle={medEventSubtitle(ill)}
-                                notes={ill.desc}
-                                onPress={() => setDetailHealthRecord({ kind: "illness", record: ill })}
-                                showChevron
-                                accessibilityLabel={`View ${ill.title} details`}
-                            />
-                        ))}
+                        {!histLoading && filteredConditions.slice(0, conditionVisible).map((record, idx) => {
+                            const meta = conditionMeta(record);
+                            const rowId = record.id || idx;
+                            const label = record.category === "Hereditary Condition"
+                                ? null
+                                : record.category === "Allergy"
+                                  ? statusPill(record.resolved, "No longer active", "Active")
+                                  : statusPill(record.resolved, "Better");
+                            return (
+                                <SwipeActionRow
+                                    key={rowId}
+                                    open={openConditionSwipeId === rowId}
+                                    onOpen={() => setOpenConditionSwipeId(rowId)}
+                                    onClose={() => setOpenConditionSwipeId(null)}
+                                    onPress={() => setDetailHealthRecord({ kind: "illness", record })}
+                                    label={`View ${record.title}`}
+                                    actions={[
+                                        {
+                                            key: "update", label: "Update", icon: "create-outline", color: colors.primaryDark,
+                                            onPress: () => {
+                                                setOpenConditionSwipeId(null);
+                                                setMedEvent({ kind: "illness", record });
+                                            },
+                                        },
+                                        {
+                                            key: "delete", label: "Delete", icon: "trash-outline", color: colors.onAccent, kind: "delete",
+                                            onPress: () => {
+                                                setOpenConditionSwipeId(null);
+                                                setHealthDeleteCandidate({ kind: "illness", record });
+                                            },
+                                        },
+                                    ]}
+                                >
+                                    <ListEntryCard
+                                        style={styles.conditionCard}
+                                        icon={<Ionicons name={meta.icon} size={19} color={meta.tone.on} />}
+                                        iconBg={meta.tone.bg}
+                                        title={record.title}
+                                        label={label}
+                                        labelInline
+                                        subtitle={meta.label}
+                                    />
+                                </SwipeActionRow>
+                            );
+                        })}
                         {!histLoading && (
                             <ShowMore
-                                total={illnesses.length}
-                                visible={illnessVisible}
-                                onPress={() => setIllnessVisible((c) => c + 10)}
+                                total={filteredConditions.length}
+                                visible={conditionVisible}
+                                onPress={() => setConditionVisible((count) => count + 10)}
                                 noun="conditions"
                             />
                         )}
@@ -1858,7 +1823,6 @@ export default function Health({
                                 }
                                 notes={appt.notes}
                                 onPress={() => setDetailHealthRecord({ kind: "checkup", record: appt })}
-                                showChevron
                                 accessibilityLabel={`View ${appt.title} details`}
                             />
                         ))}
@@ -1944,11 +1908,19 @@ export default function Health({
                 visible={!!detailHealthRecord}
                 plan={healthDetailPlan}
                 onClose={() => setDetailHealthRecord(null)}
+                onViewAttachment={selectedIsCondition && selectedHealthRecord && !selectedHealthRecord.legacy
+                    && attachUrlFor(conditionAttachmentType(selectedHealthRecord.category), selectedHealthRecord.id)
+                    ? () => {
+                          const attachmentType = conditionAttachmentType(selectedHealthRecord.category);
+                          setDetailHealthRecord(null);
+                          openViewer(attachmentType, selectedHealthRecord.id);
+                      }
+                    : undefined}
                 onEdit={() => {
                     if (selectedIsMedication) {
                         setDetailHealthRecord(null);
                         setMedicineForm({ record: selectedHealthRecord });
-                    } else if (selectedIsIllness) {
+                    } else if (selectedIsCondition) {
                         setDetailHealthRecord(null);
                         setMedEvent({ kind: "illness", record: selectedHealthRecord });
                     } else {
@@ -1959,7 +1931,7 @@ export default function Health({
                 deleting={deletingHealthRecord}
             />
 
-            <DeleteConfirmation visible={!!healthDeleteCandidate} title={healthDeleteCandidate?.kind === "medication" ? "Delete medicine?" : healthDeleteCandidate?.kind === "illness" ? "Delete illness record?" : "Delete appointment?"}
+            <DeleteConfirmation visible={!!healthDeleteCandidate} title={healthDeleteCandidate?.kind === "medication" ? "Delete medicine?" : healthDeleteCandidate?.kind === "illness" ? `Delete ${healthDeleteCandidate.record.category === "Hereditary Condition" ? "hereditary condition" : String(healthDeleteCandidate.record.category || "illness").toLowerCase()} record?` : "Delete appointment?"}
  message={healthDeleteCandidate ? `Delete "${healthDeleteCandidate.record.title}"? This cannot be undone.` : ""} busy={deletingHealthRecord}
  onCancel={() => setHealthDeleteCandidate(null)} onConfirm={() => deleteHealthRecord()} />
 
@@ -1970,7 +1942,7 @@ export default function Health({
                 kind={medEvent ? medEvent.kind : "illness"}
                 profile={profile}
                 record={medEvent ? medEvent.record : null}
-                previous={illnesses}
+                previous={conditions.filter((record) => record.category === "Illness")}
                 onClose={() => setMedEvent(null)}
                 onSaved={handleMedEventSaved}
                 onDelete={(record) => deleteHealthRecord({ kind: "illness", record })}
@@ -1998,10 +1970,14 @@ export default function Health({
                             asking a parent to name a vaccine is close to
                             unanswerable — and the app already holds the
                             canonical list the due dates come from. */}
-                        <Text style={styles.modalLabel}>Vaccine</Text>
+                        <FieldShell label="Vaccine" focused={vaxPickerOpen}>
                         <TouchableOpacity
+                            ref={vaxPickerRef}
                             style={styles.pickerTrigger}
-                            onPress={() => setVaxPickerOpen(true)}
+                            onPress={() => vaxPickerRef.current?.measureInWindow((x, y, width, height) => {
+                                setVaxPickerAnchor({ x, y, width, height });
+                                setVaxPickerOpen(true);
+                            })}
                             accessibilityRole="button"
                             accessibilityLabel={
                                 vaxName ? `Vaccine: ${vaxName}. Choose a different one` : "Choose a vaccine"
@@ -2012,16 +1988,16 @@ export default function Health({
                             </Text>
                             <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
                         </TouchableOpacity>
+                        </FieldShell>
 
                         {/* Revealed only when the parent picks "Something else",
                             so the free-text path still exists for a vaccine the
                             DOH list does not carry (a private-sector one, or a
                             dose given abroad) without being the default. */}
                         {vaxIsOther && (
-                            <TextInput
-                                style={styles.modalInput}
+                            <Field
+                                label="Vaccine name"
                                 placeholder="Vaccine name"
-                                placeholderTextColor={colors.placeholder}
                                 value={vaxOtherName}
                                 onChangeText={setVaxOtherName}
                             />
@@ -2174,10 +2150,9 @@ export default function Health({
 
                             {completeReaction === "mild" || completeReaction === "severe" ? (
                                 <>
-                                    <TextInput
-                                        style={styles.modalInput}
+                                    <Field
+                                        label="What happened?"
                                         placeholder="What happened?"
-                                        placeholderTextColor={colors.placeholder}
                                         value={completeReactionNote}
                                         onChangeText={setCompleteReactionNote}
                                     />
@@ -2219,6 +2194,7 @@ export default function Health({
                 they scroll seventeen doses to find. */}
             <OptionSheet
                 visible={vaxPickerOpen}
+                anchor={vaxPickerAnchor}
                 title="Choose a vaccine"
                 options={[
                     { key: OTHER_VACCINE, label: "Something else", note: "Type the name" },
@@ -2259,38 +2235,6 @@ const makeStyles = (colors) => StyleSheet.create({
     // floating button has to live here.
     content: {
         padding: space.lg,
-    },
-    careTeamBox: {
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: radius.md,
-        borderCurve: "continuous",
-        padding: 12,
-        marginBottom: 16,
-    },
-    careTeamHeader: {
-        flexDirection: "row",
-        alignItems: "center",
-        marginBottom: 8,
-    },
-    careTeamTitle: {
-        ...type.caption,
-        color: colors.primary,
-        marginLeft: 6,
-    },
-    // Body, not caption: "Pediatrician: …" and "Hospital: …" are the card's
-    // actual content, not a footnote about it, and 13px is the floor for
-    // secondary text rather than a size for the thing you came to read.
-    careTeamText: {
-        ...type.body,
-        color: colors.textSecondary,
-        marginTop: 2,
-    },
-    careTeamHint: {
-        ...type.caption,
-        color: colors.textMuted,
-        marginTop: space.sm,
     },
     tabContainer: {
         flexDirection: "row",
@@ -2394,20 +2338,6 @@ const makeStyles = (colors) => StyleSheet.create({
         fontStyle: "italic",
         color: colors.primary,
         marginTop: 4,
-    },
-    bulletRow: {
-        flexDirection: "row",
-        marginBottom: 12,
-        alignItems: "flex-start",
-    },
-    bulletTitle: {
-        ...type.label,
-        color: colors.text,
-    },
-    bulletDesc: {
-        ...type.caption,
-        color: colors.textMuted,
-        marginTop: 2,
     },
     // Sized by padding alone, this came out 40 x 30.4 — an icon-only button
     // needs its own minimum box, not whatever its glyph plus padding happens
@@ -2540,20 +2470,6 @@ const makeStyles = (colors) => StyleSheet.create({
         color: colors.primaryDark,
         marginLeft: 4,
     },
-    // Sample-data banner for the stock bulletin. Teal (colors.info) rather
-    // than amber: it is informational, not a warning about the child.
-    sampleBanner: {
-        flexDirection: "row",
-        alignItems: "flex-start",
-        gap: space.sm,
-        backgroundColor: colors.infoBg,
-        borderRadius: radius.md,
-        borderCurve: "continuous",
-        padding: space.sm,
-        marginBottom: space.md,
-    },
-    sampleBannerText: { ...type.caption, color: colors.text, flex: 1 },
-
     // One row, four chips. They used to wrap, leaving "Overdue" stranded on a
     // line of its own — the labels are short enough to share a row once the
     // horizontal padding stops fighting them for space.
@@ -2618,11 +2534,6 @@ const makeStyles = (colors) => StyleSheet.create({
         letterSpacing: 0.3,
         color: colors.recVaccine.on,
     },
-    allergyInputRow: {
-        flexDirection: "row",
-        marginBottom: 12,
-        gap: 8,
-    },
     inlineInput: {
         flex: 1,
         backgroundColor: colors.surfaceAlt,
@@ -2636,38 +2547,7 @@ const makeStyles = (colors) => StyleSheet.create({
         fontFamily: type.body.fontFamily,
         color: colors.text,
     },
-    addInlineBtn: {
-        paddingHorizontal: 16,
-        backgroundColor: colors.primary,
-        borderRadius: radius.md,
-        borderCurve: "continuous",
-        justifyContent: "center",
-        alignItems: "center",
-    },
-    addInlineBtnText: {
-        ...type.label,
-        color: "#FFFFFF",
-    },
-    allergyChips: {
-        flexDirection: "row",
-        flexWrap: "wrap",
-        gap: 8,
-    },
-    chip: {
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: colors.dangerBg,
-        borderWidth: 1,
-        borderColor: colors.danger,
-        paddingVertical: 4,
-        paddingHorizontal: 8,
-        borderRadius: radius.sm,
-        borderCurve: "continuous",
-    },
-    chipText: {
-        ...type.caption,
-        color: colors.danger,
-    },
+    conditionCard: { marginBottom: 0 },
 
     // The scroller that lets a tall sheet reach its own Save button.
 
@@ -2683,7 +2563,7 @@ const makeStyles = (colors) => StyleSheet.create({
         marginBottom: 6,
     },
     modalInput: {
-        backgroundColor: colors.surfaceAlt,
+        backgroundColor: "transparent",
         borderWidth: 0,
         borderColor: colors.border,
         borderRadius: radius.lg,
@@ -2715,8 +2595,7 @@ const makeStyles = (colors) => StyleSheet.create({
         borderRadius: radius.lg,
         borderCurve: "continuous",
         paddingHorizontal: 12,
-        minHeight: MIN_TOUCH,
-        marginBottom: 16,
+        minHeight: 50,
     },
     pickerTriggerText: { ...type.body, color: colors.text, flex: 1 },
     pickerTriggerEmpty: { color: colors.placeholder },

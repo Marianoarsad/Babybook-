@@ -39,7 +39,7 @@ const ACTIONS = {
     vaccine: { label: "Vaccine", icon: "medkit-outline", tint: "recVaccine", view: "health", tab: "vaccine" },
     checkup: { label: "Checkup", icon: "calendar-outline", tint: "recCheckup", view: "health", tab: "checkup" },
     medication: { label: "Medication", icon: "medical-outline", tint: "recMedication", view: "health", tab: "medication" },
-    illness: { label: "Illness", icon: "thermometer-outline", tint: "recIllness", view: "health", tab: "illness" },
+    illness: { label: "Condition", icon: "thermometer-outline", tint: "recIllness", view: "health", tab: "illness" },
     hospitalization: { label: "Hospital stay", icon: "bed-outline", tint: "recHospitalization", view: "health", tab: "hospitalization" },
     // One entry, because it opens one form that saves either kind.
     memory: { label: "Photo or milestone", icon: "image-outline", tint: "recMemory", view: "growth", tab: "memory" },
@@ -116,10 +116,13 @@ export default function ActionSheet({ visible, onClose, onSelect }) {
                     accessibilityRole="button"
                     accessibilityLabel="Close"
                 />
-                <Animated.View style={[styles.card, { height: expandedHeight, paddingBottom: Math.max(space.xl, insets.bottom), transform: [{ translateY: motion.offset }] }]}
+                <Animated.View style={[styles.card, { height: motion.height, paddingBottom: Math.max(space.xl, insets.bottom) }]}
                     accessibilityViewIsModal onAccessibilityEscape={() => motion.dismiss()}>
                     <View {...motion.pan.panHandlers} style={{ touchAction: "none" }}>
-                        <View style={styles.grabber} />
+                        <View style={styles.grabberStack}>
+                            <View style={styles.grabber} />
+                            <View style={styles.grabber} />
+                        </View>
                         <Text style={styles.title} accessibilityRole="header">
                             Add a record
                         </Text>
@@ -210,18 +213,18 @@ const makeStyles = (colors) =>
             borderTopLeftRadius: radius.xl,
             borderTopRightRadius: radius.xl,
             borderCurve: "continuous",
+            overflow: "hidden",
             paddingHorizontal: space.lg,
             paddingTop: space.sm,
             paddingBottom: space.xl,
             ...shadow.raised,
         },
+        grabberStack: { alignItems: "center", gap: space.xs, marginBottom: space.md },
         grabber: {
-            width: 36,
+            width: 43.2,
             height: 4,
             borderRadius: radius.pill,
             backgroundColor: colors.border,
-            alignSelf: "center",
-            marginBottom: space.md,
         },
         title: { ...type.heading, fontSize: type.heading.fontSize * 1.3, lineHeight: type.heading.lineHeight * 1.3,
             color: colors.text, textAlign: "center", marginBottom: space.sm },

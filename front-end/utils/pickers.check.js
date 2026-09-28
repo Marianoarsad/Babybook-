@@ -2,8 +2,8 @@ const fs = require("fs");
 const path = require("path");
 const assert = require("assert");
 const src = fs.readFileSync(path.join(__dirname, "pickers.js"), "utf8").replace(/export function/g, "function");
-const { pickerDateParts, pickerDateValue, pickerYears, selectableMonths, timeParts, timeValue } = new Function(
-    `${src}\nreturn { pickerDateParts, pickerDateValue, pickerYears, selectableMonths, timeParts, timeValue };`,
+const { availablePickerDates, closestAvailableDate, pickerDateParts, pickerDateValue, pickerYears, selectableMonths, timeParts, timeValue } = new Function(
+    `${src}\nreturn { availablePickerDates, closestAvailableDate, pickerDateParts, pickerDateValue, pickerYears, selectableMonths, timeParts, timeValue };`,
 )();
 
 assert.deepStrictEqual(timeParts("00:05"), { period: "AM", hour: 12, minute: 5 });
@@ -17,11 +17,22 @@ assert.strictEqual(pickerDateValue({ year: 2026, month: 1, day: 1 }, "2026-03-10
 assert.strictEqual(pickerDateValue({ year: 2026, month: 12, day: 1 }, null, "2026-09-25"), "2026-09-25");
 assert.deepStrictEqual(pickerYears("1975-04-04", null, null, 2026), Array.from({ length: 141 }, (_, i) => 1906 + i));
 assert.deepStrictEqual(pickerYears("2026-09-25", "2024-01-01", "2026-12-31"), [2024, 2025, 2026]);
+assert.deepStrictEqual(
+    availablePickerDates(["2026-09-20", "2026-08-04", "2026-09-20", "invalid"], "2026-08-10", "2026-09-30"),
+    ["2026-09-20"],
+);
+assert.strictEqual(closestAvailableDate(["2026-08-10", "2026-08-20"], "2026-08-15"), "2026-08-10");
+assert.strictEqual(closestAvailableDate(["2026-08-10", "2026-09-03"], "2026-09-01"), "2026-09-03");
+assert.strictEqual(closestAvailableDate([], "2026-09-01"), "");
 assert.deepStrictEqual(selectableMonths(2026, new Date(2026, 8, 15)), [8, 9, 10, 11]);
 assert.deepStrictEqual(selectableMonths(2025, new Date(2026, 8, 15)), []);
 const dateField = fs.readFileSync(path.join(__dirname, "../components/ui/DateField.js"), "utf8");
 const growth = fs.readFileSync(path.join(__dirname, "../components/Growth.js"), "utf8");
 const nutrition = fs.readFileSync(path.join(__dirname, "../components/ui/NutritionDateFilter.js"), "utf8");
+const anchoredMenu = fs.readFileSync(path.join(__dirname, "../components/ui/AnchoredMenu.js"), "utf8");
+const optionSheet = fs.readFileSync(path.join(__dirname, "../components/ui/OptionSheet.js"), "utf8");
+const health = fs.readFileSync(path.join(__dirname, "../components/Health.js"), "utf8");
+const medicine = fs.readFileSync(path.join(__dirname, "../components/ui/MedicineModal.js"), "utf8");
 assert(dateField.includes("export function DateWheelPicker"));
 assert.equal((dateField.match(/styles\.selectionBand/g) || []).length, 3, "Date, time and measurement wheels share the selected-value band");
 assert(dateField.includes("backgroundColor: colors.surfaceAlt"));
@@ -53,4 +64,20 @@ assert(measurementWheel.includes("styles.measurementNumberGroup"));
 assert(!measurementWheel.includes("compact"), "Measurement wheels use the time wheel's 64px rows and 36px text");
 assert(dateField.includes('measurementNumberGroup: { width: "66.6667%"'), "Two equal measurement wheels occupy the centered width of two time columns");
 assert(growth.includes("<DateWheelPicker") && nutrition.includes("<DateWheelPicker"));
+assert(growth.includes("availableDates={availableMeasurementDates}"), "Growth date wheels use measurement-bearing dates");
+assert(nutrition.includes("availableDates={availableDates}"), "Nutrition date wheels use nutrition-record dates");
+assert(growth.includes('name="funnel"'), "Growth uses the funnel chart-filter button");
+assert(/visible=\{metricMenuOpen\}[\s\S]*?dimBackdrop=\{false\}/.test(growth), "Growth chart checklist is anchored without a dim backdrop");
+assert(/visible=\{metricMenuOpen\}[\s\S]*?animation="warp"/.test(growth), "Growth chart checklist warps from its icon");
+assert(growth.includes('accessibilityRole="switch"'), "Growth chart choices use accessible switches");
+assert(growth.includes("thumbColor={colors.onPrimary}") && growth.includes("activeThumbColor: colors.onPrimary"), "Growth chart switches use a white thumb in both states");
+assert(growth.includes('maxWidth: "100%"') && !/dateSelect:\s*\{[\s\S]*?flex:\s*1,/.test(growth.match(/dateSelect:\s*\{[\s\S]*?\n\s*\},/)[0]), "Growth date filter sizes to its label");
+assert(growth.includes("visibleMetrics.map"), "Growth renders only selected charts");
+assert(!growth.includes("const METRIC_FILTERS"), "Growth chart filtering no longer exposes an All option");
+assert(anchoredMenu.includes('animationMode = animation || (select ? "fold" : "scale")'), "Input dropdowns share the fold animation");
+assert(anchoredMenu.includes('transformOrigin: warping ? "top right" : "top left"'), "Chart menus warp from their icon edge");
+assert(optionSheet.includes('variant="select"') && optionSheet.includes("initialScrollOffset"), "Long option lists are scrolling anchored selects");
+for (const source of [growth, health, medicine]) {
+    assert(source.includes("measureInWindow") && source.includes("anchor="), "Long selectors measure and follow their inputs");
+}
 console.log("picker helpers: ok");

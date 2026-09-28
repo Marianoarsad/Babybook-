@@ -44,6 +44,29 @@ export function pickerYears(value, minimumDate, maximumDate, currentYear = new D
     return Array.from({ length: Math.max(1, last - first + 1) }, (_, index) => first + index);
 }
 
+export function availablePickerDates(values, minimumDate, maximumDate) {
+    return [...new Set((values || [])
+        .map((value) => String(value || "").slice(0, 10))
+        .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value))
+        .filter((value) => (!minimumDate || value >= minimumDate) && (!maximumDate || value <= maximumDate)))]
+        .sort();
+}
+
+export function closestAvailableDate(values, target) {
+    if (!values?.length) return "";
+    if (values.includes(target)) return target;
+    const timestamp = (value) => {
+        const [year, month, day] = value.split("-").map(Number);
+        return Date.UTC(year, month - 1, day);
+    };
+    const targetTime = timestamp(target);
+    return values.reduce((closest, value) => (
+        Math.abs(timestamp(value) - targetTime) < Math.abs(timestamp(closest) - targetTime)
+            ? value
+            : closest
+    ));
+}
+
 export function selectableMonths(year, now = new Date()) {
     if (year > now.getFullYear()) return Array.from({ length: 12 }, (_, index) => index);
     if (year < now.getFullYear()) return [];

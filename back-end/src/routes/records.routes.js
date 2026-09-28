@@ -12,6 +12,7 @@ const VALID_METHODS = ["breast", "bottle"];
 const VALID_SIDES = ["left", "right", "both"];
 const VALID_SEVERITY = ["none", "mild", "severe"];
 const VALID_PLAN_SOURCES = ["vaccination", "checkup", "medical-history", "calendar-event"];
+const VALID_MEDICAL_CATEGORIES = ["Illness", "Allergy", "Medication", "Hospitalization", "Hereditary Condition"];
 
 const blank = (v) => v === undefined || v === null || v === "";
 const validISODate = (value) => {
@@ -108,7 +109,9 @@ function validateGrowth(data, { isCreate }) {
     }
 }
 
-function validateMedicalHistory(data) {
+function validateMedicalHistory(data, { isCreate }) {
+    if (isCreate && blank(data.category)) throw new ApiError(400, "Medical-history category is required");
+    checkEnum(data.category, VALID_MEDICAL_CATEGORIES, "Invalid medical-history category");
     if (!blank(data.frequency_per_day)
         && !isNumberWithin(data.frequency_per_day, { min: 1, max: 12, integer: true })) {
         throw new ApiError(400, "Frequency must be a whole number from 1 to 12");
@@ -197,7 +200,7 @@ const RESOURCES = [
         validate: validateMedicalHistory,
         // jsonb, and the client sends an array — see the note in pickBody.
         json: ["dose_times"],
-        attachmentTypes: ["medication", "illness", "hospitalization"],
+        attachmentTypes: ["medication", "illness", "allergy", "hereditary", "hospitalization"],
         planSourceType: "medical-history",
     },
     {

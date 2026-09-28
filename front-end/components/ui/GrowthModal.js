@@ -214,7 +214,7 @@ export default function GrowthModal({ visible, profile, record = null, suggested
                             {FIELDS.map((f) => {
                                 return (
                                     <View key={f.key} style={styles.fieldBlock}>
-                                        <RecordFormRow label={<Text style={styles.label}>
+                                        <RecordFormRow error={!!errors[f.key]} label={<Text style={styles.label}>
                                             {f.label} ({f.unit})
                                             {f.optional ? (
                                                 <Text style={styles.optionalTag}> — optional</Text>
@@ -258,8 +258,8 @@ export default function GrowthModal({ visible, profile, record = null, suggested
                                         >
                                             <Ionicons
                                                 name={p.icon}
-                                                size={15}
-                                                color={on ? colors.onPrimary : colors.textSecondary}
+                                                size={20}
+                                                color={on ? colors.primary : colors.textSecondary}
                                             />
                                             <Text style={[styles.chipText, on && styles.chipTextOn]}>
                                                 {p.label}
@@ -320,22 +320,25 @@ const makeStyles = (colors) =>
         // destructive, and this is a question about a typed value, not a
         // rejection of it. The save still goes through.
 
-        chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginBottom: space.xs },
+        chipWrap: { flexDirection: "row", gap: space.sm, marginBottom: space.xs },
         chip: {
-            flexDirection: "row",
+            flex: 1,
+            minWidth: 0,
             alignItems: "center",
+            justifyContent: "center",
             gap: 6,
-            minHeight: MIN_TOUCH,
-            paddingHorizontal: space.md,
-            borderRadius: radius.pill,
+            minHeight: 76,
+            paddingHorizontal: space.xs,
+            paddingVertical: space.sm,
+            borderRadius: radius.md,
             borderCurve: "continuous",
-            backgroundColor: colors.surfaceAlt,
+            backgroundColor: colors.surface,
             borderWidth: 1,
             borderColor: colors.border,
         },
-        chipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-        chipText: { ...type.caption, fontWeight: "700", color: colors.textSecondary },
-        chipTextOn: { color: colors.onPrimary },
+        chipOn: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
+        chipText: { ...type.caption, fontWeight: "700", color: colors.textSecondary, textAlign: "center", flexShrink: 1 },
+        chipTextOn: { color: colors.primaryDark },
         placeHelper: { ...type.caption, color: colors.textMuted, marginBottom: space.md },
 
     });

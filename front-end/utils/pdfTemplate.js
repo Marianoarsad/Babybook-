@@ -7,6 +7,9 @@
 // printing at a health center, so this deliberately does not pull from
 // theme.js.
 import { feedRowSummary } from "./adapters";
+import conditionRecords from "./conditions.cjs";
+
+const { conditionSummaries } = conditionRecords;
 
 // A reaction column that reads the structured severity first and only falls
 // back to free text. Pre-migration rows carry a description with no severity;
@@ -166,7 +169,9 @@ export function buildRecordHtml(profile, records = {}, options = {}) {
     }
 
     if (scope.has("medicalHistory") && records.medicalHistory) {
-        const rows = records.medicalHistory.map((h) =>
+        const rows = records.medicalHistory
+            .filter((h) => ["Illness", "Medication", "Hospitalization"].includes(h.category))
+            .map((h) =>
             row([esc(h.category), esc(h.title), esc(fmtDate(h.date_recorded))])
         );
         sections.push(section(CATEGORY_LABELS.medicalHistory, table(rows)));
@@ -178,12 +183,17 @@ export function buildRecordHtml(profile, records = {}, options = {}) {
     // did not. Scope now governs the whole document, not just the sections.
     const showProfile = scope.has("profile");
     const showAllergies = scope.has("allergies");
+    const conditionFacts = conditionSummaries(
+        records.medicalHistory,
+        profile.allergies,
+        profile.hereditaryConditions,
+    );
 
-    const allergyLine = (profile.allergies || []).length
-        ? esc(profile.allergies.join(", "))
+    const allergyLine = conditionFacts.allergies.length
+        ? esc(conditionFacts.allergies.join(", "))
         : "None recorded";
-    const hereditaryLine = (profile.hereditaryConditions || []).length
-        ? esc(profile.hereditaryConditions.join(", "))
+    const hereditaryLine = conditionFacts.hereditary.length
+        ? esc(conditionFacts.hereditary.join(", "))
         : "None recorded";
 
     // The profile grid is built from whichever halves are in scope.

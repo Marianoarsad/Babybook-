@@ -455,7 +455,7 @@ CREATE TABLE record_attachments (
     id           SERIAL PRIMARY KEY,
     child_id     INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
     record_type  VARCHAR(20) NOT NULL
-                 CHECK (record_type IN ('vaccination', 'medication', 'illness', 'hospitalization', 'checkup')),
+                 CHECK (record_type IN ('vaccination', 'medication', 'illness', 'allergy', 'hereditary', 'hospitalization', 'checkup')),
     record_id    INTEGER NOT NULL,
     file_url     TEXT NOT NULL,
     uploaded_at  TIMESTAMPTZ NOT NULL DEFAULT now()

@@ -100,7 +100,7 @@ export function RadioRow({ label, sublabel, selected, onPress, icon, iconBg, tra
 // 3. LIST ENTRY CARD
 // Leading icons are optional. When present, `iconBg` must use the record's
 // colors.rec* tint rather than silently falling back to a shared gray tile.
-export function ListEntryCard({ title, subtitle, label, notes, icon, iconBg, actions, thumbnailUrl, onThumbnailPress, onPress, showChevron = false, accessibilityLabel, style }) {
+export function ListEntryCard({ title, subtitle, label, labelInline = false, notes, icon, iconBg, actions, actionsTop = false, thumbnailUrl, onThumbnailPress, onPress, accessibilityLabel, style }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     if (__DEV__ && icon && !iconBg) {
@@ -112,7 +112,7 @@ export function ListEntryCard({ title, subtitle, label, notes, icon, iconBg, act
     // narrow enough to clip a real record name like "Pentavalent (DPT-HepB-Hib) 3".
     // The text column now shrinks last and ellipsizes rather than pushing the
     // trailing block off the card edge.
-    const trailing = thumbnailUrl || actions || showChevron;
+    const trailing = thumbnailUrl || actions;
     const Card = onPress ? TouchableOpacity : View;
     return (
         <Card
@@ -125,10 +125,19 @@ export function ListEntryCard({ title, subtitle, label, notes, icon, iconBg, act
             <View style={styles.listMain}>
                 {icon ? <View style={[styles.listIconContainer, { backgroundColor: iconBg }]}>{icon}</View> : null}
                 <View style={styles.listTextContainer}>
-                    <Text style={styles.listTitle} numberOfLines={2} ellipsizeMode="tail">
-                        {title}
-                    </Text>
-                    {label ? <View style={styles.listLabelContainer}>{label}</View> : null}
+                    {label && labelInline ? (
+                        <View style={styles.listTitleRow}>
+                            <Text style={[styles.listTitle, styles.listTitleInline]} numberOfLines={2} ellipsizeMode="tail">
+                                {title}
+                            </Text>
+                            <View style={styles.listLabelInline}>{label}</View>
+                        </View>
+                    ) : (
+                        <Text style={styles.listTitle} numberOfLines={2} ellipsizeMode="tail">
+                            {title}
+                        </Text>
+                    )}
+                    {label && !labelInline ? <View style={styles.listLabelContainer}>{label}</View> : null}
                     {subtitle ? (
                         <Text style={styles.listSubtitle} numberOfLines={3} ellipsizeMode="tail">
                             {subtitle}
@@ -142,7 +151,7 @@ export function ListEntryCard({ title, subtitle, label, notes, icon, iconBg, act
                 </View>
             </View>
             {trailing ? (
-                <View style={styles.listTrailing}>
+                <View style={[styles.listTrailing, actionsTop && styles.listTrailingTop]}>
                     {thumbnailUrl ? (
                         <TouchableOpacity
                             onPress={(event) => {
@@ -157,7 +166,6 @@ export function ListEntryCard({ title, subtitle, label, notes, icon, iconBg, act
                         </TouchableOpacity>
                     ) : null}
                     {actions ? <View style={styles.listActions}>{actions}</View> : null}
-                    {showChevron ? <Ionicons name="chevron-forward" size={18} color={colors.textMuted} style={styles.listChevron} /> : null}
                 </View>
             ) : null}
         </Card>
@@ -349,14 +357,17 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     listTextContainer: { flex: 1, flexShrink: 1, minWidth: 0 },
     listTitle: { ...type.bodyStrong, color: colors.text },
+    listTitleRow: { flexDirection: "row", alignItems: "flex-start", gap: space.sm },
+    listTitleInline: { flex: 1, minWidth: 0 },
+    listLabelInline: { flexShrink: 0 },
     listLabelContainer: { marginTop: 4, alignSelf: "flex-start" },
     listSubtitle: { ...type.caption, color: colors.textMuted, marginTop: 3 },
     listNotes: { ...type.caption, color: colors.textSecondary, marginTop: 5, fontStyle: "italic" },
     // One shrink-proof trailing block instead of two unbounded siblings, so
     // the text column is the only thing that gives way as the card narrows.
     listTrailing: { flexDirection: "row", alignItems: "center", alignSelf: "center", flexShrink: 0 },
+    listTrailingTop: { alignSelf: "flex-start" },
     listActions: { marginLeft: space.sm },
-    listChevron: { marginLeft: space.sm },
     thumbWrap: {
         width: 46,
         height: 46,

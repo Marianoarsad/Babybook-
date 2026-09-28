@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Animated, View, Text, StyleSheet, TouchableOpacity, TextInput, } from "react-native";
+import { Animated, View, Text, StyleSheet, TouchableOpacity, TextInput, Switch, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { radius, space, shadow, type, MIN_TOUCH } from "../theme";
 import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
@@ -17,6 +17,8 @@ import { useRefreshControl } from "./ui/useRefreshControl";
 import AnchoredMenu, { AnchoredMenuItem } from "./ui/AnchoredMenu";
 import NutritionDateFilter, { nutritionDateView } from "./ui/NutritionDateFilter";
 import NutritionTrendChart from "./ui/NutritionTrendChart";
+import NutritionMixChart from "./ui/NutritionMixChart";
+import Field from "./ui/Field";
 
 import RecordFormSheet, { DeleteConfirmation, RecordFormGroup, RecordFormRow } from "./ui/RecordFormSheet";
 import PlanDetail from "./ui/PlanDetail";
@@ -34,27 +36,23 @@ import {
     stepFormulaScoops,
 } from "../utils/nutritionFormPrefs.cjs";
 import numericInput from "../utils/numericInput.cjs";
+import { toggleRequiredKey } from "../utils/growthMetricFilter.cjs";
 
 const { decimalOnly, digitsOnly } = numericInput;
 import {
     todayLocal,
     nowLocalTime,
     shortDate,
-    shortTime,
     durationText,
-    minutesBetween,
-    shortDateRange,
 } from "../utils/dates";
 import {
     byMoment,
-    inRangeOf,
     buildBuckets,
     milkDurations,
-    longestGap,
-    nightStats,
     solidFoodStats,
     foodSuggestions,
     hasBreastDurations,
+    todayFeedingMix,
 } from "../utils/feedingStats";
 
 const MILK_TYPES = ["Breastmilk", "Formula", "Mixed"];
@@ -89,11 +87,11 @@ const MEASURES = [
         unit: "min",
     },
 ];
-const CHART_SCOPES = [
-    { key: "all", label: "All" },
+const NUTRITION_CHARTS = [
     { key: "milk", label: "Milk" },
     { key: "food", label: "Food" },
 ];
+const NUTRITION_CHART_KEYS = NUTRITION_CHARTS.map((chart) => chart.key);
 
 const emptyForm = (prefs, entryType = "milk") =>
     nutritionFormDefaults(prefs, entryType, todayLocal(), nowLocalTime());
@@ -127,7 +125,7 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
     const [form, setForm] = useState(() => emptyForm(null));
     const [errors, setErrors] = useState({});
     const [dateView, setDateView] = useState(() => nutritionDateView(savedDateView, minimumDate));
-    const [chartScope, setChartScope] = useState("all");
+    const [chartKeys, setChartKeys] = useState(() => [...NUTRITION_CHART_KEYS]);
     const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
     const [scopeMenuAnchor, setScopeMenuAnchor] = useState(null);
     const scopeTriggerRef = useRef(null);
@@ -135,6 +133,8 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
     const [measureMenuOpen, setMeasureMenuOpen] = useState(false);
     const [measureMenuAnchor, setMeasureMenuAnchor] = useState(null);
     const measureTriggerRef = useRef(null);
+    const showMilkChart = chartKeys.includes("milk");
+    const showFoodChart = chartKeys.includes("food");
     const [listFilter, setListFilter] = useState("all");
     const [visibleCount, setVisibleCount] = useState(10);
 
@@ -349,7 +349,6 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
         () => [...new Set(entries.map((entry) => entry.date).filter(Boolean))],
         [entries],
     );
-    const selectedRangeLabel = shortDateRange(rangeObj.from, rangeObj.to);
     const applyDateView = (next) => {
         setDateView(next);
         onDateViewChange?.(next);
@@ -378,7 +377,7 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
         ? requested
         : measures[0]?.key || "feeds";
     const activeMeasure = MEASURES.find((m) => m.key === measureKey) || MEASURES[0];
-    const { bars: milkBars, days: milkSpanDays, total: milkTotal, granularity: milkGranularity } = useMemo(
+    const { bars: milkBars, total: milkTotal, granularity: milkGranularity } = useMemo(
         () => buildBuckets(milk, rangeObj, activeMeasure.valueOf),
         [milk, rangeObj.from, rangeObj.to, measureKey],
     );
@@ -389,39 +388,7 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
     );
     const foodBucketAverage = foodBars.length ? foodTotal / foodBars.length : 0;
 
-    // --- Today ---
-    const todayStats = useMemo(() => {
-        const rows = milk.filter((e) => e.date === today);
-        const volume = rows.reduce((sum, e) => sum + feedVolumeMl(e), 0);
-        const breastMinutes = rows.reduce(
-            (sum, e) => sum + (e.feedMethod === "breast" ? e.durationMinutes || 0 : 0),
-            0,
-        );
-        const solidCount = solids.filter((e) => e.date === today).length;
-        return { count: rows.length, volume, breastMinutes, solidCount };
-    }, [milk, solids, today]);
-
-    const lastFeed = useMemo(() => {
-        const sorted = milk.filter((e) => e.time && e.date <= today).sort(byMoment);
-        return sorted.length ? sorted[sorted.length - 1] : null;
-    }, [milk, today]);
-    const sinceLastFeed = useMemo(() => {
-        if (!lastFeed) return null;
-        const mins = minutesBetween(lastFeed.date, lastFeed.time, today, nowLocalTime());
-        return mins != null && mins >= 0 ? mins : null;
-    }, [lastFeed, today]);
-
-    // --- Pattern ---
-    const pattern = useMemo(() => {
-        const rows = inRangeOf(milk, rangeObj);
-        const prevRows = inRangeOf(milk, rangeObj, 1);
-        const nights = milkSpanDays || 1;
-        return {
-            gap: longestGap(rows),
-            now: nightStats(rows, nights),
-            prev: nightStats(prevRows, nights),
-        };
-    }, [milk, rangeObj.from, rangeObj.to, milkSpanDays]);
+    const feedingMix = useMemo(() => todayFeedingMix(entries, today), [entries, today]);
 
     const openMeasureMenu = () => {
         measureTriggerRef.current?.measureInWindow((x, y, width, height) => {
@@ -477,26 +444,6 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
         }
         return e.quantity != null ? `${base} — ${e.quantity} ${e.unit || "mL"}` : base;
     };
-    const entrySubtitle = (e) => {
-        const when = [shortDate(e.date), shortTime(e.time)].filter(Boolean).join(" · ");
-        if (e.entryType !== "milk") return ["Solid food", when].filter(Boolean).join(" · ");
-        return [
-            when,
-            e.feedMethod === "breast" ? "At the breast" : null,
-            e.formulaBrand || null,
-            e.formulaScoops != null ? `${e.formulaScoops} scoop${e.formulaScoops === 1 ? "" : "s"}` : null,
-        ]
-            .filter(Boolean)
-            .join(" · ");
-    };
-    const entryNotes = (e) => {
-        if (e.entryType === "solid" && (e.reactionSeverity === "mild" || e.reactionSeverity === "severe")) {
-            const label = e.reactionSeverity === "severe" ? "Severe reaction" : "Mild reaction";
-            return e.reaction ? `${label}: ${e.reaction}` : label;
-        }
-        return e.notes || undefined;
-    };
-
     const nutritionDetailPlan = detailEntry ? {
         title: entryTitle(detailEntry),
         date: detailEntry.date,
@@ -539,21 +486,6 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
         deleteLabel: detailEntry.entryType === "milk" ? "Delete milk entry" : "Delete solid food entry",
     } : null;
 
-    const tiles = [
-        { key: "feeds", label: "Feeds today", value: String(todayStats.count) },
-        todayStats.breastMinutes > 0
-            ? { key: "breast", label: "At the breast", value: durationText(todayStats.breastMinutes) }
-            : null,
-        todayStats.volume > 0
-            ? { key: "volume", label: "Bottle today", value: `${Math.round(todayStats.volume)} mL` }
-            : null,
-        {
-            key: "since",
-            label: "Since last feed",
-            value: sinceLastFeed != null ? durationText(sinceLastFeed) || "Just now" : "—",
-        },
-    ].filter(Boolean);
-
     return (
         <Animated.ScrollView
             style={styles.container}
@@ -562,28 +494,6 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
             {...scrollProps}
             keyboardShouldPersistTaps="handled"
         >
-            {/* Today — the glance layer. Everything here is derived from the
-                entries already loaded; none of it costs a request. */}
-            <SectionContainerCard title="Today" subtitle={shortDate(today)}>
-                <View style={styles.tileRow}>
-                    {tiles.map((t) => (
-                        <View key={t.key} style={styles.tile}>
-                            <Text style={styles.tileValue} numberOfLines={1}>
-                                {t.value}
-                            </Text>
-                            <Text style={styles.tileLabel} numberOfLines={2}>
-                                {t.label}
-                            </Text>
-                        </View>
-                    ))}
-                </View>
-                {todayStats.solidCount > 0 ? (
-                    <Text style={styles.tileFootnote}>
-                        Plus {todayStats.solidCount} solid-food {todayStats.solidCount === 1 ? "entry" : "entries"}
-                    </Text>
-                ) : null}
-            </SectionContainerCard>
-
             <SectionContainerCard title="Nutrition Over Time" subtitle="Milk and solid-food trends">
                 <View style={styles.chartControls}>
                     <NutritionDateFilter
@@ -594,42 +504,18 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                     />
                     <TouchableOpacity
                         ref={scopeTriggerRef}
-                        style={styles.metricSelect}
+                        style={styles.metricFilterButton}
                         onPress={openScopeMenu}
                         accessibilityRole="button"
                         accessibilityState={{ expanded: scopeMenuOpen }}
-                        accessibilityLabel={`Nutrition chart, ${CHART_SCOPES.find((scope) => scope.key === chartScope)?.label}`}
+                        accessibilityLabel={`Nutrition chart filter, ${chartKeys.length} charts shown`}
                     >
-                        <View style={styles.metricSelectValue}>
-                            {chartScope !== "all" ? (
-                                <View style={[styles.metricDot, { backgroundColor: chartScope === "milk" ? colors.primary : colors.accent }]} />
-                            ) : null}
-                            <Text style={styles.metricSelectText} numberOfLines={1}>
-                                {CHART_SCOPES.find((scope) => scope.key === chartScope)?.label}
-                            </Text>
-                        </View>
-                        <Ionicons name={scopeMenuOpen ? "chevron-up" : "chevron-down"} size={16} color={colors.textMuted} />
+                        <Ionicons name="funnel" size={26} color={colors.primary} />
                     </TouchableOpacity>
                 </View>
 
-                {chartScope !== "food" ? (
-                    <View style={styles.measureControlRow}>
-                        <TouchableOpacity
-                            ref={measureTriggerRef}
-                            style={[styles.metricSelect, styles.measureSelect]}
-                            onPress={openMeasureMenu}
-                            accessibilityRole="button"
-                            accessibilityState={{ expanded: measureMenuOpen }}
-                            accessibilityLabel={`Milk chart measure, ${activeMeasure.label}`}
-                        >
-                            <Text style={styles.metricSelectText} numberOfLines={1}>Milk · {activeMeasure.label}</Text>
-                            <Ionicons name={measureMenuOpen ? "chevron-up" : "chevron-down"} size={16} color={colors.textMuted} />
-                        </TouchableOpacity>
-                    </View>
-                ) : null}
-
                 <View style={styles.trendCharts}>
-                    {chartScope !== "food" ? (
+                    {showMilkChart ? (
                         <NutritionTrendChart
                             title="Milk"
                             bars={milkBars}
@@ -641,10 +527,27 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                             granularity={milkGranularity}
                             loading={loading}
                             emptyMessage="No milk entries in this period yet."
+                            headerControl={(
+                                <TouchableOpacity
+                                    ref={measureTriggerRef}
+                                    style={styles.measureSelect}
+                                    onPress={openMeasureMenu}
+                                    accessibilityRole="button"
+                                    accessibilityState={{ expanded: measureMenuOpen }}
+                                    accessibilityLabel={`Milk chart measure, ${activeMeasure.label}`}
+                                >
+                                    <Text style={styles.measureSelectText} numberOfLines={1}>{activeMeasure.label}</Text>
+                                    <Ionicons
+                                        name={measureMenuOpen ? "chevron-up" : "chevron-down"}
+                                        size={18}
+                                        color={colors.textSecondary}
+                                    />
+                                </TouchableOpacity>
+                            )}
                         />
                     ) : null}
-                    {chartScope !== "milk" ? (
-                        <View style={chartScope === "all" ? styles.trendChartDivider : null}>
+                    {showFoodChart ? (
+                        <View style={showMilkChart ? styles.trendChartDivider : null}>
                             <NutritionTrendChart
                                 title="Food"
                                 bars={foodBars}
@@ -666,36 +569,66 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                 visible={scopeMenuOpen}
                 anchor={scopeMenuAnchor}
                 onClose={() => setScopeMenuOpen(false)}
-                minWidth={Math.min(scopeMenuAnchor?.width || 180, 240)}
+                minWidth={232}
+                maxWidth={232}
+                dimBackdrop={false}
+                animation="warp"
             >
-                {CHART_SCOPES.map((scope) => (
-                    <AnchoredMenuItem
-                        key={scope.key}
-                        label={scope.label}
-                        selected={chartScope === scope.key}
-                        leading={scope.key === "all" ? null : (
-                            <View style={[styles.metricDot, { backgroundColor: scope.key === "milk" ? colors.primary : colors.accent }]} />
-                        )}
-                        onPress={() => {
-                            setChartScope(scope.key);
-                            setScopeMenuOpen(false);
-                        }}
-                        accessibilityLabel={`Show ${scope.label} nutrition chart`}
-                    />
-                ))}
+                <View style={styles.metricChecklistHeader}>
+                    <TouchableOpacity
+                        style={styles.metricChecklistBack}
+                        onPress={() => setScopeMenuOpen(false)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Close nutrition chart filter"
+                    >
+                        <Ionicons name="chevron-back" size={24} color={colors.text} />
+                    </TouchableOpacity>
+                    <Text style={styles.metricChecklistTitle}>Nutrition charts</Text>
+                    <View style={styles.metricChecklistHeaderSpacer} />
+                </View>
+                {NUTRITION_CHARTS.map((chart) => {
+                    const checked = chartKeys.includes(chart.key);
+                    const disabled = checked && chartKeys.length === 1;
+                    return (
+                        <TouchableOpacity
+                            key={chart.key}
+                            style={[styles.metricChecklistRow, disabled && styles.metricChecklistRowDisabled]}
+                            onPress={() => setChartKeys((current) => (
+                                toggleRequiredKey(current, chart.key, NUTRITION_CHART_KEYS)
+                            ))}
+                            disabled={disabled}
+                            accessibilityRole="switch"
+                            accessibilityState={{ checked, disabled }}
+                            accessibilityLabel={chart.label}
+                        >
+                            <Text style={styles.metricChecklistLabel}>{chart.label}</Text>
+                            <Switch
+                                value={checked}
+                                disabled={disabled}
+                                pointerEvents="none"
+                                accessible={false}
+                                trackColor={{ false: colors.border, true: colors.primary }}
+                                thumbColor={colors.onPrimary}
+                                {...(Platform.OS === "web" ? { activeThumbColor: colors.onPrimary } : {})}
+                                ios_backgroundColor={colors.border}
+                            />
+                        </TouchableOpacity>
+                    );
+                })}
             </AnchoredMenu>
 
             <AnchoredMenu
                 visible={measureMenuOpen}
                 anchor={measureMenuAnchor}
                 onClose={() => setMeasureMenuOpen(false)}
-                minWidth={Math.min(measureMenuAnchor?.width || 180, 240)}
+                variant="select"
             >
                 {measures.map((m) => (
                     <AnchoredMenuItem
                         key={m.key}
                         label={m.label}
                         selected={measureKey === m.key}
+                        variant="select"
                         onPress={() => {
                             setMeasure(m.key);
                             setMeasureMenuOpen(false);
@@ -705,41 +638,9 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                 ))}
             </AnchoredMenu>
 
-            {/* Pattern */}
-            {pattern.gap || pattern.now.count ? (
-                <SectionContainerCard title="Feeding Pattern" subtitle={`Across ${selectedRangeLabel}`}>
-                    {pattern.gap ? (
-                        <View style={styles.factRow}>
-                            <View style={[styles.factIcon, { backgroundColor: colors.infoBg }]}>
-                                <Ionicons name="hourglass-outline" size={16} color={colors.info} />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                                <Text style={styles.factLabel}>Longest gap between feeds</Text>
-                                <Text style={styles.factValue}>
-                                    {durationText(pattern.gap.minutes)}, starting {shortDate(pattern.gap.date)}
-                                </Text>
-                            </View>
-                        </View>
-                    ) : null}
-                    <View style={styles.factRow}>
-                        <View style={[styles.factIcon, { backgroundColor: colors.recNutrition.bg }]}>
-                            <Ionicons name="moon-outline" size={16} color={colors.recNutrition.on} />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                            <Text style={styles.factLabel}>Night feeds (10pm–6am)</Text>
-                            <Text style={styles.factValue}>
-                                {pattern.now.count} total · {pattern.now.perNight.toFixed(1)} a night
-                            </Text>
-                            {pattern.prev ? (
-                                <Text style={styles.factSub}>
-                                    Previous period: {pattern.prev.count} total ·{" "}
-                                    {pattern.prev.perNight.toFixed(1)} a night
-                                </Text>
-                            ) : null}
-                        </View>
-                    </View>
-                </SectionContainerCard>
-            ) : null}
+            <SectionContainerCard title="Today’s Feeding Breakdown" subtitle={shortDate(today)}>
+                <NutritionMixChart counts={feedingMix} />
+            </SectionContainerCard>
 
             {/* Milk type over time */}
             {durations.current ? (
@@ -846,26 +747,6 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
             <SectionContainerCard
                 title="Nutrition Records"
                 subtitle="Every milk feed and solid food logged"
-                action={
-                    <View style={styles.addActions}>
-                        <TouchableOpacity
-                            onPress={() => openAdd("milk")}
-                            style={styles.addBtn}
-                            accessibilityRole="button"
-                            accessibilityLabel="Add milk entry"
-                        >
-                            <Ionicons name="water-outline" size={18} color={colors.onAccent} />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            onPress={() => openAdd("solid")}
-                            style={styles.addBtn}
-                            accessibilityRole="button"
-                            accessibilityLabel="Add solid food entry"
-                        >
-                            <Ionicons name="restaurant-outline" size={18} color={colors.onAccent} />
-                        </TouchableOpacity>
-                    </View>
-                }
             >
                 {/* Without this, 300-odd milk feeds bury every solid-food
                     entry the child has. */}
@@ -924,8 +805,7 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                             <ListEntryCard
                                 style={styles.swipeListCard}
                                 title={entryTitle(e)}
-                                subtitle={entrySubtitle(e)}
-                                notes={entryNotes(e)}
+                                subtitle={shortDate(e.date)}
                                 icon={
                                     <Ionicons
                                         name={e.entryType !== "milk" ? "restaurant-outline"
@@ -935,7 +815,6 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                                     />
                                 }
                                 iconBg={e.entryType === "milk" ? colors.infoBg : colors.recNutrition.bg}
-                                showChevron
                             />
                         </SwipeActionRow>
                     );
@@ -1025,23 +904,19 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
 
                                         {isBreast ? (
                                             <View>
-                                                <Text style={styles.label}>Duration (optional)</Text>
                                                 <View style={styles.inlineRow}>
-                                                    <TextInput
-                                                        style={[
-                                                            styles.input,
-                                                            styles.inputFlex,
-                                                            errors.durationMinutes && styles.inputError,
-                                                        ]}
+                                                    <Field
+                                                        label="Duration (optional)"
+                                                        style={{ flex: 1, marginBottom: 0 }}
                                                         keyboardType="numeric"
+                                                        numericMode="digits"
                                                         placeholder="e.g. 18"
-                                                        placeholderTextColor={colors.placeholder}
                                                         value={form.durationMinutes}
                                                         onChangeText={(v) => {
-                                                            setF("durationMinutes", digitsOnly(v));
+                                                            setF("durationMinutes", v);
                                                             clearError("durationMinutes");
                                                         }}
-                                                        accessibilityLabel="Duration in minutes, optional"
+                                                        error={!!errors.durationMinutes}
                                                     />
                                                     <Text style={styles.inlineUnit}>minutes</Text>
                                                 </View>
@@ -1057,18 +932,20 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                                             <View>
                                                 {showFormula ? (
                                                     <View>
-                                                        <RecordFormRow divider={false} label={<Text style={styles.label}>Formula Brand</Text>}>
+                                                        <View style={styles.formulaBrandField}>
+                                                            <RecordFormRow divider={false} label={<Text style={styles.label}>Formula Brand</Text>}>
 
-                                                        <TextInput
-                                                            style={styles.input}
-                                                            placeholder="e.g. Enfamil A+"
-                                                            placeholderTextColor={colors.placeholder}
-                                                            value={form.formulaBrand}
-                                                            onChangeText={(v) => setF("formulaBrand", v)}
-                                                            accessibilityLabel="Formula brand"
-                                                        />
-                                                        </RecordFormRow>
-                                                        <RecordFormRow divider={false} label={<Text style={styles.label}>Scoops</Text>}>
+                                                            <TextInput
+                                                                style={styles.input}
+                                                                placeholder="e.g. Enfamil A+"
+                                                                placeholderTextColor={colors.placeholder}
+                                                                value={form.formulaBrand}
+                                                                onChangeText={(v) => setF("formulaBrand", v)}
+                                                                accessibilityLabel="Formula brand"
+                                                            />
+                                                            </RecordFormRow>
+                                                        </View>
+                                                        <RecordFormRow outlined={false} divider={false} label={<Text style={styles.label}>Scoops</Text>}>
                                                             <View style={styles.scoopStepper}>
                                                                 <TouchableOpacity
                                                                     style={[
@@ -1127,24 +1004,22 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                                                     </View>
                                                 ) : null}
 
-                                                <Text style={styles.label}>
-                                                    {form.milkType === "Mixed" ? "Formula Amount" : "Amount"}
-                                                </Text>
                                                 {/* The unit sat behind an open/close
                                                     dropdown on a form used six times a
                                                     day. Two options belong inline. */}
                                                 <View style={styles.inlineRow}>
-                                                    <TextInput
-                                                        style={[styles.input, styles.inputFlex, errors.quantity && styles.inputError]}
+                                                    <Field
+                                                        label={form.milkType === "Mixed" ? "Formula Amount" : "Amount"}
+                                                        style={{ flex: 1, marginBottom: 0 }}
                                                         keyboardType="numeric"
+                                                        numericMode="decimal"
                                                         placeholder="e.g. 120"
-                                                        placeholderTextColor={colors.placeholder}
                                                         value={form.quantity}
                                                         onChangeText={(v) => {
-                                                            setF("quantity", decimalOnly(v));
+                                                            setF("quantity", v);
                                                             clearError("quantity");
                                                         }}
-                                                        accessibilityLabel={form.milkType === "Mixed" ? "Formula amount" : "Amount"}
+                                                        error={!!errors.quantity}
                                                     />
                                                     <View style={styles.unitSegment}>
                                                         {UNITS.map((u) => (
@@ -1170,23 +1045,19 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                                                 {errors.quantity ? <Text style={styles.errorText}>{errors.quantity}</Text> : null}
                                                 {form.milkType === "Mixed" ? (
                                                     <View>
-                                                        <Text style={styles.label}>Breastmilk Amount</Text>
                                                         <View style={styles.inlineRow}>
-                                                            <TextInput
-                                                                style={[
-                                                                    styles.input,
-                                                                    styles.inputFlex,
-                                                                    errors.breastmilkQuantity && styles.inputError,
-                                                                ]}
+                                                            <Field
+                                                                label="Breastmilk Amount"
+                                                                style={{ flex: 1, marginBottom: 0 }}
                                                                 keyboardType="numeric"
+                                                                numericMode="decimal"
                                                                 placeholder="e.g. 60"
-                                                                placeholderTextColor={colors.placeholder}
                                                                 value={form.breastmilkQuantity}
                                                                 onChangeText={(v) => {
-                                                                    setF("breastmilkQuantity", decimalOnly(v));
+                                                                    setF("breastmilkQuantity", v);
                                                                     clearError("breastmilkQuantity");
                                                                 }}
-                                                                accessibilityLabel="Breastmilk amount"
+                                                                error={!!errors.breastmilkQuantity}
                                                             />
                                                             <Text style={styles.inlineUnit}>{form.unit}</Text>
                                                         </View>
@@ -1200,7 +1071,7 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                                     </View>
                                 ) : (
                                     <View>
-                                        <RecordFormRow divider={false} label={<Text style={styles.label}>Food</Text>}>
+                                        <RecordFormRow error={!!errors.foodIntroduced} divider={false} label={<Text style={styles.label}>Food</Text>}>
 
                                         <TextInput
                                             style={[styles.input, errors.foodIntroduced && styles.inputError]}
@@ -1381,41 +1252,56 @@ const makeStyles = (colors) =>
             gap: space.sm,
             marginBottom: space.md,
         },
-        metricSelect: {
-            minHeight: MIN_TOUCH,
-            flex: 1,
-            minWidth: 0,
+        metricFilterButton: {
+            width: MIN_TOUCH,
+            height: MIN_TOUCH,
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: radius.pill,
+            flexShrink: 0,
+        },
+        metricChecklistHeader: {
+            minHeight: 52,
             flexDirection: "row",
             alignItems: "center",
-            justifyContent: "space-between",
-            paddingHorizontal: space.md,
-            borderWidth: 1,
-            borderColor: colors.primary,
-            borderRadius: radius.md,
-            borderCurve: "continuous",
-            backgroundColor: colors.surface,
+            borderBottomWidth: 1,
+            borderBottomColor: colors.hairline,
         },
-        metricSelectValue: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space.sm },
-        metricSelectText: { ...type.body, color: colors.text, flexShrink: 1 },
-        metricDot: { width: 8, height: 8, borderRadius: radius.pill, flexShrink: 0 },
-        measureControlRow: { flexDirection: "row", marginBottom: space.md },
-        measureSelect: { flex: 1 },
-        trendCharts: { gap: space.md },
-        trendChartDivider: { paddingTop: space.lg, borderTopWidth: 1, borderTopColor: colors.hairline },
-
-        // Pattern facts
-        factRow: { flexDirection: "row", alignItems: "flex-start", gap: space.md, marginBottom: space.md },
-        factIcon: {
-            width: 32,
-            height: 32,
-            borderRadius: radius.md,
-            borderCurve: "continuous",
+        metricChecklistBack: {
+            width: MIN_TOUCH,
+            minHeight: MIN_TOUCH,
             alignItems: "center",
             justifyContent: "center",
         },
-        factLabel: { ...type.caption, color: colors.textMuted },
-        factValue: { ...type.bodyStrong, color: colors.text },
-        factSub: { ...type.caption, color: colors.textMuted, marginTop: 2 },
+        metricChecklistTitle: { ...type.bodyStrong, color: colors.text, flex: 1, textAlign: "center" },
+        metricChecklistHeaderSpacer: { width: MIN_TOUCH },
+        metricChecklistRow: {
+            minHeight: 52,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: space.md,
+            paddingHorizontal: space.md,
+        },
+        metricChecklistRowDisabled: { opacity: 0.65 },
+        metricChecklistLabel: { ...type.body, color: colors.text, flex: 1 },
+        measureSelect: {
+            minWidth: 128,
+            minHeight: MIN_TOUCH,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: space.sm,
+            paddingHorizontal: space.md,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: radius.pill,
+            borderCurve: "continuous",
+            backgroundColor: colors.surface,
+        },
+        measureSelectText: { ...type.label, color: colors.text },
+        trendCharts: { gap: space.md },
+        trendChartDivider: { paddingTop: space.lg, borderTopWidth: 1, borderTopColor: colors.hairline },
 
         // Milk type
         durationBox: {
@@ -1460,21 +1346,11 @@ const makeStyles = (colors) =>
         reactionNote: { ...type.caption, color: colors.textMuted },
 
         swipeListCard: { marginBottom: 0 },
-        addActions: { flexDirection: "row", gap: space.xs },
-        addBtn: {
-            width: MIN_TOUCH,
-            height: MIN_TOUCH,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: colors.accentStrong,
-            borderRadius: radius.pill,
-            borderCurve: "continuous",
-            ...shadow.accent,
-        },
 
         // Modal
 
         label: { ...type.label, color: colors.textSecondary, marginBottom: 6 },
+        formulaBrandField: { paddingTop: space.md },
         hint: { ...type.caption, color: colors.textMuted, marginBottom: space.sm },
         errorText: { ...type.caption, color: colors.danger, marginTop: -space.sm, marginBottom: space.md },
         input: {

@@ -81,7 +81,17 @@ export default function Search({ profile, onNavigate }) {
             } else {
                 const item = medHistoryToIllness(row);
                 const hospitalization = row.category === "Hospitalization";
-                built.push({ key: `${hospitalization ? "hosp" : "ill"}-${item.id}`, title: item.title, subtitle: hospitalization ? t("searchHospitalization") : item.resolved ? t("searchResolved") : t("searchActiveCondition"), date: item.date, searchText: `${item.title} ${item.desc} condition illness hospitalization ${t("searchConditions")}`, icon: hospitalization ? "bandage-outline" : "pulse-outline", iconColor: hospitalization ? colors.recHospitalization.on : colors.recIllness.on, iconBg: hospitalization ? colors.recHospitalization.bg : colors.recIllness.bg, navTo: { view: "health", tab: hospitalization ? "appointments" : "illnesses" } });
+                const allergy = row.category === "Allergy";
+                const hereditary = row.category === "Hereditary Condition";
+                const tone = hospitalization
+                    ? colors.recHospitalization
+                    : allergy
+                      ? colors.conditionCategory.allergy
+                      : hereditary
+                        ? colors.conditionCategory.hereditary
+                        : colors.conditionCategory.illness;
+                const categoryLabel = hospitalization ? t("searchHospitalization") : hereditary ? "Hereditary condition" : row.category;
+                built.push({ key: `${hospitalization ? "hosp" : allergy ? "allergy" : hereditary ? "hereditary" : "ill"}-${item.id}`, title: item.title, subtitle: categoryLabel || (item.resolved ? t("searchResolved") : t("searchActiveCondition")), date: item.date, searchText: `${item.title} ${item.desc} ${row.category} condition illness allergy hereditary hospitalization ${t("searchConditions")}`, icon: hospitalization ? "bandage-outline" : allergy ? "alert-circle-outline" : "pulse-outline", iconColor: tone.on, iconBg: tone.bg, navTo: { view: "health", tab: hospitalization ? "appointments" : "illnesses" } });
             }
         });
         (milestones || []).forEach((row) => {
@@ -136,12 +146,29 @@ export default function Search({ profile, onNavigate }) {
         setHistory([]);
         storage.removeItem(HISTORY_KEY(profile.id)).catch(() => {});
     };
+    const removeHistory = (term) => {
+        const next = history.filter((item) => item !== term);
+        setHistory(next);
+        const save = next.length
+            ? storage.setItem(HISTORY_KEY(profile.id), JSON.stringify(next))
+            : storage.removeItem(HISTORY_KEY(profile.id));
+        save.catch(() => {});
+    };
     const openResult = (item) => {
         rememberSearch(query);
         onNavigate(item.navTo.view, item.navTo.tab);
     };
 
-    const renderChip = (term, source) => (
+    const renderChip = (term, source) => source === "history" ? (
+        <View key={`${source}-${term}`} style={styles.historyChip}>
+            <TouchableOpacity style={styles.historyChipAction} onPress={() => runSearch(term)} accessibilityRole="button" accessibilityLabel={`${t("searchFor")} ${term}`}>
+                <Text style={styles.chipText} numberOfLines={1}>{term}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.historyRemove} onPress={() => removeHistory(term)} accessibilityRole="button" accessibilityLabel={`${t("delete")} ${term}`}>
+                <Ionicons name="close" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+        </View>
+    ) : (
         <TouchableOpacity key={`${source}-${term}`} style={styles.chip} onPress={() => runSearch(term)} accessibilityRole="button" accessibilityLabel={`${t("searchFor")} ${term}`}>
             <Text style={styles.chipText} numberOfLines={1}>{term}</Text>
         </TouchableOpacity>
@@ -252,8 +279,11 @@ const makeStyles = (colors) => StyleSheet.create({
     sectionTitle: { ...type.title, color: colors.text, marginBottom: space.md },
     sectionHeadingTitle: { marginBottom: 0 },
     chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
-    chip: { minHeight: MIN_TOUCH, maxWidth: "100%", alignItems: "center", justifyContent: "center", paddingHorizontal: space.lg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, borderCurve: "continuous", backgroundColor: colors.surfaceAlt },
+    chip: { minHeight: MIN_TOUCH, maxWidth: "100%", alignItems: "center", justifyContent: "center", paddingHorizontal: space.lg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, borderCurve: "continuous", backgroundColor: colors.surface },
     chipText: { ...type.label, color: colors.primaryDark, maxWidth: 190 },
+    historyChip: { maxWidth: "100%", flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, borderCurve: "continuous", backgroundColor: colors.surface, overflow: "hidden" },
+    historyChipAction: { minHeight: MIN_TOUCH, maxWidth: 214, justifyContent: "center", paddingLeft: space.lg, paddingRight: space.sm, flexShrink: 1 },
+    historyRemove: { width: MIN_TOUCH, height: MIN_TOUCH, alignItems: "center", justifyContent: "center", flexShrink: 0 },
     clearHistory: { minHeight: MIN_TOUCH, justifyContent: "center", paddingHorizontal: space.sm },
     clearHistoryText: { ...type.label, color: colors.primaryDark },
     emptyHistory: { ...type.caption, color: colors.textMuted },

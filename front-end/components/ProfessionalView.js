@@ -3,10 +3,10 @@ import {
     View,
     Text,
     StyleSheet,
-    TextInput,
     TouchableOpacity,
     ScrollView,
 } from "react-native";
+import Field from "./ui/Field";
 import { Ionicons } from "@expo/vector-icons";
 import { RECORD_LABELS } from "../utils/shareStore";
 import { api } from "../utils/api";
@@ -172,34 +172,24 @@ export default function ProfessionalView({ onExit }) {
                     View-only access to a child's records, authorized by the parent for this consultation.
                 </Text>
 
-                <View style={styles.field}>
-                    <Text style={styles.label}>Your Name (for the access log)</Text>
-                    <View style={styles.inputWrap}>
-                        <Ionicons name="person-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
-                        <TextInput
-                            style={styles.input}
+                <Field
+                            label="Your Name (for the access log)"
+                            leading={<Ionicons name="person-outline" size={16} color={colors.textMuted} />}
                             placeholder="e.g. Dr. Sarah Chen"
-                            placeholderTextColor={colors.placeholder}
                             value={name}
                             onChangeText={setName}
                         />
-                    </View>
-                </View>
 
-                <View style={styles.field}>
-                    <Text style={styles.label}>Consultation Code</Text>
-                    <View style={styles.inputWrap}>
-                        <Ionicons name="qr-code-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
-                        <TextInput
-                            style={[styles.input, { letterSpacing: 2, fontWeight: "700" }]}
+                <Field
+                            label="Consultation Code"
+                            leading={<Ionicons name="qr-code-outline" size={16} color={colors.textMuted} />}
+                            inputStyle={{ letterSpacing: 2, fontWeight: "700" }}
                             placeholder="ABCD-1234"
-                            placeholderTextColor={colors.placeholder}
                             autoCapitalize="characters"
                             value={code}
                             onChangeText={setCode}
+                            error={!!error}
                         />
-                    </View>
-                </View>
 
                 {error ? (
                     <View style={styles.errorBox}>

@@ -8,8 +8,8 @@ import {
     Animated,
     Easing,
     Platform,
-    TextInput,
 } from "react-native";
+import Field from "./ui/Field";
 import { Ionicons } from "@expo/vector-icons";
 import QrCodeView from "./QrCodeView";
 import { ageText } from "./Dashboard";
@@ -323,16 +323,14 @@ export default function ShareRecords({ profile }) {
                     Optional. Whatever you write here is shown first to the healthcare
                     professional, in your own words.
                 </Text>
-                <TextInput
-                    style={styles.reasonInput}
+                <Field
+                    label="What is this visit about?"
+                    style={{ marginTop: space.md }}
                     value={visitReason}
                     onChangeText={setVisitReason}
                     placeholder="e.g. Coughing for 4 days, worse at night, not eating well"
-                    placeholderTextColor={colors.placeholder}
                     multiline
                     maxLength={VISIT_REASON_MAX}
-                    textAlignVertical="top"
-                    accessibilityLabel="What this visit is about"
                 />
                 <Text style={styles.reasonCount}>
                     {visitReason.length}/{VISIT_REASON_MAX}

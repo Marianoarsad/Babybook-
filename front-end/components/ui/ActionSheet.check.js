@@ -4,6 +4,10 @@ const path = require("node:path");
 const { parse } = require("@babel/parser");
 
 const source = fs.readFileSync(path.join(__dirname, "useBottomSheetMotion.js"), "utf8");
+const sheetSource = fs.readFileSync(path.join(__dirname, "ActionSheet.js"), "utf8");
+const medicalEventSource = fs.readFileSync(path.join(__dirname, "MedicalEventModal.js"), "utf8");
+assert(sheetSource.includes('illness: { label: "Condition"'));
+assert(medicalEventSource.includes('isCondition ? "Log a condition" : copy.modalTitle'));
 const body = parse(source, { sourceType: "module", plugins: ["jsx"] }).program.body;
 const hook = body.map((node) => node.declaration || node).find((node) => node.id?.name === "useBottomSheetMotion");
 
@@ -11,7 +15,7 @@ async function check(reduced = false) {
     const slots = [];
     let index = 0, dirty = false, effects = [], activeAnimation, preferenceListener;
     let visible = false, gestureEnabled = true, closed = 0;
-    const collapsedHeight = 575, expandedHeight = 640, collapsedOffset = 65;
+    const collapsedHeight = 575, expandedHeight = 640;
     const same = (a, b) => a && b && a.length === b.length && a.every((value, i) => Object.is(value, b[i]));
     const useState = (initial) => {
         const position = index++;
@@ -75,12 +79,12 @@ async function check(reduced = false) {
     visible = true; render();
     assert.equal(motion.presented, true);
     if (!reduced) {
-        assert.equal(motion.offset.value, expandedHeight);
+        assert.equal(motion.height.value, 0);
         motion.startOpening();
         assert.equal(activeAnimation.steps[0].config.duration, 280);
         finish();
     }
-    assert.equal(motion.offset.value, collapsedOffset);
+    assert.equal(motion.height.value, collapsedHeight);
 
     const pan = motion.pan.panHandlers;
     assert.equal(pan.onMoveShouldSetPanResponder(null, { dx: 0, dy: 12 }), false);
@@ -88,16 +92,16 @@ async function check(reduced = false) {
     assert.equal(pan.onMoveShouldSetPanResponder(null, { dx: 0, dy: -20 }), true);
     pan.onPanResponderGrant();
     pan.onPanResponderMove(null, { dy: -80 });
-    assert.equal(motion.offset.value, 0);
+    assert.equal(motion.height.value, expandedHeight);
     pan.onPanResponderRelease(null, { dy: -64 });
     if (!reduced) finish();
-    assert.equal(motion.offset.value, 0, "An upward header swipe expands to the 80% detent");
+    assert.equal(motion.height.value, expandedHeight, "An upward header swipe expands to the 80% detent");
 
     pan.onPanResponderGrant();
     pan.onPanResponderMove(null, { dy: 30 });
     pan.onPanResponderRelease(null, { dy: 30, vy: 10 });
     if (!reduced) finish();
-    assert.equal(motion.offset.value, 0, "A short swipe recovers regardless of velocity");
+    assert.equal(motion.height.value, expandedHeight, "A short swipe recovers regardless of velocity");
     assert.equal(closed, 0);
 
     pan.onPanResponderGrant();
@@ -126,7 +130,14 @@ for (const consumer of [actionSheet, recordSheet]) {
     assert(consumer.includes("onShow={motion.startOpening}"));
     assert(consumer.includes("...motion.pan.panHandlers"));
 }
-assert(actionSheet.includes("height: expandedHeight"));
+assert(actionSheet.includes("height: motion.height"));
+assert(recordSheet.includes("height: motion.height"));
+assert(!actionSheet.includes("motion.offset"));
+assert(!recordSheet.includes("motion.offset"));
+for (const consumer of [actionSheet, recordSheet]) {
+    assert.equal((consumer.match(/style=\{styles\.grabber\}/g) || []).length, 2, "Each sheet shows a double grabber");
+    assert(consumer.includes("width: 43.2"), "Grabbers are 20% wider than the original 36 dp");
+}
 assert(recordSheet.includes("gestureEnabled: canDismiss"));
 assert(recordSheet.includes("canDismiss && motion.dismiss()"));
 

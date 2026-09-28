@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, TextInput, TouchableOpacity } from "react-native";
 import Modal from "./AppModal";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,6 +17,7 @@ import OptionSheet from "./OptionSheet";
 import PhotoAttach from "./PhotoAttach";
 
 import RecordFormSheet, { RecordFormGroup, RecordFormRow } from "./RecordFormSheet";
+import { FieldShell } from "./Field";
 
 // Add or edit a medicine course.
 //
@@ -65,6 +66,8 @@ export default function MedicineModal({
     const [name, setName] = useState("");
     const [treatsId, setTreatsId] = useState("");
     const [treatsOpen, setTreatsOpen] = useState(false);
+    const [treatsAnchor, setTreatsAnchor] = useState(null);
+    const treatsTriggerRef = useRef(null);
     const [doseAmount, setDoseAmount] = useState("");
     const [frequency, setFrequency] = useState(2);
     const [freqOther, setFreqOther] = useState("");
@@ -182,7 +185,7 @@ export default function MedicineModal({
             record={record} onDelete={onDelete ? () => onDelete(record) : undefined} deleteTitle={"Delete medicine?"} deleteMessage={`Delete "${record?.title || ""}"? This cannot be undone.`}>
             <RecordFormGroup>
 
-                            <RecordFormRow label={<Text style={styles.label}>What is the medicine called?</Text>}>
+                            <RecordFormRow error={!!nameError} label={<Text style={styles.label}>What is the medicine called?</Text>}>
 
                             <TextInput
                                 style={[styles.input, nameError && styles.inputError]}
@@ -222,11 +225,14 @@ export default function MedicineModal({
                             )}
 
                             {conditions.length > 0 && (
-                                <>
-                                    <Text style={styles.label}>What is it for? (optional)</Text>
+                                <FieldShell label="What is it for? (optional)" focused={treatsOpen}>
                                     <TouchableOpacity
+                                        ref={treatsTriggerRef}
                                         style={styles.picker}
-                                        onPress={() => setTreatsOpen(true)}
+                                        onPress={() => treatsTriggerRef.current?.measureInWindow((x, y, width, height) => {
+                                            setTreatsAnchor({ x, y, width, height });
+                                            setTreatsOpen(true);
+                                        })}
                                         accessibilityRole="button"
                                         accessibilityLabel="Choose what this medicine is for"
                                     >
@@ -242,7 +248,7 @@ export default function MedicineModal({
                                             color={colors.textMuted}
                                         />
                                     </TouchableOpacity>
-                                </>
+                                </FieldShell>
                             )}
 
                             <RecordFormRow label={<Text style={styles.label}>How much each time?</Text>}>
@@ -422,6 +428,7 @@ export default function MedicineModal({
                 already renders its vaccine picker this way. */}
             <OptionSheet
                 visible={treatsOpen}
+                anchor={treatsAnchor}
                 title="What is this medicine for?"
                 options={[
                     { key: OTHER, label: "Not linked to anything", note: "Leave it unlinked" },
@@ -492,15 +499,13 @@ const makeStyles = (colors) =>
             alignItems: "center",
             justifyContent: "space-between",
             gap: space.sm,
-            backgroundColor: colors.surfaceAlt,
+            backgroundColor: "transparent",
             borderWidth: 0,
             borderColor: colors.border,
             borderRadius: radius.lg,
             borderCurve: "continuous",
             paddingHorizontal: space.md,
-            minHeight: 52,
-            paddingVertical: space.sm,
-            marginBottom: space.lg,
+            minHeight: 50,
         },
         pickerText: { ...type.body, color: colors.text, flex: 1 },
         pickerEmpty: { color: colors.placeholder },

@@ -1,8 +1,10 @@
 // Maps between the backend's child shape (snake_case) and the app's profile
 // shape (camelCase, gender as "girl"/"boy").
 import numericInput from "./numericInput.cjs";
+import conditionRecords from "./conditions.cjs";
 
 const { digitsOnly } = numericInput;
+const { conditionAttachmentType } = conditionRecords;
 
 const GIRL_AVATAR =
     "https://images.unsplash.com/photo-1519689680058-324335c77eb2?q=80&w=300&auto=format&fit=crop";
@@ -303,6 +305,8 @@ export function milestoneToApp(m) {
 export function medHistoryToIllness(r) {
     return {
         id: String(r.id),
+        category: r.category || "Illness",
+        attachmentType: conditionAttachmentType(r.category),
         title: r.title,
         date: r.date_recorded ? String(r.date_recorded).slice(0, 10) : "",
         resolved: !!r.resolved,

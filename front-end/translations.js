@@ -90,14 +90,10 @@ export const translations = {
         dashBabyInfoCard: "Baby's Active Folder",
 
         healthHeader: "Pediatric Health",
-        healthSub:
-            "Track immunizations, vaccine stocks, and clinical medical records.",
+        healthSub: "Track immunizations and clinical medical records.",
         healthVaccinesTitle: "Immunization Records",
         healthVaccinesSub:
             "List of complete and pending pediatric vaccine doses",
-        healthVaccineNCRStock: "NCR Vaccine Stocks Bulletin",
-        healthVaccineNCRStockSub:
-            "Example of how local health centre stock notices would appear",
         healthCheckupReminders: "Pediatric Checkup Reminders",
         healthCheckupRemindersSub: "Upcoming schedules and clinic guidelines",
         // Was "Medication Reminders" / "Prescribed drugs schedules and
@@ -124,6 +120,9 @@ export const translations = {
             "See your baby's latest measurements and how they change over time.",
         growthAddMetrics: "Add Measurement",
         growthAll: "All",
+        growthChartFilterTitle: "Growth charts",
+        growthChartFilterButton: "Filter growth charts, {count} selected",
+        growthCloseChartFilter: "Close chart filter",
         growthHeight: "Height",
         growthWeight: "Weight",
         growthHeadCirc: "Head",
@@ -379,14 +378,10 @@ export const translations = {
         dashBabyInfoCard: "Aktibong Folder ni Baby",
 
         healthHeader: "Kalusugan ni Baby",
-        healthSub:
-            "Subaybayan ang mga bakuna, stock ng bakuna, at mga rekord ng konsultasyon.",
+        healthSub: "Subaybayan ang mga bakuna at mga rekord ng konsultasyon.",
         healthVaccinesTitle: "Mga Rekord ng Bakuna",
         healthVaccinesSub:
             "Listahan ng mga nakumpleto at darating na bakuna ng sanggol",
-        healthVaccineNCRStock: "Balita sa Stock ng Bakuna sa NCR",
-        healthVaccineNCRStockSub:
-            "Halimbawa kung paano lalabas ang mga ulat ng stock sa health center",
         healthCheckupReminders: "Paalala sa Checkup ni Baby",
         healthCheckupRemindersSub:
             "Mga darating na iskedyul at gabay mula sa klinika",
@@ -410,6 +405,9 @@ export const translations = {
             "Tingnan ang pinakahuling mga sukat ng iyong baby at kung paano nagbabago ang mga ito habang lumalaki.",
         growthAddMetrics: "Magdagdag ng Sukat",
         growthAll: "Lahat",
+        growthChartFilterTitle: "Mga tsart ng paglaki",
+        growthChartFilterButton: "Salain ang mga tsart ng paglaki, {count} ang napili",
+        growthCloseChartFilter: "Isara ang salaan ng tsart",
         growthHeight: "Taas",
         growthWeight: "Timbang",
         growthHeadCirc: "Sukat ng Ulo",
@@ -668,13 +666,9 @@ export const translations = {
         dashBabyInfoCard: "Baby's Active Folder",
 
         healthHeader: "Pediatric Health",
-        healthSub:
-            "Subaybayan ang vaccines, stock alerts, at clinical consults.",
+        healthSub: "Subaybayan ang vaccines at clinical consults.",
         healthVaccinesTitle: "Vaccine Records",
         healthVaccinesSub: "List ng complete at pending vaccine doses ni baby",
-        healthVaccineNCRStock: "NCR Vaccine Stock Alerts",
-        healthVaccineNCRStockSub:
-            "Halimbawa ng stock notice mula sa local health center",
         healthCheckupReminders: "Checkup Reminders",
         healthCheckupRemindersSub:
             "Upcoming schedules at guidelines sa klinika",
@@ -695,6 +689,9 @@ export const translations = {
         growthMetricsSub: "Tingnan ang latest measurements ni baby at kung paano nagbabago habang lumalaki.",
         growthAddMetrics: "Add Measurement",
         growthAll: "Lahat",
+        growthChartFilterTitle: "Growth charts",
+        growthChartFilterButton: "I-filter ang growth charts, {count} ang selected",
+        growthCloseChartFilter: "Isara ang chart filter",
         growthHeight: "Height",
         growthWeight: "Weight",
         growthHeadCirc: "Head",
