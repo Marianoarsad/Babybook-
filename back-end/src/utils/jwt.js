@@ -16,4 +16,19 @@ function verifyToken(token) {
     return jwt.verify(token, getSecret());
 }
 
-module.exports = { signToken, verifyToken };
+function signSocialToken(payload) {
+    return jwt.sign({ ...payload, purpose: "social-auth" }, getSecret(), {
+        audience: "babybook-social-registration",
+        expiresIn: "5m",
+    });
+}
+
+function verifySocialToken(token) {
+    const payload = jwt.verify(token, getSecret(), {
+        audience: "babybook-social-registration",
+    });
+    if (payload.purpose !== "social-auth") throw new Error("Invalid social sign-in token");
+    return payload;
+}
+
+module.exports = { signToken, verifyToken, signSocialToken, verifySocialToken };

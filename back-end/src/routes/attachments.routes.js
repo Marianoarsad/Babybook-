@@ -9,7 +9,7 @@ const storage = require("../utils/storage");
 const router = express.Router();
 
 // Record types that support a supporting photo/document.
-const TYPES = new Set(["vaccination", "medication", "illness", "hospitalization", "checkup"]);
+const TYPES = new Set(["vaccination", "medication", "illness", "allergy", "hereditary", "hospitalization", "checkup"]);
 
 // All routes here are child-scoped and owner-guarded.
 router.use("/:childId/attachments", requireAuth, requireChildOwnership);
