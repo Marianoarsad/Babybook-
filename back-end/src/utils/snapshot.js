@@ -1,5 +1,6 @@
 const { query } = require("../db/pool");
 const { encrypt, decrypt, decryptRow, isEncrypted } = require("./crypto");
+const { formatEmergencyContact, parseEmergencyContact } = require("./emergencyContact");
 
 // Record keys the parent can choose to share (mirrors the app's labels).
 const RECORD_LABELS = {
@@ -45,14 +46,41 @@ async function buildSnapshot(child, keys, visitReason) {
             hospital: decrypt(child.hospital),
             pediatrician: decrypt(child.pediatrician_name),
             obgyne: decrypt(child.obgyne_name),
-            emergencyContact: decrypt(child.emergency_contact),
+            emergencyContact: formatEmergencyContact(decrypt(child.emergency_contact)),
+            emergencyContactDetails: parseEmergencyContact(decrypt(child.emergency_contact)),
         };
     }
 
     if (keys.includes("allergies")) {
+        const { rows } = await query(
+            `SELECT id, category, title, allergy_type, date_recorded, resolved, resolved_date,
+                    care_level, facility FROM medical_history
+             WHERE child_id = $1 AND category IN ('Allergy', 'Hereditary Condition')
+             ORDER BY date_recorded DESC NULLS LAST, id DESC`,
+            [child.id],
+        );
+        const facts = rows.map((row) => decryptRow(row, ["title", "facility"]));
+        const merge = (legacy, category) => {
+            const values = [...facts.filter((row) => row.category === category).map((row) => row.title), ...(legacy || [])];
+            const seen = new Set();
+            return values.filter((value) => {
+                const text = String(value || "").trim();
+                const key = text.toLocaleLowerCase();
+                if (!text || seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+        };
+        const allergies = merge(child.allergies, "Allergy");
+        const allergyType = (title) => facts.find((row) => row.category === "Allergy"
+            && String(row.title || "").trim().toLocaleLowerCase() === String(title).trim().toLocaleLowerCase())?.allergy_type;
         snap.allergies = {
-            allergies: child.allergies || [],
-            hereditaryConditions: child.hereditary_conditions || [],
+            allergyEntries: facts.filter((row) => row.category === "Allergy"),
+            hereditaryEntries: facts.filter((row) => row.category === "Hereditary Condition"),
+            allergies,
+            foodAllergies: allergies.filter((title) => allergyType(title) === "food"),
+            unclassifiedAllergies: allergies.filter((title) => !allergyType(title)),
+            hereditaryConditions: merge(child.hereditary_conditions, "Hereditary Condition"),
         };
     }
 
@@ -75,12 +103,13 @@ async function buildSnapshot(child, keys, visitReason) {
             // which values came off a clinic scale. `notes` deliberately does
             // NOT — the parent's private aside is not part of the clinical
             // extract, the same boundary drawn for milestone descriptions.
-            "SELECT height, weight, head_circumference, date_recorded, measured_at FROM growth_records WHERE child_id = $1 ORDER BY date_recorded DESC",
+            "SELECT id, height, weight, head_circumference, date_recorded, measured_at FROM growth_records WHERE child_id = $1 ORDER BY date_recorded DESC, id DESC",
             [child.id]
         );
         snap.growth = {
             birthWeight: child.birth_weight,
             birthLength: child.birth_length,
+            birthHeadCircumference: child.birth_head_circumference,
             measurements: rows,
         };
     }
@@ -103,7 +132,8 @@ async function buildSnapshot(child, keys, visitReason) {
 
     if (keys.includes("nutrition")) {
         const { rows } = await query(
-            `SELECT entry_type, milk_type, feed_method, formula_brand, quantity, unit,
+            `SELECT entry_type, milk_type, feed_method, formula_brand, formula_scoops,
+                    quantity, breastmilk_quantity, unit,
                     duration_minutes, breast_side,
                     food_introduced, reaction_severity, reaction, entry_date, entry_time, notes
              FROM nutrition_records WHERE child_id = $1
@@ -132,7 +162,28 @@ async function buildSnapshot(child, keys, visitReason) {
         );
     }
 
+    assertReadableSnapshot(snap);
     return snap;
+}
+
+function assertReadableSnapshot(value) {
+    if (typeof value === "string" && value.includes("enc:v1:")) {
+        const error = new Error("Selected shared records cannot be decrypted");
+        error.code = "SHARED_RECORDS_UNREADABLE";
+        throw error;
+    }
+    if (value && typeof value === "object") Object.values(value).forEach(assertReadableSnapshot);
+}
+
+function authorizedSnapshot(payload, recordKeys) {
+    if (!payload || Array.isArray(payload) || typeof payload !== "object") return null;
+    const result = {};
+    for (const key of recordKeys) {
+        if (Object.hasOwn(RECORD_LABELS, key) && Object.hasOwn(payload, key)) result[key] = payload[key];
+    }
+    if (typeof payload.visitReason === "string") result.visitReason = payload.visitReason.slice(0, VISIT_REASON_MAX);
+    assertReadableSnapshot(result);
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -179,18 +230,25 @@ function sealPayload(snap) {
 //     would be a worse failure than the one being fixed.
 //   - anything else / empty — a purged or unusable row; caller treats as gone.
 function openPayload(stored) {
-    if (stored && typeof stored === "object") return stored; // legacy plaintext
+    if (stored && typeof stored === "object") return withContactDetails(stored); // legacy plaintext
     if (typeof stored !== "string") return null;
     if (!isEncrypted(stored)) {
         // A legacy row could also have been stored as a JSON string.
-        try { return JSON.parse(stored); } catch { return null; }
+        try { return withContactDetails(JSON.parse(stored)); } catch { return null; }
     }
     try {
-        return JSON.parse(decrypt(stored));
+        return withContactDetails(JSON.parse(decrypt(stored)));
     } catch {
         // A payload we cannot open is not a payload we may guess at.
         return null;
     }
+}
+
+// Normalize only already-shared contact text; never look up the live child.
+function withContactDetails(payload) {
+    if (!payload?.profile || payload.profile.emergencyContactDetails) return payload;
+    return { ...payload, profile: { ...payload.profile,
+        emergencyContactDetails: parseEmergencyContact(payload.profile.emergencyContact) } };
 }
 
 // The literal to assign when clearing a snapshot. Callers add
@@ -207,5 +265,7 @@ module.exports = {
     VISIT_REASON_MAX,
     sealPayload,
     openPayload,
+    authorizedSnapshot,
+    assertReadableSnapshot,
     PURGED_PAYLOAD_SQL,
 };

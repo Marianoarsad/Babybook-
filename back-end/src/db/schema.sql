@@ -5,8 +5,13 @@
 --
 -- Safe to re-run: drops and recreates everything.
 
+DROP TABLE IF EXISTS notifications CASCADE;
+DROP TABLE IF EXISTS notification_inbox_state CASCADE;
 DROP TABLE IF EXISTS access_logs CASCADE;
+DROP TABLE IF EXISTS consultation_access_limits CASCADE;
+DROP TABLE IF EXISTS mutation_receipts CASCADE;
 DROP TABLE IF EXISTS shared_records CASCADE;
+DROP TABLE IF EXISTS calendar_plan_statuses CASCADE;
 DROP TABLE IF EXISTS calendar_events CASCADE;
 DROP TABLE IF EXISTS reminders CASCADE;
 DROP TABLE IF EXISTS record_attachments CASCADE;
@@ -20,6 +25,7 @@ DROP TABLE IF EXISTS checkups CASCADE;
 DROP TABLE IF EXISTS vaccinations CASCADE;
 DROP TABLE IF EXISTS children CASCADE;
 DROP TABLE IF EXISTS password_resets CASCADE;
+DROP TABLE IF EXISTS user_auth_identities CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
 
 -- Auto-update updated_at on row changes.
@@ -58,6 +64,17 @@ CREATE TABLE users (
 CREATE TRIGGER trg_users_updated BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+CREATE TABLE user_auth_identities (
+    id               SERIAL PRIMARY KEY,
+    user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider         VARCHAR(20) NOT NULL CHECK (provider IN ('google', 'facebook')),
+    provider_subject TEXT NOT NULL,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (provider, provider_subject),
+    UNIQUE (user_id, provider)
+);
+CREATE INDEX idx_user_auth_identities_user ON user_auth_identities(user_id);
+
 CREATE TABLE password_resets (
     id         SERIAL PRIMARY KEY,
     user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -85,10 +102,15 @@ CREATE TABLE children (
     blood_type              TEXT,
     birth_weight            DECIMAL(5,2),
     birth_length            DECIMAL(5,2),
+    birth_head_circumference DECIMAL(5,2)
+                  CONSTRAINT children_birth_head_range CHECK (birth_head_circumference BETWEEN 20 AND 65),
     place_of_birth          TEXT,
     hospital                TEXT,
     obgyne_name             TEXT,
+    obgyne_contact_number   TEXT,
     pediatrician_name       TEXT,
+    pediatrician_contact_number TEXT,
+    pediatrician_clinic_hospital TEXT,
     emergency_contact       TEXT,
     preferred_health_center TEXT,
     avatar_url              TEXT,
@@ -159,6 +181,8 @@ CREATE TABLE medical_history (
     child_id      INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
     category      VARCHAR(50) NOT NULL
                   CHECK (category IN ('Illness', 'Allergy', 'Medication', 'Hospitalization', 'Hereditary Condition')),
+    allergy_type  TEXT CONSTRAINT medical_history_allergy_type_check
+                  CHECK (allergy_type IS NULL OR (category = 'Allergy' AND allergy_type IN ('food', 'non_food'))),
     title         TEXT,              -- encrypted at rest
     description   TEXT,              -- encrypted at rest
     date_recorded DATE,              -- started / admitted on
@@ -270,7 +294,23 @@ CREATE TABLE nutrition_records (
     -- pattern unrecordable. NULL means a pre-migration row.
     feed_method     VARCHAR(10) CHECK (feed_method IN ('breast', 'bottle')),
     formula_brand   TEXT,          -- encrypted at rest
-    quantity        DECIMAL(7,2),  -- bottle feeds only
+    formula_scoops  NUMERIC(5,2)
+                    CHECK (
+                        formula_scoops IS NULL OR (
+                            formula_scoops > 0
+                            AND entry_type = 'milk'
+                            AND milk_type IN ('Formula', 'Mixed')
+                        )
+                    ),
+    quantity        DECIMAL(7,2),  -- formula portion for Mixed; otherwise bottle amount
+    breastmilk_quantity NUMERIC(7,2)
+                    CHECK (
+                        breastmilk_quantity IS NULL OR (
+                            breastmilk_quantity > 0
+                            AND entry_type = 'milk'
+                            AND milk_type = 'Mixed'
+                        )
+                    ),
     unit            VARCHAR(5) CHECK (unit IN ('oz', 'mL', 'L')),
     -- Breastfeeds only, and optional: a parent logging a night feed hours
     -- later does not know the minutes, and requiring them would only swap an
@@ -354,6 +394,27 @@ CREATE INDEX idx_calendar_events_child ON calendar_events(child_id);
 CREATE TRIGGER trg_calendar_events_updated BEFORE UPDATE ON calendar_events
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- A parent's calendar checklist is deliberately separate from clinical
+-- completion. Checking a plan must never mark a vaccine as administered,
+-- resolve an illness, or record a medication dose.
+CREATE TABLE calendar_plan_statuses (
+    id              SERIAL PRIMARY KEY,
+    child_id        INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    source_type     VARCHAR(30) NOT NULL
+                    CHECK (source_type IN ('vaccination', 'checkup', 'medical-history', 'calendar-event')),
+    source_id       INTEGER NOT NULL CHECK (source_id > 0),
+    occurrence_date DATE NOT NULL,
+    completed       BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (child_id, source_type, source_id, occurrence_date)
+);
+CREATE INDEX idx_calendar_plan_statuses_child_date
+    ON calendar_plan_statuses(child_id, occurrence_date DESC, id DESC);
+CREATE TRIGGER trg_calendar_plan_statuses_updated BEFORE UPDATE ON calendar_plan_statuses
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+ALTER TABLE calendar_plan_statuses ENABLE ROW LEVEL SECURITY;
+
 -- =========================================================
 -- SHARED RECORDS (QR consultation access)
 -- =========================================================
@@ -361,6 +422,7 @@ CREATE TABLE shared_records (
     id                 SERIAL PRIMARY KEY,
     child_id           INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
     code               VARCHAR(20) NOT NULL UNIQUE,
+    share_token_hash    TEXT,
     qr_payload         VARCHAR(255),
     shared_record_keys JSONB NOT NULL,
     payload            JSONB NOT NULL,
@@ -372,6 +434,15 @@ CREATE TABLE shared_records (
 );
 CREATE INDEX idx_shared_child ON shared_records(child_id);
 CREATE INDEX idx_shared_code ON shared_records(code);
+CREATE UNIQUE INDEX idx_shared_token_hash ON shared_records(share_token_hash) WHERE share_token_hash IS NOT NULL;
+CREATE TABLE consultation_access_limits (
+    bucket_key TEXT PRIMARY KEY,
+    window_start TIMESTAMPTZ NOT NULL DEFAULT now(),
+    attempts INTEGER NOT NULL CHECK (attempts > 0)
+);
+CREATE INDEX idx_consultation_limits_window ON consultation_access_limits(window_start);
+ALTER TABLE consultation_access_limits ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON consultation_access_limits FROM PUBLIC;
 
 -- =========================================================
 -- ACCESS LOG — every professional view of shared records.
@@ -391,6 +462,49 @@ CREATE TABLE access_logs (
 CREATE INDEX idx_access_share ON access_logs(share_id);
 CREATE INDEX idx_access_child ON access_logs(child_id);
 
+-- References/times only; source records and children cascade on deletion.
+CREATE TABLE notification_inbox_state (
+    child_id INTEGER PRIMARY KEY REFERENCES children(id) ON DELETE CASCADE,
+    initialized_at TIMESTAMPTZ NOT NULL, synced_through TIMESTAMPTZ NOT NULL, time_zone TEXT NOT NULL
+);
+CREATE TABLE notifications (
+    id SERIAL PRIMARY KEY,
+    child_id INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('shared_access', 'course_ended', 'vaccination', 'appointment', 'medication_dose')),
+    occurrence_key TEXT NOT NULL, occurred_at TIMESTAMPTZ NOT NULL, read_at TIMESTAMPTZ,
+    backfilled BOOLEAN NOT NULL DEFAULT FALSE,
+    access_log_id INTEGER REFERENCES access_logs(id) ON DELETE CASCADE,
+    vaccination_id INTEGER REFERENCES vaccinations(id) ON DELETE CASCADE,
+    checkup_id INTEGER REFERENCES checkups(id) ON DELETE CASCADE,
+    medication_id INTEGER REFERENCES medical_history(id) ON DELETE CASCADE,
+    UNIQUE (child_id, occurrence_key),
+    CHECK (num_nonnulls(access_log_id, vaccination_id, checkup_id, medication_id) = 1),
+    CHECK ((kind = 'shared_access' AND access_log_id IS NOT NULL)
+        OR (kind = 'vaccination' AND vaccination_id IS NOT NULL)
+        OR (kind = 'appointment' AND checkup_id IS NOT NULL)
+        OR (kind IN ('course_ended', 'medication_dose') AND medication_id IS NOT NULL))
+);
+CREATE INDEX idx_notifications_child_date ON notifications(child_id, occurred_at DESC, id DESC);
+CREATE INDEX idx_notifications_unread ON notifications(child_id, occurred_at DESC, id DESC) WHERE read_at IS NULL;
+CREATE INDEX idx_notifications_access ON notifications(access_log_id);
+CREATE INDEX idx_notifications_vaccination ON notifications(vaccination_id);
+CREATE INDEX idx_notifications_checkup ON notifications(checkup_id);
+CREATE INDEX idx_notifications_medication ON notifications(medication_id);
+ALTER TABLE notification_inbox_state ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON notification_inbox_state, notifications FROM PUBLIC;
+REVOKE ALL ON SEQUENCE notifications_id_seq FROM PUBLIC;
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+        REVOKE ALL ON notification_inbox_state, notifications FROM anon;
+        REVOKE ALL ON SEQUENCE notifications_id_seq FROM anon;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+        REVOKE ALL ON notification_inbox_state, notifications FROM authenticated;
+        REVOKE ALL ON SEQUENCE notifications_id_seq FROM authenticated;
+    END IF;
+END $$;
+
 -- =========================================================
 -- RECORD ATTACHMENTS — supporting photo/document per health record.
 -- Polymorphic: record_id points to vaccinations / checkups / medical_history
@@ -401,10 +515,34 @@ CREATE TABLE record_attachments (
     id           SERIAL PRIMARY KEY,
     child_id     INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
     record_type  VARCHAR(20) NOT NULL
-                 CHECK (record_type IN ('vaccination', 'medication', 'illness', 'hospitalization', 'checkup')),
+                 CHECK (record_type IN ('vaccination', 'medication', 'illness', 'allergy', 'hereditary', 'hospitalization', 'checkup')),
     record_id    INTEGER NOT NULL,
     file_url     TEXT NOT NULL,
     uploaded_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_attach_record ON record_attachments(record_type, record_id);
 CREATE INDEX idx_attach_child ON record_attachments(child_id);
+
+-- Retry receipts contain identifiers/digests only, never record contents.
+CREATE TABLE IF NOT EXISTS mutation_receipts (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    child_id INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    resource TEXT NOT NULL,
+    operation_key VARCHAR(64) NOT NULL,
+    payload_hash CHAR(64) NOT NULL,
+    record_id INTEGER,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, child_id, resource, operation_key)
+);
+CREATE INDEX IF NOT EXISTS idx_mutation_receipts_child ON mutation_receipts(child_id);
+CREATE INDEX IF NOT EXISTS idx_mutation_receipts_record ON mutation_receipts(user_id, child_id, resource, record_id);
+ALTER TABLE mutation_receipts ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON mutation_receipts FROM PUBLIC;
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+        REVOKE ALL ON mutation_receipts FROM anon;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+        REVOKE ALL ON mutation_receipts FROM authenticated;
+    END IF;
+END $$;
