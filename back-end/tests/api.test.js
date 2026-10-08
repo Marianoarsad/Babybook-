@@ -18,6 +18,7 @@ beforeAll(async () => {
     const sql = fs.readFileSync(path.join(__dirname, "../src/db/schema.sql"), "utf8");
     await pool.query(sql);
     await pool.query(fs.readFileSync(path.join(__dirname, "../src/db/migrations/018_qr_web_sharing.sql"), "utf8"));
+    await pool.query(fs.readFileSync(path.join(__dirname, "../src/db/migrations/019_server_only_records.sql"), "utf8"));
 });
 
 afterAll(async () => {
@@ -32,6 +33,21 @@ describe("BabyBook+ API", () => {
         const res = await request(app).get("/api/health");
         expect(res.status).toBe(200);
         expect(res.body.ok).toBe(true);
+    });
+
+    test("application tables and their sequences are server-only without changing owner access", async () => {
+        const before = (await pool.query("SELECT count(*)::int AS n FROM users")).rows[0].n;
+        await pool.query(fs.readFileSync(path.join(__dirname, "../src/db/migrations/019_server_only_records.sql"), "utf8"));
+        const tables = (await pool.query("SELECT relrowsecurity, relforcerowsecurity, relacl FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r'")).rows;
+        expect(tables.length).toBeGreaterThan(20);
+        for (const table of tables) {
+            expect(table.relrowsecurity).toBe(true);
+            expect(table.relforcerowsecurity).toBe(false);
+            expect(String(table.relacl)).not.toMatch(/(?:\{|,)(?:|anon|authenticated)=/);
+        }
+        const sequences = (await pool.query("SELECT relacl FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='S'")).rows;
+        for (const sequence of sequences) expect(String(sequence.relacl)).not.toMatch(/(?:\{|,)(?:|anon|authenticated)=/);
+        expect((await pool.query("SELECT count(*)::int AS n FROM users")).rows[0].n).toBe(before);
     });
 
     test("register returns a token", async () => {
