@@ -869,6 +869,9 @@ describe("BabyBook+ API", () => {
             expect((await pool.query("SELECT public.babybook_share_snapshot_cleanup() AS n")).rows[0].n).toBe(0);
             const privileges = (await pool.query("SELECT proacl FROM pg_proc WHERE oid='public.babybook_share_snapshot_cleanup()'::regprocedure")).rows[0].proacl;
             expect(String(privileges)).not.toMatch(/(?:\{|,)=X/);
+            const identities = (await pool.query("SELECT relrowsecurity, relacl FROM pg_class WHERE oid='public.user_auth_identities'::regclass")).rows[0];
+            expect(identities.relrowsecurity).toBe(true);
+            expect(String(identities.relacl)).not.toMatch(/(?:\{|,)=/);
         });
     });
 });
