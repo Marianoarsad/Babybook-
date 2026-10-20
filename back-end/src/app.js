@@ -11,6 +11,7 @@ const memoriesRoutes = require("./routes/memories.routes");
 const attachmentsRoutes = require("./routes/attachments.routes");
 const shareRoutes = require("./routes/share.routes");
 const consultRoutes = require("./routes/consult.routes");
+const notificationRoutes = require("./routes/notifications.routes");
 
 const app = express();
 
@@ -40,6 +41,7 @@ app.use("/api/children", recordRoutes);
 app.use("/api/children", memoriesRoutes);
 app.use("/api/children", attachmentsRoutes);
 app.use("/api/children", shareRoutes);
+app.use("/api/children", notificationRoutes);
 // Public, no-auth endpoint used by the healthcare-professional QR flow.
 app.use("/api/consult", consultRoutes);
 

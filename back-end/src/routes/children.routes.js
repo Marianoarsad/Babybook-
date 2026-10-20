@@ -10,6 +10,7 @@ const { encryptFields, decryptRow } = require("../utils/crypto");
 const { insertEpiSchedule } = require("../utils/epiGenerator");
 const { EPI_SCHEDULE, SCHEDULE_VERSION } = require("../data/epiSchedule");
 const storage = require("../utils/storage");
+const { isNumberWithin } = require("../utils/numericValidation");
 const {
     parseEmergencyContact,
     serializeEmergencyContact,
@@ -31,6 +32,8 @@ const childValidators = () => [
         .withMessage("Birth weight must be between 0.3 and 40 kg"),
     body("birth_length").optional({ nullable: true }).isFloat({ min: 20, max: 140 })
         .withMessage("Birth height must be between 20 and 140 cm"),
+    body("birth_head_circumference").optional({ nullable: true }).custom((value) => isNumberWithin(value, { min: 20, max: 65, maxDecimals: 2 }))
+        .withMessage("Birth head circumference must be between 20 and 65 cm"),
     body("pediatrician_contact_number").optional({ values: "falsy" }).matches(/^\d+$/)
         .withMessage("Pediatrician contact number must contain digits only"),
     body("obgyne_contact_number").optional({ values: "falsy" }).matches(/^\d+$/)
@@ -44,7 +47,7 @@ const childValidators = () => [
 // Columns a client may set on a child profile.
 const CHILD_COLUMNS = [
     "first_name", "last_name", "nickname", "date_of_birth", "time_of_birth", "sex",
-    "blood_type", "birth_weight", "birth_length", "place_of_birth", "hospital",
+    "blood_type", "birth_weight", "birth_length", "birth_head_circumference", "place_of_birth", "hospital",
     "obgyne_name", "obgyne_contact_number", "pediatrician_name",
     "pediatrician_contact_number", "pediatrician_clinic_hospital", "emergency_contact",
     "preferred_health_center", "avatar_url", "allergies", "hereditary_conditions",

@@ -70,6 +70,10 @@ async function check() {
     assert(sheet.includes("if (deleteLock.current || busy || !onDelete) return"));
     assert(sheet.includes("submitLock.current"));
     assert(sheet.includes("accessibilityElementsHidden={confirming}"));
+    assert(sheet.includes("Animated.timing(warp") && sheet.includes("motion.entrance.duration"));
+    assert(sheet.includes("scaleX: warp.interpolate") && sheet.includes("scaleY: warp.interpolate") && sheet.includes("translateY: warp.interpolate"));
+    assert(sheet.includes('AccessibilityInfo.isReduceMotionEnabled?.()') && sheet.includes('addEventListener?.("reduceMotionChanged"'));
+    assert(sheet.includes('<Animated.View accessibilityViewIsModal') && sheet.includes('transparent animationType="none"'));
     assert(sheet.includes('height: motion.height'));
     assert(/sheet:\s*\{[^}]*width: "100%"/.test(sheet));
     assert(!/sheet:\s*\{[^}]*maxWidth/.test(sheet), "Record sheets must span the screen on every display width");
@@ -102,7 +106,8 @@ async function check() {
     assert(app.includes('changeView("editBabyProfile")'));
     assert(app.includes("onPress={goBack}"), "The shared Back button must keep the navigation history handler");
     for (const destination of ["search", "share", "viewProfile"])
-        assert(app.includes(`changeView("${destination}")`), `Missing shared header route to ${destination}`);
+        assert(app.includes(`openHeaderView("${destination}")`), `Missing shared header route to ${destination}`);
+    assert(app.slice(app.indexOf("const openHeaderView ="), app.indexOf("const goBack =")).includes("changeView(view)"));
     for (const bloodType of ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"])
         assert(app.includes(`"${bloodType}"`), `Missing blood type option ${bloodType}`);
     assert(editProfile.includes("bloodTypeTriggerRef"));

@@ -6,6 +6,10 @@ export function useRecords(child, resource) {
     const snapshot = useCallback(() => store.getRows(child, resource), [child, resource]);
     return useSyncExternalStore(store.subscribe, snapshot, snapshot);
 }
+export function useConfirmedRecords(child, resource) {
+    const snapshot = useCallback(() => store.getConfirmed(child, resource), [child, resource]);
+    return useSyncExternalStore(store.subscribe, snapshot, snapshot);
+}
 export function useRecordCache(child, resource) {
     const snapshot = useCallback(() => store.getSnapshot(child, resource), [child, resource]);
     return useSyncExternalStore(store.subscribe, snapshot, snapshot);

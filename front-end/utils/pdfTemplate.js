@@ -8,6 +8,7 @@
 // theme.js.
 import { feedRowSummary } from "./adapters";
 import conditionRecords from "./conditions.cjs";
+import { VISIT_REASON_MAX } from "./shareStore";
 
 const { conditionSummaries } = conditionRecords;
 
@@ -51,7 +52,7 @@ function esc(v) {
 
 function fmtDate(d) {
     if (!d) return "—";
-    const dt = new Date(d);
+    const dt = new Date(/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d}T00:00:00` : d);
     return isNaN(dt.getTime()) ? String(d) : dt.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
 }
 
@@ -91,6 +92,8 @@ function row(cells) {
 //   backend rows (snake_case), each an array. Missing keys are treated as excluded.
 export function buildRecordHtml(profile, records = {}, options = {}) {
     const scope = options.scope || new Set(Object.keys(CATEGORY_LABELS));
+    const visitReason = String(options.visitReason || "").trim();
+    if (visitReason.length > VISIT_REASON_MAX) throw new Error(`Keep the visit note to ${VISIT_REASON_MAX} characters.`);
     const generatedAt = new Date().toLocaleString(undefined, {
         day: "numeric", month: "long", year: "numeric", hour: "numeric", minute: "2-digit",
     });
@@ -168,6 +171,13 @@ export function buildRecordHtml(profile, records = {}, options = {}) {
         sections.push(section(CATEGORY_LABELS.nutrition, table(rows)));
     }
 
+    if (scope.has("nutrition") && Array.isArray(records.milkTypePeriods)) {
+        sections.push(section("Milk Type Periods", table(records.milkTypePeriods.map(period => row([
+            esc(period.milk_type), esc(fmtDate(period.start_date)),
+            period.end_date ? esc(fmtDate(period.end_date)) : "Open-ended", esc(period.notes),
+        ])))));
+    }
+
     if (scope.has("medicalHistory") && records.medicalHistory) {
         const rows = records.medicalHistory
             .filter((h) => ["Illness", "Medication", "Hospitalization"].includes(h.category))
@@ -239,22 +249,16 @@ export function buildRecordHtml(profile, records = {}, options = {}) {
 </style>
 </head>
 <body>
-    <!-- Name and date of birth print on EVERY copy, even when "profile" is
-         out of scope. This is a deliberate exception to the scope rule: a
-         loose sheet of paper with no name on it is a misfiling hazard in a way
-         an on-screen view is not — the screen belongs to one consultation, the
-         paper can end up in the wrong folder. Everything else about the child
-         still obeys the parent's selection. -->
     <div class="header">
         <div class="brand">BabyBook+</div>
-        <div class="child-name">${esc(profile.name)}</div>
+        <div class="child-name">${showProfile ? esc(profile.name) : "Shared Baby Records"}</div>
         <div class="meta">
-            Date of Birth: ${esc(fmtDate(profile.dateOfBirth))}${profile.dateOfBirth ? ` (${esc(calcAge(profile.dateOfBirth))})` : ""}
-            &nbsp;·&nbsp; Generated ${esc(generatedAt)}
+            ${showProfile ? `Date of Birth: ${esc(fmtDate(profile.dateOfBirth))}${profile.dateOfBirth ? ` (${esc(calcAge(profile.dateOfBirth))})` : ""} &nbsp;·&nbsp; ` : ""}Generated ${esc(generatedAt)}
         </div>
     </div>
 
     ${profileCells.length ? `<div class="profile-grid">${profileCells.join("")}</div>` : ""}
+    ${visitReason ? section("Reason for Visit", `<div style="white-space:pre-wrap">${esc(visitReason)}</div>`) : ""}
 
     ${sections.join("")}
 

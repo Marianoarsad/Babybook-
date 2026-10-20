@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View, Animated, StyleSheet, Easing, Platform } from "react-native";
+import { View, Animated, StyleSheet, Easing, Platform, useWindowDimensions } from "react-native";
 import { useTheme } from "../../context/ThemeContext";
 import { radius as R, space, shadow } from "../../theme";
 
@@ -147,10 +147,15 @@ export function MemoriesSkeleton({ count = 2 }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const clock = useShimmerClock();
+    const [width, setWidth] = useState(0);
+    const { fontScale } = useWindowDimensions();
+    const columns = width > 0 && (width - 12) / 2 < 112 * fontScale ? 1 : 2;
     return (
-        <View accessibilityLabel="Loading memories">
-            {Array.from({ length: count }).map((_, i) => (
-                <View key={i} style={styles.memoryCard}>
+        <View accessibilityLabel="Loading memories" onLayout={event => setWidth(Math.floor(event.nativeEvent.layout.width))}
+            style={{ gap: 16 }}>
+            {Array.from({ length: Math.ceil(count / columns) }).map((_, row) => <View key={row} style={{ flexDirection: "row", gap: 12 }}>
+            {Array.from({ length: Math.min(columns, count - row * columns) }).map((_, i) => (
+                <View key={i} style={[styles.memoryCard, { flex: 1, minWidth: 0 }]}>
                     <View style={styles.memoryFrame}>
                         <SkeletonBlock clock={clock} width="100%" height="100%" radius={R.md} />
                     </View>
@@ -166,6 +171,8 @@ export function MemoriesSkeleton({ count = 2 }) {
                     </View>
                 </View>
             ))}
+            {columns === 2 && count - row * columns === 1 ? <View style={{ flex: 1 }} /> : null}
+            </View>)}
         </View>
     );
 }
@@ -242,14 +249,11 @@ const makeStyles = (colors) =>
         apptText: { flex: 1, marginLeft: space.md },
 
         memoryCard: {
-            borderRadius: R.lg,
+            borderRadius: 22,
             borderCurve: "continuous",
-            borderWidth: 1,
-            borderColor: colors.borderStrong,
             padding: space.sm,
-            backgroundColor: colors.surface,
-            marginBottom: space.md,
-            ...shadow.card,
+            backgroundColor: colors.memoriesSurface.item[0],
+            boxShadow: colors.memoriesSurface.itemShadow,
         },
         memoryFrame: {
             borderRadius: R.md,

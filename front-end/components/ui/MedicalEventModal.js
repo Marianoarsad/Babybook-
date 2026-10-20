@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, TextInput, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { radius, space, type, MIN_TOUCH } from "../../theme";
@@ -11,6 +11,8 @@ import { todayLocal } from "../../utils/dates";
 import { suggestedConditions } from "../../utils/commonConditions";
 import { useToast } from "./Toast";
 import conditionRecords from "../../utils/conditions.cjs";
+import { FieldShell } from "./Field";
+import OptionSheet from "./OptionSheet";
 
 import { DateField } from "./DateField";
 import PhotoAttach from "./PhotoAttach";
@@ -155,6 +157,9 @@ export default function MedicalEventModal({
     const { t } = useLanguage();
     const toast = useToast();
     const [category, setCategory] = useState("Illness");
+    const [allergyType, setAllergyType] = useState("");
+    const [allergyAnchor, setAllergyAnchor] = useState(null);
+    const allergyTrigger = useRef(null);
     const isCondition = kind === "illness";
     const copy = isCondition ? CONDITION_COPY[category] || CONDITION_COPY.Illness : COPY.hospitalization;
     const isIllness = isCondition && category === "Illness";
@@ -171,13 +176,16 @@ export default function MedicalEventModal({
     const [notes, setNotes] = useState("");
     const [photoUri, setPhotoUri] = useState("");
     const [titleError, setTitleError] = useState("");
+    const [allergyTypeError, setAllergyTypeError] = useState("");
     const [saving, setSaving] = useState(false);
 
     // Load the record being edited, or start clean. Keyed on the id rather
     // than the object so a parent re-render mid-typing does not wipe the form.
     useEffect(() => {
-        if (!visible) return;
+        if (!visible) { setAllergyAnchor(null); return; }
         setCategory(record && CONDITION_COPY[record.category] ? record.category : "Illness");
+        setAllergyType(record?.allergyType || "");
+        setAllergyAnchor(null);
         setTitle(record ? record.title || "" : "");
         setFacility(record ? record.facility || "" : "");
         setStartDate(record && record.date ? record.date : todayLocal());
@@ -187,6 +195,7 @@ export default function MedicalEventModal({
         setNotes(record ? record.desc || "" : "");
         setPhotoUri("");
         setTitleError("");
+        setAllergyTypeError("");
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [visible, record && record.id]);
 
@@ -207,10 +216,15 @@ export default function MedicalEventModal({
             return; // the effect below scrolls the error into view
 
         }
+        if (copy.category === "Allergy" && !["food", "non_food"].includes(allergyType)) {
+            setAllergyTypeError("Choose Food or Non-food");
+            return;
+        }
         setSaving(true);
         try {
             const body = {
                 category: copy.category,
+                allergy_type: copy.category === "Allergy" ? allergyType || null : null,
                 title: name,
                 description: notes.trim() || null,
                 date_recorded: startDate || todayLocal(),
@@ -274,6 +288,7 @@ export default function MedicalEventModal({
                                                         if (editing) return;
                                                         setCategory(option.category);
                                                         setTitleError("");
+                                                        setAllergyTypeError("");
                                                     }}
                                                     disabled={editing}
                                                     accessibilityRole="button"
@@ -304,6 +319,22 @@ export default function MedicalEventModal({
                                 accessibilityLabel={copy.titleLabel}
                             />
                             </RecordFormRow>
+
+                            {category === "Allergy" && isCondition ? <>
+                                <FieldShell label="Allergy Type" required error={allergyTypeError} focused={!!allergyAnchor}>
+                                    <TouchableOpacity ref={allergyTrigger}
+                                        onPress={() => allergyTrigger.current?.measureInWindow((x, y, width, height) => setAllergyAnchor({ x, y, width, height }))}
+                                        accessibilityRole="button" accessibilityState={{ expanded: !!allergyAnchor }}
+                                        accessibilityLabel={`Allergy Type: ${allergyType === "food" ? "Food" : allergyType === "non_food" ? "Non-food" : "Choose allergy type"}`}
+                                        style={[styles.input, { borderWidth: 0, marginBottom: 0, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }]}>
+                                        <Text style={{ ...type.body, color: colors.text }}>{allergyType === "food" ? "Food" : allergyType === "non_food" ? "Non-food" : "Choose allergy type"}</Text>
+                                        <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
+                                    </TouchableOpacity>
+                                </FieldShell>
+                                <OptionSheet visible={visible && !!allergyAnchor} anchor={allergyAnchor} selectedKey={allergyType}
+                                    options={[{ key: "food", label: "Food" }, { key: "non_food", label: "Non-food" }]}
+                                    onSelect={(value) => { setAllergyType(value); setAllergyTypeError(""); setAllergyAnchor(null); }} onClose={() => setAllergyAnchor(null)} />
+                            </> : null}
 
                             {chips.length > 0 && (
                                 <View style={styles.chips}>

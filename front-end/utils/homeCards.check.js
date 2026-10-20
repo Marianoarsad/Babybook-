@@ -76,6 +76,7 @@ function adapter(mode, values, options = {}) {
     }
     const home = read("components/Dashboard.js");
     const nutrition = read("components/NutritionTracker.js");
+    const feeding = read("components/ui/FeedingTodayCard.js");
     const growthChart = read("components/GrowthChart.js");
     const anchoredMenu = read("components/ui/AnchoredMenu.js");
     const app = read("App.js");
@@ -84,30 +85,44 @@ function adapter(mode, values, options = {}) {
     assert(!fs.existsSync(path.join(root, "utils/offlineSummary.js")));
     assert(app.includes("void removeLegacyOfflineSummaries();"), "Cleanup must not block startup");
     const vaccines = home.indexOf("{/* Vaccination progress */}");
-    const profile = home.indexOf("{/* Child Health ID");
+    const profile = home.indexOf("<BabyProfileCard");
     const growth = home.indexOf("<GrowthChart");
-    const today = home.indexOf('<SectionContainerCard title="Today"');
-    const plans = home.indexOf("{/* Upcoming appointment");
-    assert(vaccines < profile && profile < growth && growth < today && today < plans, "Home card order");
-    const next = home.slice(plans);
-    for (const style of ["feedingCard", "feedingIcon", "feedingLabel", "feedingSub"]) {
-        assert(next.includes("styles." + style), "Next plan shares Fed style: " + style);
+    const today = home.indexOf("<FeedingTodayCard date=");
+    const memories = home.indexOf("<MemoriesMilestonesCard records=");
+    assert(vaccines < profile && profile < growth && growth < today && today < memories, "Home card order");
+    assert(!home.includes('accessibilityLabel={`Next:'), "Home no longer renders the Next Schedule card");
+    assert(!home.includes("setUpcoming"), "Removed card has no remaining derived state");
+    const feedingToday = home.slice(today, memories);
+    assert(feedingToday.includes('nav("nutrition")'));
+    assert(!feedingToday.includes('nav("nutrition", "milk")'));
+    assert(!feedingToday.includes('nav("nutrition", "solid")'));
+    assert(!feedingToday.includes("not a medical assessment"));
+    assert(feeding.includes("minHeight: 136"), "Feeding metrics have flexible compact heights");
+    assert(!feeding.includes("aspectRatio: 1"), "Metrics grow for accessibility text");
+    assert(feeding.includes('<MilkIcon size={56} backgroundShape="rounded-square" />'));
+    assert(feeding.includes('<SolidFoodIcon size={56} showBackground={false} />'));
+    for (const copy of ["Milk feeds", "Solid meals", "Bottle volume logged", "Breastfeeding time", "Latest", "Time not recorded", "Reaction recorded"]) {
+        assert(feeding.includes(copy), "Feeding today content: " + copy);
     }
-    assert(next.includes('nav("calendar")'));
-    assert(home.slice(today, plans).includes('nav("nutrition")'));
     assert(home.slice(growth, today).includes('nav("growth")'));
-    assert(home.slice(vaccines, profile).includes('nav("health", "immunizations")'));
-    assert(!home.includes("todayFeeding"), "Compact Fed card is removed");
+    assert(home.includes("recentDateRange(30, profile.dateOfBirth)"), "Home growth uses the rolling last 30 days");
+    assert(home.includes('growthLast30DaysTitle') && home.includes('growthNoMeasurementsLast30Days'), "Home growth copy matches its rolling range");
+    assert(home.includes('nav("share", null, { section: "activeRecentShares" })'), "Home active-share card targets its Share Records section");
+    assert(app.includes("initialSection={navPayload?.section}"), "App forwards the Share Records section target");
+    assert(home.slice(vaccines, profile).includes('nav("health", "immunizations", {'));
+    assert(!home.includes('<SectionContainerCard title="Today"'), "Old compact Today card is removed");
     assert(!nutrition.includes('<SectionContainerCard title="Today"'), "Today card moved out of Nutrition");
     assert(!home.includes('upcoming?.key !== `vax-${nextVax.id}`'), "Soonest vaccine always remains visible");
-    for (const contract of ["Animated.timing(attentionFold", "motion.standard.duration", "isReduceMotionEnabled", "accessibilityState={{ expanded: !attentionCollapsed }}"]) {
-        assert(home.includes(contract), "Needs attention fold contract: " + contract);
-    }
+    const attention = read("components/ui/NeedsAttentionCard.js");
+    for (const contract of ["<NeedsAttentionCard items={attentionItems}", "collapsed={attentionCollapsed}", "setAttentionCollapsed(false)", 'onOpenItem={item => nav("health", item.tab)}'])
+        assert(home.includes(contract), "Needs attention owner contract: " + contract);
+    assert(attention.includes('<AnimatedReveal expanded={!collapsed} duration={260}'), "Attention uses the shared interruptible, reduced-motion reveal");
+    assert(attention.includes("accessibilityState={{ expanded: !collapsed }}"));
     assert(growthChart.includes('variant="select"'), "Home growth selector uses anchored select behavior");
     assert(!growthChart.includes(" fold"), "Input selects inherit the shared fold instead of opting in per screen");
     assert(!growthChart.includes("minWidth={Math.min(metricMenuAnchor"), "Home growth menu follows trigger width");
-    for (const contract of ['animationMode = animation || (select ? "fold" : "scale")', "folding && !panelHeight", "outputRange: [0, panelHeight]", "motion.standard.duration", "isReduceMotionEnabled"]) {
+    for (const contract of ['animationMode = animation || (select || connected ? "fold" : "scale")', "folding && !contentHeight", "outputRange: [connected ? a.height : 0, connected && !contentHeight ? a.height : foldHeight]", "motion.standard.duration", "useReducedMotion()"]) {
         assert(anchoredMenu.includes(contract), "Anchored menu fold contract: " + contract);
     }
-    console.log("Home card checks passed: cleanup, card order, collapsible attention, persistent next vaccine, moved Today summary, and anchored growth selector.");
+    console.log("Home card checks passed: cleanup, card order, collapsible attention, persistent next vaccine, Feeding Today summary, and anchored growth selector.");
 })().catch((error) => { console.error(error); process.exitCode = 1; });

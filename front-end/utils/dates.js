@@ -38,7 +38,19 @@ export function shortDate(value) {
     if (!value) return "";
     const d = new Date(`${String(value).slice(0, 10)}T00:00:00`);
     if (isNaN(d.getTime())) return "";
-    return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    return `${String(d.getDate()).padStart(2, "0")} ${d.toLocaleDateString("en-US", { month: "short" })} ${d.getFullYear()}`;
+}
+
+// Read the stored calendar date directly; never convert date-only records to UTC.
+export function fullMonthDate(value) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})(?:$|T)/.exec(String(value || ""));
+    if (!match) return "";
+    const [, year, month, day] = match;
+    const date = new Date(0);
+    date.setFullYear(Number(year), Number(month) - 1, Number(day));
+    date.setHours(12, 0, 0, 0);
+    if (date.getFullYear() !== Number(year) || date.getMonth() !== Number(month) - 1 || date.getDate() !== Number(day)) return "";
+    return `${date.toLocaleDateString("en-US", { month: "long" })} ${Number(day)} ${year}`;
 }
 
 // Move a plain local calendar date by whole months without JavaScript's
@@ -59,11 +71,7 @@ export function compactDate(value, includeYear = false) {
     if (!value) return "";
     const d = new Date(`${String(value).slice(0, 10)}T00:00:00`);
     if (isNaN(d.getTime())) return "";
-    return d.toLocaleDateString("en-GB", {
-        day: "numeric",
-        month: "short",
-        ...(includeYear ? { year: "numeric" } : {}),
-    });
+    return `${d.getDate()} ${d.toLocaleDateString("en-US", { month: "short" })}${includeYear ? ` ${d.getFullYear()}` : ""}`;
 }
 
 const WEEKDAY_ABBREVIATIONS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -112,15 +120,16 @@ export function shortDateRange(from, to) {
     return `${compactDate(from, !sameYear)}–${compactDate(to, true)}`;
 }
 
+export function numericDate(value) {
+    const iso = String(value || "").slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(iso)
+        ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
+        : "";
+}
+
 export function numericDateRange(from, to) {
-    const format = (value) => {
-        const iso = String(value || "").slice(0, 10);
-        return /^\d{4}-\d{2}-\d{2}$/.test(iso)
-            ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
-            : "";
-    };
-    const start = format(from);
-    const end = format(to);
+    const start = numericDate(from);
+    const end = numericDate(to);
     return start && end ? `${start} - ${end}` : "";
 }
 
@@ -174,6 +183,21 @@ export function monthRangeFromSelection(range, minDate = null, maxDate = null) {
     return from <= to ? { from, to } : null;
 }
 
+// Inclusive rolling calendar range ending on referenceDate. A 30-day range is
+// today plus the preceding 29 days, clamped so it never predates the child.
+export function recentDateRange(days, dateOfBirth, referenceDate = todayLocal()) {
+    const end = String(referenceDate || "").slice(0, 10);
+    const count = Math.floor(Number(days));
+    const date = new Date(`${end}T00:00:00`);
+    if (!Number.isFinite(count) || count < 1 || isNaN(date.getTime())) return null;
+
+    date.setDate(date.getDate() - count + 1);
+    let from = toLocalISO(date);
+    const dob = dateOfBirth ? String(dateOfBirth).slice(0, 10) : "";
+    if (dob > from && dob <= end) from = dob;
+    return { from, to: end };
+}
+
 // Inclusive Growth-chart shortcuts, calculated in local calendar time.
 export function dateRangePreset(preset, dateOfBirth, referenceDate = todayLocal()) {
     const end = String(referenceDate || "").slice(0, 10);
@@ -195,7 +219,7 @@ export function monthLabel(value) {
     if (!value) return "";
     const d = new Date(`${String(value).slice(0, 10)}T00:00:00`);
     if (isNaN(d.getTime())) return "";
-    return d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+    return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
 
 // "9:00 AM" from a "HH:MM" or "HH:MM:SS" time-of-day string. Seconds are

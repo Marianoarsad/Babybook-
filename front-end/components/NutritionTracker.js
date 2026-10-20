@@ -1,29 +1,36 @@
+import SolidFoodIcon from "./ui/SolidFoodIcon";
+import MilkIcon from "./ui/MilkIcon";
+import MilkTypeCard from "./ui/MilkTypeCard";
+import { NutritionBackground, NutritionControl } from "./ui/NutritionVisuals";
+import { recordListLayout } from "../theme";
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Animated, View, Text, StyleSheet, TouchableOpacity, TextInput, Switch, Platform } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Platform, AppState } from "react-native";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { radius, space, shadow, type, MIN_TOUCH } from "../theme";
 import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
-import { useScroll } from "../context/ScrollContext";
 import { useTheme } from "../context/ThemeContext";
 import { api } from "../utils/api";
-import { useRecords, useRecordSave } from "../utils/useRecords";
+import { useRecords, useConfirmedRecords, useRecordCache, useScreenRefresh, useRecordSave } from "../utils/useRecords";
 import { nutritionToApp, nutritionFormToRecord, feedVolumeMl } from "../utils/adapters";
-import { ageInDays } from "../utils/whoGrowth";
+import SolidFoodsCard from "./ui/SolidFoodsCard";
+import { FOOD_CATEGORIES, foodCategoryLabel } from "../utils/solidFoods";
 import { useToast } from "./ui/Toast";
 import { DateField, TimeField } from "./ui/DateField";
 import { SectionContainerCard, ListEntryCard, EmptyStateCard } from "./common/Cards";
 import { AppointmentsSkeleton } from "./ui/Skeleton";
-import { useRefreshControl } from "./ui/useRefreshControl";
+import PullToRefreshScrollView from "./ui/PullToRefreshScrollView";
 import AnchoredMenu, { AnchoredMenuItem } from "./ui/AnchoredMenu";
+import GlassChartFilterPopover from "./ui/GlassChartFilterPopover";
 import NutritionDateFilter, { nutritionDateView } from "./ui/NutritionDateFilter";
 import NutritionTrendChart from "./ui/NutritionTrendChart";
-import NutritionMixChart from "./ui/NutritionMixChart";
+import FeedingBreakdownCard from "./ui/FeedingBreakdownCard";
 import Field from "./ui/Field";
 
 import RecordFormSheet, { DeleteConfirmation, RecordFormGroup, RecordFormRow } from "./ui/RecordFormSheet";
 import PlanDetail from "./ui/PlanDetail";
 import SwipeActionRow from "./ui/SwipeActionRow";
 import ShowMore from "./ui/ShowMore";
+import AnimatedReveal from "./ui/AnimatedReveal";
 import { storage } from "../utils/storageAdapter";
 import {
     canStepFormulaScoops,
@@ -49,10 +56,9 @@ import {
     byMoment,
     buildBuckets,
     milkDurations,
-    solidFoodStats,
     foodSuggestions,
     hasBreastDurations,
-    todayFeedingMix,
+    dailyFeedingSummary,
 } from "../utils/feedingStats";
 
 const MILK_TYPES = ["Breastmilk", "Formula", "Mixed"];
@@ -96,22 +102,29 @@ const NUTRITION_CHART_KEYS = NUTRITION_CHARTS.map((chart) => chart.key);
 const emptyForm = (prefs, entryType = "milk") =>
     nutritionFormDefaults(prefs, entryType, todayLocal(), nowLocalTime());
 
-export default function NutritionTracker({ profile, childId, initialAction, navKey, savedDateView, onDateViewChange }) {
+export default function NutritionTracker({ profile, childId, initialAction, navKey, savedDateView, onDateViewChange, blurTarget }) {
     // `profile` is the whole child; childId stays accepted so an older call
     // site can't silently break the screen.
     const id = profile?.id || childId;
     const dob = profile?.dateOfBirth || profile?.dob || "";
-    const today = todayLocal();
+    const [today, setToday] = useState(todayLocal);
+    useEffect(() => {
+        const updateDay = () => setToday(todayLocal());
+        const timer = setInterval(updateDay, 60000);
+        const subscription = AppState.addEventListener("change", state => { if (state === "active") updateDay(); });
+        return () => { clearInterval(timer); subscription.remove(); };
+    }, []);
     const minimumDate = dob && String(dob).slice(0, 10) <= today ? String(dob).slice(0, 10) : null;
     const toast = useToast();
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const padBottom = useScreenPadBottom();
     const padTop = useScreenPadTop();
-    const { scrollProps } = useScroll();
     const recordRows = useRecords(id, "nutrition");
+    const milkPeriods = useConfirmedRecords(id, "milk-type-periods");
+    const milkPeriodCache = useRecordCache(id, "milk-type-periods");
+    const nutritionCache = useRecordCache(id, "nutrition");
     const entries = useMemo(() => recordRows.map(nutritionToApp), [recordRows]);
-    const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [deletingId, setDeletingId] = useState(null);
     const [detailEntry, setDetailEntry] = useState(null);
@@ -133,24 +146,19 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
     const [measureMenuOpen, setMeasureMenuOpen] = useState(false);
     const [measureMenuAnchor, setMeasureMenuAnchor] = useState(null);
     const measureTriggerRef = useRef(null);
+    const [showFeedingEntries, setShowFeedingEntries] = useState(false);
+    useEffect(() => { setShowFeedingEntries(false); }, [id, today]);
     const showMilkChart = chartKeys.includes("milk");
     const showFoodChart = chartKeys.includes("food");
     const [listFilter, setListFilter] = useState("all");
     const [visibleCount, setVisibleCount] = useState(10);
 
-    const load = useCallback(async () => {
-        setLoading(true);
-        try {
-            const rows = await api.listRecords(id, "nutrition", { loading: "nonblocking" });
-        } catch (e) {
-            console.log("load nutrition:", e.message);
-        } finally {
-            setLoading(false);
-        }
+    const loadNutrition = useCallback(async () => {
+        const resources = ["nutrition", "milk-type-periods"];
+        const results = await Promise.allSettled(resources.map(resource => api.listRecords(id, resource, { loading: "nonblocking" })));
+        return resources.filter((_, i) => results[i].status === "rejected");
     }, [id]);
-    useEffect(() => {
-        load();
-    }, [load]);
+    const { refreshing: loading, failures: refreshFailures, refresh: load } = useScreenRefresh(id, loadNutrition);
 
     useEffect(() => {
         setDateView(nutritionDateView(savedDateView, minimumDate));
@@ -183,7 +191,6 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
         };
     }, [id, readPrefs]);
 
-    const refreshControl = useRefreshControl(loading, load);
 
     const setF = (k, v) =>
         setForm((p) => {
@@ -238,9 +245,10 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
             unit: UNITS.includes(e.unit) ? e.unit : "mL",
             durationMinutes: e.durationMinutes != null ? String(e.durationMinutes) : "",
             foodIntroduced: e.foodIntroduced || "",
+            foodCategory: e.foodCategory || "",
             // A pre-migration row has no severity. Free text alongside it means
             // something happened; blank means nothing was recorded either way.
-            reactionSeverity: e.reactionSeverity || (e.reaction ? "mild" : "none"),
+            reactionSeverity: e.reactionSeverity || "",
             reaction: e.reaction || "",
             date: e.date || todayLocal(),
             time: e.time || "",
@@ -388,7 +396,7 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
     );
     const foodBucketAverage = foodBars.length ? foodTotal / foodBars.length : 0;
 
-    const feedingMix = useMemo(() => todayFeedingMix(entries, today), [entries, today]);
+    const feedingSummary = useMemo(() => dailyFeedingSummary(entries, today), [entries, today]);
 
     const openMeasureMenu = () => {
         measureTriggerRef.current?.measureInWindow((x, y, width, height) => {
@@ -402,15 +410,10 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
             setScopeMenuOpen(true);
         });
     };
-
-    const durations = useMemo(() => milkDurations(milk), [milk]);
+    const durations = useMemo(() => milkDurations(milk, today), [milk, today]);
 
     // --- Solid foods ---
-    const solidStats = useMemo(() => {
-        const stats = solidFoodStats(solids, today.slice(0, 7));
-        const ageDays = stats.first && dob ? ageInDays(dob, stats.first.date) : null;
-        return { ...stats, firstAgeMonths: ageDays != null ? Math.round(ageDays / 30.4375) : null };
-    }, [solids, dob, today]);
+
 
     // One-tap chips for the food field. Beyond speed, reusing a name keeps the
     // spelling consistent, without which the distinct count above reads
@@ -473,6 +476,7 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
               ].filter(Boolean)
             : [
                   { label: "Food", value: detailEntry.foodIntroduced || "—" },
+                  { label: "Food category", value: foodCategoryLabel(detailEntry.foodCategory) },
                   {
                       label: "Reaction",
                       value: detailEntry.reactionSeverity
@@ -487,40 +491,44 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
     } : null;
 
     return (
-        <Animated.ScrollView
+        <PullToRefreshScrollView scope={id} refreshing={loading} onRefresh={load}
+            error={refreshFailures.length ? "Some records could not be refreshed. Please retry." : ""}
             style={styles.container}
             contentContainerStyle={[styles.content, { paddingTop: padTop, paddingBottom: padBottom }]}
-            refreshControl={refreshControl}
-            {...scrollProps}
             keyboardShouldPersistTaps="handled"
         >
-            <SectionContainerCard title="Nutrition Over Time" subtitle="Milk and solid-food trends">
+            <SectionContainerCard title="Nutrition Over Time" subtitle="Milk and solid-food trends"
+                background={<NutritionBackground kind="panel" radius={28} />}
+                style={styles.nutritionPanel}>
                 <View style={styles.chartControls}>
                     <NutritionDateFilter
+                        key={profile.id}
+                        blurTarget={blurTarget}
                         value={dateView}
                         onChange={applyDateView}
                         minimumDate={minimumDate}
                         availableDates={availableDates}
                     />
-                    <TouchableOpacity
-                        ref={scopeTriggerRef}
+                    <NutritionControl
+                        ref={scopeTriggerRef} circular
                         style={styles.metricFilterButton}
                         onPress={openScopeMenu}
                         accessibilityRole="button"
                         accessibilityState={{ expanded: scopeMenuOpen }}
                         accessibilityLabel={`Nutrition chart filter, ${chartKeys.length} charts shown`}
                     >
-                        <Ionicons name="funnel" size={26} color={colors.primary} />
-                    </TouchableOpacity>
+                        <MaterialCommunityIcons name="tune" size={26} color={colors.nutritionSurface.series} />
+                    </NutritionControl>
                 </View>
 
                 <View style={styles.trendCharts}>
                     {showMilkChart ? (
                         <NutritionTrendChart
                             title="Milk"
+                            headerIcon={<MilkIcon size={48} />}
                             bars={milkBars}
                             unit={activeMeasure.unit}
-                            color={colors.primary}
+                            color={colors.nutritionSurface.series}
                             dateWindow={rangeObj}
                             datePreset={dateView.preset}
                             average={milkBucketAverage}
@@ -528,7 +536,7 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                             loading={loading}
                             emptyMessage="No milk entries in this period yet."
                             headerControl={(
-                                <TouchableOpacity
+                                <NutritionControl
                                     ref={measureTriggerRef}
                                     style={styles.measureSelect}
                                     onPress={openMeasureMenu}
@@ -542,17 +550,18 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                                         size={18}
                                         color={colors.textSecondary}
                                     />
-                                </TouchableOpacity>
+                                </NutritionControl>
                             )}
                         />
                     ) : null}
                     {showFoodChart ? (
-                        <View style={showMilkChart ? styles.trendChartDivider : null}>
+                        <View style={styles.foodChart}>
                             <NutritionTrendChart
                                 title="Food"
+                                headerIcon={<SolidFoodIcon size={48} />}
                                 bars={foodBars}
                                 unit="entries"
-                                color={colors.accent}
+                                color={colors.nutritionSurface.series}
                                 dateWindow={rangeObj}
                                 datePreset={dateView.preset}
                                 average={foodBucketAverage}
@@ -565,57 +574,21 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                 </View>
             </SectionContainerCard>
 
-            <AnchoredMenu
+            <GlassChartFilterPopover
                 visible={scopeMenuOpen}
                 anchor={scopeMenuAnchor}
                 onClose={() => setScopeMenuOpen(false)}
-                minWidth={232}
-                maxWidth={232}
-                dimBackdrop={false}
-                animation="warp"
-            >
-                <View style={styles.metricChecklistHeader}>
-                    <TouchableOpacity
-                        style={styles.metricChecklistBack}
-                        onPress={() => setScopeMenuOpen(false)}
-                        accessibilityRole="button"
-                        accessibilityLabel="Close nutrition chart filter"
-                    >
-                        <Ionicons name="chevron-back" size={24} color={colors.text} />
-                    </TouchableOpacity>
-                    <Text style={styles.metricChecklistTitle}>Nutrition charts</Text>
-                    <View style={styles.metricChecklistHeaderSpacer} />
-                </View>
-                {NUTRITION_CHARTS.map((chart) => {
-                    const checked = chartKeys.includes(chart.key);
-                    const disabled = checked && chartKeys.length === 1;
-                    return (
-                        <TouchableOpacity
-                            key={chart.key}
-                            style={[styles.metricChecklistRow, disabled && styles.metricChecklistRowDisabled]}
-                            onPress={() => setChartKeys((current) => (
-                                toggleRequiredKey(current, chart.key, NUTRITION_CHART_KEYS)
-                            ))}
-                            disabled={disabled}
-                            accessibilityRole="switch"
-                            accessibilityState={{ checked, disabled }}
-                            accessibilityLabel={chart.label}
-                        >
-                            <Text style={styles.metricChecklistLabel}>{chart.label}</Text>
-                            <Switch
-                                value={checked}
-                                disabled={disabled}
-                                pointerEvents="none"
-                                accessible={false}
-                                trackColor={{ false: colors.border, true: colors.primary }}
-                                thumbColor={colors.onPrimary}
-                                {...(Platform.OS === "web" ? { activeThumbColor: colors.onPrimary } : {})}
-                                ios_backgroundColor={colors.border}
-                            />
-                        </TouchableOpacity>
-                    );
-                })}
-            </AnchoredMenu>
+                blurTarget={blurTarget}
+                title="Nutrition charts"
+                closeLabel="Close nutrition chart filter"
+                options={NUTRITION_CHARTS.map(chart => ({
+                    ...chart,
+                    icon: chart.key === "food" ? <SolidFoodIcon size={40} /> : <MilkIcon size={40} />,
+                }))}
+                selectedKeys={chartKeys}
+                onToggle={key => setChartKeys(current => toggleRequiredKey(current, key, NUTRITION_CHART_KEYS))}
+                testIDPrefix="nutrition-chart-toggle"
+            />
 
             <AnchoredMenu
                 visible={measureMenuOpen}
@@ -638,135 +611,44 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                 ))}
             </AnchoredMenu>
 
-            <SectionContainerCard title="Today’s Feeding Breakdown" subtitle={shortDate(today)}>
-                <NutritionMixChart counts={feedingMix} />
-            </SectionContainerCard>
+            <FeedingBreakdownCard date={today} summary={feedingSummary} entriesVisible={showFeedingEntries}
+                onToggleEntries={() => setShowFeedingEntries(visible => !visible)} onOpenEntry={setDetailEntry}
+                entryTitle={entryTitle} loading={loading} loadFailed={refreshFailures.includes("nutrition")} onRetry={load} />
 
-            {/* Milk type over time */}
-            {durations.current ? (
-                <SectionContainerCard title="Milk Type" subtitle="What the baby has been drinking">
-                    <View style={styles.durationBox}>
-                        <Ionicons name="time-outline" size={16} color={colors.primary} />
-                        <Text style={styles.durationText}>
-                            Currently on <Text style={styles.durationStrong}>{durations.current.type}</Text> for{" "}
-                            {durations.current.days} day{durations.current.days === 1 ? "" : "s"}
-                        </Text>
-                    </View>
-                    {durations.periods.length > 1
-                        ? durations.periods.map((p, i) => (
-                              <View key={i} style={styles.periodRow}>
-                                  <Text style={styles.periodType}>{p.type}</Text>
-                                  <Text style={styles.periodSpan}>
-                                      {shortDate(p.start)} → {shortDate(p.end)} · {p.days} day
-                                      {p.days === 1 ? "" : "s"}
-                                  </Text>
-                              </View>
-                          ))
-                        : null}
-                </SectionContainerCard>
-            ) : null}
+            <MilkTypeCard key={`milk-types-${id}`} childId={id} periods={milkPeriods} feeds={milk}
+                legacy={durations} today={today} loading={!milkPeriodCache.hasFetched && loading}
+                feedsUnavailable={!nutritionCache.hasFetched} feedsFailed={refreshFailures.includes("nutrition")}
+                loadFailed={refreshFailures.includes("milk-type-periods")} onRetry={load} onOpenEntry={setDetailEntry} />
 
-            {/* Solid foods. The entry list has always called these
-                "introductions", but nothing ever counted them — a food logged
-                forty times read as forty introductions. Distinct foods are
-                derived by normalized name, so no new field was needed. */}
-            {solids.length ? (
-                <SectionContainerCard title="Solid Foods" subtitle="Foods this child has tried">
-                    <View style={styles.tileRow}>
-                        <View style={styles.tile}>
-                            <Text style={styles.tileValue} numberOfLines={1}>{solidStats.distinct}</Text>
-                            <Text style={styles.tileLabel} numberOfLines={2}>
-                                Different foods
-                            </Text>
-                        </View>
-                        <View style={styles.tile}>
-                            <Text style={styles.tileValue} numberOfLines={1}>{solidStats.newThisMonth}</Text>
-                            <Text style={styles.tileLabel} numberOfLines={2}>
-                                New this month
-                            </Text>
-                        </View>
-                        <View style={styles.tile}>
-                            <Text style={styles.tileValue} numberOfLines={1}>{solidStats.reactions.length}</Text>
-                            <Text style={styles.tileLabel} numberOfLines={2}>
-                                With a reaction
-                            </Text>
-                        </View>
-                    </View>
-
-                    {/* The child's own age at their first solid, stated as a
-                        fact. Deliberately not compared to any guideline — the
-                        app presents, it doesn't advise (PRODUCT.md #5). */}
-                    {solidStats.first ? (
-                        <Text style={styles.tileFootnote}>
-                            First solid food was {solidStats.first.foodIntroduced} on{" "}
-                            {shortDate(solidStats.first.date)}
-                            {solidStats.firstAgeMonths != null
-                                ? `, at ${solidStats.firstAgeMonths} month${solidStats.firstAgeMonths === 1 ? "" : "s"} old`
-                                : ""}
-                        </Text>
-                    ) : null}
-
-                    {solidStats.reactions.length ? (
-                        <View style={styles.reactionBlock}>
-                            <Text style={styles.blockHeading}>Foods with a recorded reaction</Text>
-                            {solidStats.reactions.map((e) => {
-                                const severe = e.reactionSeverity === "severe";
-                                return (
-                                    <View
-                                        key={e.id}
-                                        style={[
-                                            styles.reactionRow,
-                                            { backgroundColor: severe ? colors.dangerBg : colors.warningBg },
-                                        ]}
-                                    >
-                                        <Ionicons
-                                            name={severe ? "alert-circle" : "alert-circle-outline"}
-                                            size={16}
-                                            color={severe ? colors.danger : colors.warning}
-                                        />
-                                        <View style={{ flex: 1 }}>
-                                            <Text style={styles.reactionFood}>{e.foodIntroduced || "Solid food"}</Text>
-                                            <Text style={styles.reactionMeta}>
-                                                {severe ? "Severe" : "Mild"} · {shortDate(e.date)}
-                                                {e.reaction ? ` · ${e.reaction}` : ""}
-                                            </Text>
-                                        </View>
-                                    </View>
-                                );
-                            })}
-                            <Text style={styles.reactionNote}>
-                                Recorded here only. If any of these becomes a known allergy, add it to the child's
-                                profile so it shows on their health ID.
-                            </Text>
-                        </View>
-                    ) : null}
-                </SectionContainerCard>
-            ) : null}
+            <SolidFoodsCard key={`solid-foods-${id}`} entries={entries} dob={dob} today={today}
+                unavailable={!nutritionCache.hasFetched} failed={refreshFailures.includes("nutrition")}
+                onRetry={load} onAdd={() => openAdd("solid")} onOpenEntry={setDetailEntry} />
 
             {/* Entries */}
             <SectionContainerCard
                 title="Nutrition Records"
                 subtitle="Every milk feed and solid food logged"
-            >
+             headerStyle={recordListLayout.header} style={recordListLayout.section}>
                 {/* Without this, 300-odd milk feeds bury every solid-food
                     entry the child has. */}
-                <View style={styles.chipRow}>
+                <View style={recordListLayout.inset}><View style={styles.chipRow}>
                     {LIST_FILTERS.map((f) => (
                         <TouchableOpacity
                             key={f.key}
                             onPress={() => setListFilter(f.key)}
-                            style={[styles.chip, listFilter === f.key && styles.chipActive]}
+                            style={[styles.chip, f.key !== "all" && styles.categoryChip, listFilter === f.key && styles.chipActive]}
                             accessibilityRole="button"
                             accessibilityLabel={`Show ${f.label}`}
                         >
+                            {f.key === "solid" ? <SolidFoodIcon size={18} showBackground={false} /> : f.key === "milk" ? <MilkIcon size={18} showBackground={false} /> : null}
                             <Text style={[styles.chipText, listFilter === f.key && styles.chipTextActive]}>
                                 {f.label} ({f.count})
                             </Text>
                         </TouchableOpacity>
                     ))}
-                </View>
+                </View></View>
 
-                {loading && listed.length === 0 ? (
+                <View style={recordListLayout.inset}>{loading && listed.length === 0 ? (
                     <AppointmentsSkeleton />
                 ) : (
                     !loading &&
@@ -777,10 +659,11 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                                     ? "Nothing in this filter yet."
                                     : "No nutrition entries yet. Tap + to log a feed or a food."
                             }
-                            icon="restaurant-outline"
+                            icon={listFilter === "solid" ? <SolidFoodIcon size={40} /> : listFilter === "milk" ? <MilkIcon size={40} /> : "restaurant-outline"}
                         />
                     )
-                )}
+                )}</View>
+                <AnimatedReveal contentStyle={recordListLayout.content}>
                 {listed.slice(0, visibleCount).map((e) => {
                     const label = `View ${entryTitle(e)}`;
                     return (
@@ -805,16 +688,11 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                             <ListEntryCard
                                 style={styles.swipeListCard}
                                 title={entryTitle(e)}
-                                subtitle={shortDate(e.date)}
+                                dateText={shortDate(e.date)}
                                 icon={
-                                    <Ionicons
-                                        name={e.entryType !== "milk" ? "restaurant-outline"
-                                            : e.feedMethod === "breast" ? "heart-outline" : "water-outline"}
-                                        size={18}
-                                        color={e.entryType === "milk" ? colors.info : colors.recNutrition.on}
-                                    />
+                                    (e.entryType === "solid" ? <SolidFoodIcon size={40} /> : e.entryType === "milk" ? <MilkIcon size={40} /> : <Ionicons name="restaurant-outline" size={18} color={colors.recNutrition.on} />)
                                 }
-                                iconBg={e.entryType === "milk" ? colors.infoBg : colors.recNutrition.bg}
+                                iconBg={e.entryType === "solid" || e.entryType === "milk" ? "transparent" : colors.recNutrition.bg}
                             />
                         </SwipeActionRow>
                     );
@@ -825,11 +703,13 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                     onPress={() => setVisibleCount((c) => c + 10)}
                     noun="entries"
                 />
+                </AnimatedReveal>
             </SectionContainerCard>
 
             <PlanDetail
                 visible={!!detailEntry}
                 plan={nutritionDetailPlan}
+                heroContent={detailEntry?.entryType === "solid" ? <SolidFoodIcon size={56} /> : detailEntry?.entryType === "milk" ? <MilkIcon size={56} /> : undefined}
                 onClose={() => setDetailEntry(null)}
                 onEdit={() => {
                     const entry = detailEntry;
@@ -1088,6 +968,16 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                                         {errors.foodIntroduced ? (
                                             <Text style={styles.errorText}>{errors.foodIntroduced}</Text>
                                         ) : null}
+                                        <Text style={styles.label}>Food category (optional)</Text>
+                                        <View style={styles.chipRow}>{["", ...FOOD_CATEGORIES].map(category => (
+                                            <TouchableOpacity key={category || "unrecorded"} style={[styles.foodChip, form.foodCategory === category && styles.segBtnActive]}
+                                                onPress={() => setF("foodCategory", category)} accessibilityRole="button"
+                                                accessibilityLabel={`Food category ${category ? foodCategoryLabel(category) : "Not recorded"}`}
+                                                aria-pressed={form.foodCategory === category}
+                                                accessibilityState={{ selected: form.foodCategory === category }}>
+                                                <Text style={styles.segText}>{category ? foodCategoryLabel(category) : "Not recorded"}</Text>
+                                            </TouchableOpacity>
+                                        ))}</View>
                                         {foodChips.foods.length ? (
                                             <View>
                                                 {/* Labelled differently in each
@@ -1122,6 +1012,7 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
                                         ) : null}
 
                                         <Text style={styles.label}>Any reaction?</Text>
+                                        {form.reactionSeverity === "" ? <Text style={styles.hint}>Severity not recorded. Existing symptoms are preserved unless you change them.</Text> : null}
                                         <View style={styles.segment}>
                                             {SEVERITIES.map((s) => (
                                                 <TouchableOpacity
@@ -1197,7 +1088,7 @@ export default function NutritionTracker({ profile, childId, initialAction, navK
 
                 </RecordFormGroup>
             </RecordFormSheet>
-        </Animated.ScrollView>
+        </PullToRefreshScrollView>
     );
 }
 
@@ -1209,24 +1100,7 @@ const makeStyles = (colors) =>
         // Padding on the content, not the ScrollView box — see Health.js.
         content: { padding: space.lg },
 
-        // Stat tiles
-        tileRow: { flexDirection: "row", gap: space.sm },
-        tile: {
-            flex: 1,
-            minWidth: 0,
-            alignItems: "center",
-            gap: 2,
-            paddingVertical: space.md,
-            paddingHorizontal: space.xs,
-            borderRadius: radius.lg,
-            borderCurve: "continuous",
-            backgroundColor: colors.surfaceAlt,
-            borderWidth: 1,
-            borderColor: colors.hairline,
-        },
-        tileValue: { ...type.heading, color: colors.text },
-        tileLabel: { ...type.caption, color: colors.textMuted, textAlign: "center" },
-        tileFootnote: { ...type.caption, color: colors.textMuted, marginTop: space.sm },
+
 
         // Chips — list filters and food suggestions
         chipRow: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginBottom: space.md },
@@ -1241,10 +1115,13 @@ const makeStyles = (colors) =>
             borderColor: colors.border,
             backgroundColor: colors.surface,
         },
+        categoryChip: { flexDirection: "row", alignItems: "center", gap: space.xs },
         chipActive: { backgroundColor: colors.softGreen, borderColor: colors.primary },
         chipText: { ...type.caption, fontWeight: "700", color: colors.textMuted },
         chipTextActive: { color: colors.primaryDark },
 
+        nutritionPanel: { borderRadius: 28, borderWidth: 0, boxShadow: colors.nutritionSurface.panelShadow },
+        foodChart: { marginTop: 0 },
         chartControls: {
             flexDirection: "row",
             alignItems: "center",
@@ -1260,31 +1137,6 @@ const makeStyles = (colors) =>
             borderRadius: radius.pill,
             flexShrink: 0,
         },
-        metricChecklistHeader: {
-            minHeight: 52,
-            flexDirection: "row",
-            alignItems: "center",
-            borderBottomWidth: 1,
-            borderBottomColor: colors.hairline,
-        },
-        metricChecklistBack: {
-            width: MIN_TOUCH,
-            minHeight: MIN_TOUCH,
-            alignItems: "center",
-            justifyContent: "center",
-        },
-        metricChecklistTitle: { ...type.bodyStrong, color: colors.text, flex: 1, textAlign: "center" },
-        metricChecklistHeaderSpacer: { width: MIN_TOUCH },
-        metricChecklistRow: {
-            minHeight: 52,
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: space.md,
-            paddingHorizontal: space.md,
-        },
-        metricChecklistRowDisabled: { opacity: 0.65 },
-        metricChecklistLabel: { ...type.body, color: colors.text, flex: 1 },
         measureSelect: {
             minWidth: 128,
             minHeight: MIN_TOUCH,
@@ -1293,59 +1145,13 @@ const makeStyles = (colors) =>
             justifyContent: "space-between",
             gap: space.sm,
             paddingHorizontal: space.md,
-            borderWidth: 1,
-            borderColor: colors.border,
+            borderWidth: 0,
             borderRadius: radius.pill,
-            borderCurve: "continuous",
-            backgroundColor: colors.surface,
+            backgroundColor: "transparent",
         },
         measureSelectText: { ...type.label, color: colors.text },
         trendCharts: { gap: space.md },
-        trendChartDivider: { paddingTop: space.lg, borderTopWidth: 1, borderTopColor: colors.hairline },
-
-        // Milk type
-        durationBox: {
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 6,
-            backgroundColor: colors.softGreen,
-            borderRadius: radius.md,
-            borderCurve: "continuous",
-            paddingHorizontal: space.md,
-            paddingVertical: 10,
-            marginBottom: space.md,
-        },
-        durationText: { ...type.caption, color: colors.textSecondary, flex: 1 },
-        durationStrong: { fontWeight: "800", color: colors.primary },
-        periodRow: {
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: space.sm,
-            paddingVertical: 6,
-            borderTopWidth: 1,
-            borderTopColor: colors.hairline,
-        },
-        periodType: { ...type.label, color: colors.text },
-        periodSpan: { ...type.caption, color: colors.textMuted, flexShrink: 1, textAlign: "right" },
-
-        // Solid foods
-        blockHeading: { ...type.subheading, color: colors.textMuted, marginBottom: space.sm },
-        reactionBlock: { marginTop: space.lg },
-        reactionRow: {
-            flexDirection: "row",
-            alignItems: "flex-start",
-            gap: space.sm,
-            padding: space.md,
-            borderRadius: radius.md,
-            borderCurve: "continuous",
-            marginBottom: space.sm,
-        },
-        reactionFood: { ...type.label, color: colors.text },
-        reactionMeta: { ...type.caption, color: colors.textSecondary, marginTop: 2 },
-        reactionNote: { ...type.caption, color: colors.textMuted },
-
-        swipeListCard: { marginBottom: 0 },
+        swipeListCard: { marginBottom: 0  , boxShadow: "none"},
 
         // Modal
 

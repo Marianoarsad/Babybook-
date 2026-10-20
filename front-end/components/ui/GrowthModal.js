@@ -48,7 +48,7 @@ import RecordFormSheet, { RecordFormGroup, RecordFormRow } from "./RecordFormShe
 // theirs to make, not the app's.
 const PLACES = [
     { key: "home", label: "At home", icon: "home-outline" },
-    { key: "health_center", label: "Health centre", icon: "business-outline" },
+    { key: "health_center", label: "Health center", icon: "business-outline" },
     { key: "clinic", label: "Clinic", icon: "medkit-outline" },
     { key: "hospital", label: "Hospital", icon: "bed-outline" },
 ];

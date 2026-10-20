@@ -24,3 +24,19 @@ export const VISIT_REASON_MAX = 500;
 export function qrPayloadForCode(code) {
   return "BABYBOOK+CONSULT:" + code;
 }
+
+export function formatShareCountdown(expiration, now = Date.now()) {
+  const remainingSeconds = Math.ceil((new Date(expiration).getTime() - now) / 1000);
+  if (!Number.isFinite(remainingSeconds)) return { text: "Active", accessibilityLabel: "Active share" };
+  if (remainingSeconds <= 0) return { text: "0s", accessibilityLabel: "Expired" };
+
+  const [value, shortUnit, unit] = remainingSeconds >= 3600
+    ? [Math.ceil(remainingSeconds / 3600), "h", "hour"]
+    : remainingSeconds >= 60
+      ? [Math.ceil(remainingSeconds / 60), "m", "minute"]
+      : [remainingSeconds, "s", "second"];
+  return {
+    text: `${value}${shortUnit}`,
+    accessibilityLabel: `${value} ${unit}${value === 1 ? "" : "s"} remaining`,
+  };
+}

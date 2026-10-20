@@ -99,7 +99,9 @@ async function request(method, path, body, opts = {}) {
 
     let res;
     try {
-        res = await fetch(`${API_BASE_URL}${path}`, { method, headers, body: payload });
+        res = await fetch(`${API_BASE_URL}${path}`, { method, headers, body: payload,
+            ...(opts.signal ? { signal: opts.signal } : {}),
+            ...(opts.noStore ? { cache: "no-store" } : {}) });
     } catch (e) {
         throw new ApiError(0, "Network error — is the backend running and reachable?");
     }
@@ -410,7 +412,12 @@ export const api = {
     accessLog: (childId, opts = {}) => readList(childId, "access-log", `/api/children/${childId}/access-log`, opts),
     unseenAccessLog: (childId, opts = {}) => request("GET", `/api/children/${childId}/access-log/unseen`, undefined, { background: opts.background }),
     markAccessLogSeen: (childId, opts = {}) => request("POST", `/api/children/${childId}/access-log/mark-seen`, undefined, { background: opts.background }),
+    syncNotifications: (childId, timeZone, opts = {}) => request("POST", `/api/children/${childId}/notifications/sync`, { timeZone }, opts),
+    listNotifications: (childId, { filter = "all", cursor = null, limit = 10 } = {}, opts = {}) => request("GET",
+        `/api/children/${childId}/notifications?filter=${encodeURIComponent(filter)}&limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, undefined, opts),
+    markNotificationRead: (childId, id, opts = {}) => request("POST", `/api/children/${childId}/notifications/${id}/read`, undefined, opts),
 
     // --- QR consultation (healthcare professional, public) ---
-    resolveConsult: (b) => request("POST", "/api/consult/resolve", b, { auth: false }),
+    resolveConsult: (b, opts = {}) => request("POST", "/api/consult/resolve", b, { ...opts, auth: false, noStore: true }),
+    consultStatus: (b, opts = {}) => request("POST", "/api/consult/status", b, { ...opts, auth: false, noStore: true, background: true }),
 };

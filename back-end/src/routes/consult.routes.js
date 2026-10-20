@@ -1,84 +1,68 @@
 const express = require("express");
-const { body } = require("express-validator");
-
-const { query } = require("../db/pool");
-const { asyncHandler } = require("../middleware/error");
-const { handleValidation } = require("../middleware/validate");
-const { codeFromQrPayload } = require("../utils/shareCode");
-const { decrypt } = require("../utils/crypto");
-const { openPayload, PURGED_PAYLOAD_SQL } = require("../utils/snapshot");
+const { withTransaction } = require("../db/pool");
+const { hashShareToken } = require("../utils/shareCode");
+const { openPayload, authorizedSnapshot, RECORD_LABELS, PURGED_PAYLOAD_SQL } = require("../utils/snapshot");
+const { inputCredentials, privateResponse, limitAccess } = require("../utils/consultationAccess");
 
 const router = express.Router();
+router.use(privateResponse);
+const fail = (status, error, http = 410) => ({ http, body: { status, error } });
 
-// PUBLIC — no authentication. This is the healthcare-professional QR flow.
-// POST /api/consult/resolve  { code, professionalName }
-// Resolves a consultation code to its view-only snapshot and logs the access.
-router.post(
-    "/resolve",
-    [body("code").notEmpty().withMessage("A consultation code is required")],
-    handleValidation,
-    asyncHandler(async (req, res) => {
-        const code = codeFromQrPayload(req.body.code);
-        if (!code) return res.status(400).json({ status: "invalid", error: "Unrecognized code" });
-
-        const { rows } = await query("SELECT * FROM shared_records WHERE code = $1", [code]);
+async function access(req, resolving) {
+    const credentials = inputCredentials(req.body);
+    if (!credentials) return fail("invalid", "Unrecognized code or link", 400);
+    const professionalName = typeof req.body.professionalName === "string" ? req.body.professionalName.trim() : "";
+    if (resolving && (!professionalName || professionalName.length > 100 || /[\x00-\x1f\x7f]/.test(professionalName))) {
+        return fail("invalid", "Enter your name (up to 100 characters) before viewing records.", 400);
+    }
+    return withTransaction(async (client) => {
+        const params = [credentials.code];
+        if (credentials.shareToken) params.push(hashShareToken(credentials.shareToken));
+        const { rows } = await client.query(`
+            SELECT id, child_id, code, status, shared_record_keys, expiration_date, generate_date,
+                clock_timestamp() AS server_now, expiration_date <= clock_timestamp() AS overdue,
+                payload = '{}'::jsonb AS purged ${resolving ? ", payload" : ""}
+            FROM shared_records WHERE code = $1
+                ${credentials.shareToken ? "AND share_token_hash = $2" : ""} FOR UPDATE`, params);
         const share = rows[0];
-        if (!share) return res.status(404).json({ status: "notfound", error: "Code not found" });
-
-        if (share.status === "revoked") {
-            return res.status(410).json({ status: "revoked", error: "This code was revoked by the parent" });
+        if (!share) return fail("notfound", "Code not found", 404);
+        if (share.status === "revoked") return fail("revoked", "This code was revoked by the parent");
+        if (share.status === "expired" || share.overdue) {
+            if (share.status === "active") await client.query(
+                "UPDATE shared_records SET status = 'expired', payload = $2 WHERE id = $1 AND status = 'active'",
+                [share.id, PURGED_PAYLOAD_SQL]);
+            return fail("expired", "This code has expired");
         }
-        const expired = share.status === "expired" || new Date(share.expiration_date) <= new Date();
-        if (expired) {
-            if (share.status !== "expired") {
-                // Expiring here also drops the snapshot, so a code that runs out
-                // between generation and use does not leave its readable copy
-                // behind waiting for the next sweep.
-                await query(
-                    "UPDATE shared_records SET status = 'expired', payload = $2 WHERE id = $1",
-                    [share.id, PURGED_PAYLOAD_SQL],
-                );
-            }
-            return res.status(410).json({ status: "expired", error: "This code has expired" });
-        }
-
-        // Open the sealed snapshot. Returns null if it cannot be read — a
-        // purged row, or ciphertext that will not decrypt because
-        // DATA_ENCRYPTION_KEY changed. Fail closed and say so: showing a
-        // clinician an empty record set that LOOKS like a healthy child with no
-        // history would be far worse than refusing the code.
-        const payload = openPayload(share.payload);
+        if (share.purged) return fail("unavailable", "These shared records are no longer available. Ask the parent for a new code.");
+        const result = { status: "ok", expiresAt: share.expiration_date, serverNow: share.server_now };
+        if (!resolving) return { http: 200, body: result };
+        const recordKeys = [...new Set((Array.isArray(share.shared_record_keys) ? share.shared_record_keys : [])
+            .filter((key) => Object.hasOwn(RECORD_LABELS, key)))];
+        let payload;
+        try { payload = authorizedSnapshot(openPayload(share.payload), recordKeys); }
+        catch { return fail("unreadable", "These records cannot be read safely. Ask the parent for a new code.", 503); }
         if (!payload || !Object.keys(payload).length) {
-            return res
-                .status(410)
-                .json({ status: "unavailable", error: "These shared records are no longer available. Ask the parent for a new code." });
+            return fail("unreadable", "These records cannot be read safely. Ask the parent for a new code.", 503);
         }
+        await client.query(`
+            INSERT INTO access_logs (share_id, child_id, code, professional_name, action, ip_address, user_agent)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [share.id, share.child_id, share.code, professionalName, "Viewed shared records", req.ip, (req.get("user-agent") || "").slice(0, 512)]);
+        return { http: 200, body: { ...result, childName: payload.profile?.name || "Shared Baby Records",
+            recordKeys, payload, capturedAt: share.generate_date } };
+    });
+}
 
-        // Resolve the child's display name and record the access.
-        const childRes = await query(
-            "SELECT first_name, last_name FROM children WHERE id = $1",
-            [share.child_id]
-        );
-        const child = childRes.rows[0] || {};
-        const childName = [decrypt(child.first_name), decrypt(child.last_name)].filter(Boolean).join(" ");
-
-        const professionalName = (req.body.professionalName || "").trim() || "Unnamed professional";
-        const userAgent = (req.get("user-agent") || "").slice(0, 512);
-        await query(
-            `INSERT INTO access_logs (share_id, child_id, code, professional_name, action, ip_address, user_agent)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            [share.id, share.child_id, share.code, professionalName, "Viewed shared records", req.ip, userAgent]
-        );
-
-        res.json({
-            status: "ok",
-            childName,
-            recordKeys: share.shared_record_keys,
-            payload,
-            expiresAt: share.expiration_date,
-            capturedAt: share.generate_date,
-        });
-    })
-);
-
+for (const scope of ["resolve", "status"]) {
+    router.post("/" + scope, async (req, res) => {
+        try {
+            if (!await limitAccess(req, res, scope)) return;
+            const result = await access(req, scope === "resolve");
+            res.status(result.http).json(result.body);
+        } catch {
+            res.status(503).json({ status: "temporarily_unavailable",
+                error: "Sharing is temporarily unavailable. Please try again shortly." });
+        }
+    });
+}
 module.exports = router;

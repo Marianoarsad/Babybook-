@@ -39,7 +39,8 @@ export function FieldShell({ label, required = false, focused = false, disabled 
 export default function Field({ label, value, onChangeText, placeholder, prefix, error, helper,
     required = false, keyboardType, secureTextEntry, autoCapitalize, multiline, style, inputStyle,
     autoComplete, textContentType, inputMode, numericMode, maxLength, editable = true,
-    hideReveal = false, leading, onFocus, onBlur }) {
+    hideReveal = false, leading, onFocus, onBlur, accessibilityLabel,
+    selection, onSelectionChange, autoCorrect }) {
     const { colors } = useTheme();
     const [focused, setFocused] = useState(false);
     const [revealed, setRevealed] = useState(false);
@@ -59,13 +60,16 @@ export default function Field({ label, value, onChangeText, placeholder, prefix,
                 keyboardType={keyboardType || (numericMode === "digits" ? "number-pad" : numericMode === "decimal" ? "decimal-pad" : undefined)}
                 secureTextEntry={!!secureTextEntry && !revealed}
                 autoCapitalize={autoCapitalize}
+                autoCorrect={autoCorrect}
+                selection={selection}
+                onSelectionChange={onSelectionChange}
                 multiline={multiline}
                 autoComplete={autoComplete}
                 textContentType={textContentType}
                 inputMode={inputMode || (numericMode === "digits" ? "numeric" : numericMode === "decimal" ? "decimal" : undefined)}
                 maxLength={maxLength}
                 editable={editable}
-                accessibilityLabel={label}
+                accessibilityLabel={accessibilityLabel || label}
                 accessibilityHint={prefix ? `${prefix} is added automatically` : undefined}
                 style={[{ minHeight: multiline ? 94 : 50,
                     paddingLeft: prefix ? space.lg + 30 : leading ? MIN_TOUCH : space.lg,

@@ -64,6 +64,7 @@ function nutritionFormDefaults(prefs, entryType, date, time) {
         unit: recent.unit || "mL",
         durationMinutes: recent.durationMinutes || "",
         foodIntroduced: recent.foodIntroduced || "",
+        foodCategory: "",
         reactionSeverity: recent.reactionSeverity || "none",
         reaction: recent.reaction || "",
         date,

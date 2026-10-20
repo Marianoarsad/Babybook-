@@ -186,7 +186,7 @@ export const AGE_CHECKLISTS = [
     { id: "m30-cog-1", months: 30, domain: "cognitive", title: "Uses things to pretend, like feeding a block to a doll" },
     { id: "m30-cog-2", months: 30, domain: "cognitive", title: "Shows simple problem-solving skills" },
     { id: "m30-cog-3", months: 30, domain: "cognitive", title: "Follows two-step instructions" },
-    { id: "m30-cog-4", months: 30, domain: "cognitive", title: "Knows at least one colour" },
+    { id: "m30-cog-4", months: 30, domain: "cognitive", title: "Knows at least one color" },
     { id: "m30-mot-1", months: 30, domain: "motor", title: "Uses hands to twist things, like turning a doorknob" },
     { id: "m30-mot-2", months: 30, domain: "motor", title: "Takes some clothes off on their own" },
     { id: "m30-mot-3", months: 30, domain: "motor", title: "Jumps off the ground with both feet" },
@@ -214,7 +214,7 @@ export const AGE_CHECKLISTS = [
     { id: "m48-lan-2", months: 48, domain: "language", title: "Says some words from a song, story, or nursery rhyme" },
     { id: "m48-lan-3", months: 48, domain: "language", title: "Talks about at least one thing that happened during the day" },
     { id: "m48-lan-4", months: 48, domain: "language", title: "Answers simple questions" },
-    { id: "m48-cog-1", months: 48, domain: "cognitive", title: "Names a few colours" },
+    { id: "m48-cog-1", months: 48, domain: "cognitive", title: "Names a few colors" },
     { id: "m48-cog-2", months: 48, domain: "cognitive", title: "Tells what comes next in a well-known story" },
     { id: "m48-cog-3", months: 48, domain: "cognitive", title: "Draws a person with three or more body parts" },
     { id: "m48-mot-1", months: 48, domain: "motor", title: "Catches a large ball most of the time" },
@@ -268,6 +268,22 @@ export function itemsForCheckpoint(months) {
     return AGE_CHECKLISTS.filter((c) => c.months === months).sort(
         (a, b) => order.indexOf(a.domain) - order.indexOf(b.domain),
     );
+}
+
+// The same record match drives each row and both levels of checklist progress.
+export function summarizeChecklist(items, milestones) {
+    const rows = items.map(item => {
+        const record = findRecorded(milestones, item.title);
+        return { item, record, completed: !!record?.isCompleted };
+    });
+    const completed = rows.filter(row => row.completed).length;
+    return {
+        completed, total: rows.length, percentage: rows.length ? Math.round(completed / rows.length * 100) : 0,
+        categories: DOMAINS.map(domain => {
+            const entries = rows.filter(row => row.item.domain === domain.key);
+            return { ...domain, entries, total: entries.length, completed: entries.filter(row => row.completed).length };
+        }).filter(category => category.total),
+    };
 }
 
 // Chips for the add-milestone form's title field: checklist items this child

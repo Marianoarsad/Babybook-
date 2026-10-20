@@ -10,7 +10,6 @@ import {
     Image,
 
     Platform,
-    AppState,
     Animated,
     Easing,
 } from "react-native";
@@ -22,7 +21,7 @@ import {
 // a home indicator or gesture bar.
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Asset } from "expo-asset";
-import { BlurTargetView, BlurView } from "expo-blur";
+import { BlurTargetView } from "expo-blur";
 import { LanguageProvider, useLanguage } from "./context/LanguageContext";
 import DatabaseLoadingProvider, { useDatabaseLoading } from "./context/DatabaseLoadingContext";
 import Modal from "./components/ui/AppModal";
@@ -46,7 +45,9 @@ import {
     HEADER_COLLAPSE,
 } from "./theme";
 import ActionSheet from "./components/ui/ActionSheet";
-import TabBar, { TAB_BAR_BASE_HEIGHT } from "./components/ui/TabBar";
+import GlassFab from "./components/ui/GlassFab";
+import GlassHeaderButton, { HEADER_ICON_SOURCES } from "./components/ui/GlassHeaderButton";
+import TabBar, { TAB_BAR_BASE_HEIGHT, TAB_ICON_SOURCES } from "./components/ui/TabBar";
 import AnchoredMenu, { AnchoredMenuItem, AnchoredMenuFooter } from "./components/ui/AnchoredMenu";
 import Gradient from "./components/ui/Gradient";
 import { ScrollContext, useScrollController } from "./context/ScrollContext";
@@ -102,12 +103,18 @@ if (Platform.OS === "web" && typeof document !== "undefined") {
 // Import Screen Components
 import Auth from "./components/Auth";
 import Dashboard from "./components/Dashboard";
+import BabyProfileScreen from "./components/BabyProfileScreen";
+import recordStore from "./utils/recordStore.cjs";
 import Health from "./components/Health";
 import Growth from "./components/Growth";
 import Services from "./components/Services";
 import NutritionTracker from "./components/NutritionTracker";
 import ShareRecords from "./components/ShareRecords";
 import ProfessionalView from "./components/ProfessionalView";
+import consultationLinks from "./utils/consultationLinks.cjs";
+import NotificationMenu from "./components/NotificationMenu";
+import Notifications from "./components/Notifications";
+import useNotificationInbox from "./utils/useNotificationInbox";
 import EmptyChild from "./components/EmptyChild";
 import Onboarding from "./components/Onboarding";
 import ToastProvider, { useToast } from "./components/ui/Toast";
@@ -122,7 +129,6 @@ import Field, { FieldShell } from "./components/ui/Field";
 
 import RecordFormSheet, { RecordFormGroup, RecordFormRow, RecordFormScreen } from "./components/ui/RecordFormSheet";
 import ViewProfile, { PROFILE_TITLES } from "./components/settings/ViewProfile";
-import Avatar from "./components/ui/Avatar";
 import EditProfile from "./components/settings/EditProfile";
 import GeneralSettings from "./components/settings/GeneralSettings";
 import ThemePreferences from "./components/settings/ThemePreferences";
@@ -146,12 +152,13 @@ import { pickImage, pickerAvailable } from "./utils/imagePicker";
 // their own back headers instead, which worked while the app header sat above
 // the page — but the header is position:absolute now (see styles.header), so a
 // screen's own bar renders at y=0 UNDERNEATH it and the two titles overlap.
-// A new sub-screen gets an entry here; it does not get its own header.
+// Baby Profile owns its centered header; other new sub-screens use this map.
 const SCREEN_TITLES = {
     viewProfile: "Profile",
     editBabyProfile: "Edit Baby Profile",
     ...PROFILE_TITLES,
     search: "Search",
+    notifications: "Notifications",
     allActivity: "Recent Activity",
 };
 
@@ -234,12 +241,27 @@ function MainAppShell({
 
     // Authentication State
     const [isAuthenticated, setIsAuthenticated] = useState(false);
-    // Browsers have no native splash, so only the web fallback owns a timed
-    // fade. Native stays on app.json's splash until the whole gate is ready.
-    const [webSplashDone, setWebSplashDone] = useState(false);
+    // The React splash owns its fade on web and when native splash is unavailable.
+    const usesReactSplash = Platform.OS === "web" || !SplashScreen;
+    const [reactSplashDone, setReactSplashDone] = useState(false);
     const [authScene, setAuthScene] = useState("login");
     // Healthcare Professional mode (separate actor, no parent account)
-    const [professionalMode, setProfessionalMode] = useState(false);
+    const [incomingShare, setIncomingShare] = useState(() => consultationLinks.browserConsultation());
+    const [professionalMode, setProfessionalMode] = useState(() => !!consultationLinks.browserConsultation());
+    useEffect(() => {
+        if (Platform.OS !== "web") return undefined;
+        const openShare = () => {
+            const share = consultationLinks.browserConsultation();
+            if (share) { setIncomingShare(share); setProfessionalMode(true); }
+            else { setIncomingShare(null); setProfessionalMode(false); }
+        };
+        window.addEventListener("hashchange", openShare);
+        window.addEventListener("popstate", openShare);
+        return () => {
+            window.removeEventListener("hashchange", openShare);
+            window.removeEventListener("popstate", openShare);
+        };
+    }, []);
     // All three start EMPTY, and that is the point. parentName defaulted to
     // the literal string "Sarah" and parentAvatar to a stock photograph of a
     // stranger, so before the session was restored the app addressed every
@@ -298,7 +320,33 @@ function MainAppShell({
     // -> back lands on View Profile, not Home). Capped so a long tab-hopping
     // session can't grow this unbounded; back only ever needs to pop one level.
     const historyRef = useRef([]);
+    const [babyProfileTarget, setBabyProfileTarget] = useState(null);
+    const profileFlow = useRef(null);
+    const editTarget = useRef(null);
+    const activeBabyId = useRef(null);
+    const homeOffset = useRef(0);
+    const [homeRestore, setHomeRestore] = useState(null);
+    useEffect(() => {
+        const listener = scroll.scrollY.addListener(({ value }) => {
+            if (currentView === "dashboard") homeOffset.current = Math.max(0, value);
+        });
+        return () => scroll.scrollY.removeListener(listener);
+    }, [currentView, scroll.scrollY]);
     const changeView = (view, tab = null, payload = null) => {
+        if (currentView === "editBabyProfile" && view !== currentView) {
+            editTarget.current = null;
+            setFormAvatarUri("");
+            setBloodTypeMenuOpen(false);
+        }
+        if (view === "babyProfile") {
+            const id = String(payload?.childId || "");
+            if (!id || id !== activeBabyId.current) return;
+            setBabyProfileTarget({ id, epoch: sessionEpoch });
+            profileFlow.current = { id, epoch: sessionEpoch, offset: currentView === "dashboard" ? homeOffset.current : null };
+        } else if (!["babyProfile", "editBabyProfile"].includes(view)) {
+            profileFlow.current = null;
+            setHomeRestore(null);
+        }
         setCurrentView((prevView) => {
             if (view !== prevView) {
                 historyRef.current = [...historyRef.current, prevView].slice(-10);
@@ -325,9 +373,22 @@ function MainAppShell({
         // above, one layer up.
         scroll.resetScroll();
     };
+    const openHeaderView = (view) => {
+        if (view === currentView) scroll.scrollToTop();
+        changeView(view);
+    };
     const goBack = () => {
+        if (currentView === "editBabyProfile") {
+            editTarget.current = null;
+            setFormAvatarUri("");
+        }
         const prev = historyRef.current[historyRef.current.length - 1];
         historyRef.current = historyRef.current.slice(0, -1);
+        if ((prev || "dashboard") === "dashboard" && profileFlow.current) {
+            const flow = profileFlow.current;
+            if (flow.id === activeBabyId.current && flow.epoch === recordStore.getEpoch()) setHomeRestore(flow);
+            profileFlow.current = null;
+        }
         setCurrentView(prev || "dashboard");
         // Back navigation bypasses changeView, so it has to clear the deep-link
         // target itself or it leaks the same stale alias.
@@ -355,6 +416,8 @@ function MainAppShell({
     // Settings, Search and Share Records.
     const FAB_VIEWS = ["dashboard", "health", "growth", "nutrition", "calendar"];
     const showFab = FAB_VIEWS.includes(currentView);
+    const pageGradient = currentView === "search" ? colors.searchSurface.background : currentView === "share" ? colors.shareSurface.background
+        : currentView === "viewProfile" ? colors.profileSettings.background : colors.pageGradient;
 
     // Core records lists — children now load from the backend.
     const [profiles, setProfiles] = useState([]);
@@ -413,6 +476,7 @@ function MainAppShell({
     const [formGender, setFormGender] = useState("girl");
     const [formWeight, setFormWeight] = useState("3.2");
     const [formHeight, setFormHeight] = useState("49.0");
+    const [formBirthHead, setFormBirthHead] = useState("");
     const [formBloodType, setFormBloodType] = useState("");
     const [formHospital, setFormHospital] = useState("");
     const [formPediatrician, setFormPediatrician] = useState("");
@@ -432,16 +496,34 @@ function MainAppShell({
 
     const activeProfile =
         profiles.find((p) => p.id === selectedProfileId) || profiles[0];
-    const sharedGrowth = useRecords(activeProfile?.id, "growth");
+    activeBabyId.current = activeProfile?.id;
+    const viewedBaby = babyProfileTarget?.epoch === sessionEpoch && babyProfileTarget.id === activeProfile?.id
+        ? profiles.find(profile => profile.id === babyProfileTarget.id) : null;
     useEffect(() => {
-        if (!activeProfile) return;
+        const flow = profileFlow.current;
+        const target = editTarget.current;
+        if ((flow && (flow.id !== activeProfile?.id || flow.epoch !== sessionEpoch))
+            || (target && (target.id !== activeProfile?.id || target.epoch !== sessionEpoch))) {
+            profileFlow.current = null;
+            editTarget.current = null;
+            setBabyProfileTarget(null);
+            setHomeRestore(null);
+            setFormAvatarUri("");
+            setBloodTypeMenuOpen(false);
+            historyRef.current = [];
+            setCurrentView("dashboard");
+        }
+    }, [activeProfile?.id, sessionEpoch]);
+    const sharedGrowth = useRecords(professionalMode ? null : activeProfile?.id, "growth");
+    useEffect(() => {
+        if (professionalMode || !activeProfile) return;
         const rows = [...sharedGrowth].sort((a, b) => String(b.date_recorded).localeCompare(String(a.date_recorded)) || Number(b.id) - Number(a.id));
         const weight = rows.find((row) => row.weight != null)?.weight;
         const height = rows.find((row) => row.height != null)?.height;
         setProfiles((prev) => prev.map((profile) => profile.id === activeProfile.id ? { ...profile,
             currentWeight: weight != null ? Number(weight) : profile.birthWeight,
             currentHeight: height != null ? Number(height) : profile.birthHeight } : profile));
-    }, [activeProfile?.id, sharedGrowth]);
+    }, [professionalMode, activeProfile?.id, sharedGrowth]);
     const selectProfile = (profile) => {
         setSelectedProfileId(profile ? profile.id : null);
         if (onThemeGenderChange) onThemeGenderChange(profile ? profile.gender : undefined);
@@ -479,7 +561,7 @@ function MainAppShell({
     const requestedAlertsRef = useRef(new Set());
     const profileIdKey = profiles.map((p) => p.id).join(",");
     useEffect(() => {
-        if (profiles.length < 2) return;
+        if (professionalMode || profiles.length < 2) return;
         const unknown = profiles.filter((p) => !requestedAlertsRef.current.has(p.id));
         if (!unknown.length) return;
         for (const p of unknown) requestedAlertsRef.current.add(p.id);
@@ -517,7 +599,7 @@ function MainAppShell({
             active = false;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [profileIdKey]);
+    }, [professionalMode, profileIdKey]);
 
     // True when some child OTHER than the one on screen needs attention — the
     // whole point of the dot on the header. The active child's own problems are
@@ -526,47 +608,11 @@ function MainAppShell({
         (p) => p.id !== (activeProfile && activeProfile.id) && childAlerts[p.id],
     );
 
-    // Unseen QR-access-log notifications: poll while the app is open (no
-    // server push exists yet — see CLAUDE.md 4.5, deferred). Toast + badge
-    // only, cleared when the parent opens Share Records (ShareRecords.js
-    // calls markAccessLogSeen on load).
+    // One scoped inbox controller supplies both the bell and its full screen.
     const toast = useToast();
     const [unseenCount, setUnseenCount] = useState(0);
-    const toastedIdsRef = useRef(new Set());
-    const seenFirstCheckRef = useRef(false);
-    const checkUnseenAccess = async () => {
-        if (!activeProfile) return;
-        try {
-            const { count, rows } = await api.unseenAccessLog(activeProfile.id, { background: true });
-            setUnseenCount(count);
-            const freshRows = (rows || []).filter((r) => !toastedIdsRef.current.has(r.id));
-            if (seenFirstCheckRef.current && freshRows.length > 0) {
-                const latest = freshRows[0];
-                const when = new Date(latest.access_date).toLocaleTimeString(undefined, {
-                    hour: "numeric",
-                    minute: "2-digit",
-                });
-                toast.info(`Your records were viewed by ${latest.professional_name} at ${when}`);
-            }
-            (rows || []).forEach((r) => toastedIdsRef.current.add(r.id));
-            seenFirstCheckRef.current = true;
-        } catch (e) {
-            console.log("unseen access check:", e.message);
-        }
-    };
-    useEffect(() => {
-        checkUnseenAccess();
-        const interval = setInterval(checkUnseenAccess, 90000);
-        const sub = AppState.addEventListener
-            ? AppState.addEventListener("change", (state) => {
-                  if (state === "active") checkUnseenAccess();
-              })
-            : null;
-        return () => {
-            clearInterval(interval);
-            if (sub && sub.remove) sub.remove();
-        };
-    }, [activeProfile ? activeProfile.id : null]);
+    const notificationInbox = useNotificationInbox(professionalMode ? null : activeProfile?.id, setUnseenCount);
+    useEffect(() => { setUnseenCount(0); }, [activeProfile?.id, sessionEpoch]);
 
     // Drive the app theme from the selected child's gender (girl/boy).
     useLayoutEffect(() => {
@@ -665,29 +711,36 @@ function MainAppShell({
 
     // On launch, restore a saved session via the stored JWT.
     useEffect(() => {
+        if (professionalMode) { setBootstrapping(false); return undefined; }
+        let active = true;
+        setBootstrapping(true);
         (async () => {
             try {
                 const token = await getToken();
+                if (!active) return;
                 if (token) {
                     const { user } = await api.me();
+                    if (!active) return;
                     setIsAuthenticated(true);
                     applyUser(user);
                     await loadChildren();
                 }
             } catch (e) {
-                await clearToken(); // token invalid/expired
+                if (active && e.status === 401) await clearToken(); // token invalid/expired
             } finally {
-                setBootstrapping(false);
+                if (active) setBootstrapping(false);
             }
         })();
-    }, []);
+        return () => { active = false; };
+    }, [professionalMode]);
 
     // Preload only images that can appear immediately after startup. First
-    // launch also gets the Auth logo because both onboarding CTAs lead there.
+    // launch also gets the Auth illustrations because both onboarding CTAs lead there.
     useEffect(() => {
         if (bootstrapping || onboarded === null || startupAssetsStartedRef.current) return undefined;
         startupAssetsStartedRef.current = true;
         let active = true;
+        let completed = false;
         setAssetsReady(false);
         const sources = !onboarded
             ? [
@@ -705,13 +758,15 @@ function MainAppShell({
                     require("./assets/auth-register-hero.png"),
                 ]
               : [];
-        Asset.loadAsync(sources)
+        Asset.loadAsync([...sources, ...TAB_ICON_SOURCES, ...HEADER_ICON_SOURCES])
             .catch((e) => console.log("startup asset preload:", e.message || e))
             .finally(() => {
+                completed = true;
                 if (active) setAssetsReady(true);
             });
         return () => {
             active = false;
+            if (!completed) startupAssetsStartedRef.current = false;
         };
     }, [bootstrapping, onboarded, isAuthenticated]);
 
@@ -782,6 +837,7 @@ function MainAppShell({
                         gender: formGender,
                         weight: formWeight,
                         height: formHeight,
+                        birthHeadCircumference: formBirthHead,
                         bloodType: formBloodType,
                         hospital: formHospital,
                         pediatrician: formPediatrician,
@@ -833,6 +889,9 @@ function MainAppShell({
     };
 
     const handleEditProfile = async () => {
+        const target = editTarget.current;
+        const isCurrent = () => editTarget.current === target && target?.id === activeBabyId.current && target?.epoch === recordStore.getEpoch();
+        if (!isCurrent()) return;
         if (!formName) {
             toast.error("Please enter baby name");
             return;
@@ -841,7 +900,7 @@ function MainAppShell({
         setProfileSaving("edit");
         try {
             const updated = await api.updateChild(
-                activeProfile.id,
+                target.id,
                 profileFormToChild(
                     {
                         name: formName,
@@ -854,6 +913,7 @@ function MainAppShell({
                         hospital: formHospital,
                         pediatrician: formPediatrician,
                         pediatricianContactNumber: formPediatricianContact,
+                        birthHeadCircumference: formBirthHead,
                         pediatricianClinicHospital: formPediatricianClinic,
                         obgyne: formObgyne,
                         obgynContactNumber: formObgyneContact,
@@ -867,27 +927,37 @@ function MainAppShell({
                     { includeBirth: false },
                 ),
             );
+            if (!isCurrent()) return;
             let prof = childToProfile(updated);
+            setProfiles(prev => prev.map(p => p.id === prof.id ? { ...prof, currentWeight: p.currentWeight, currentHeight: p.currentHeight } : p));
             if (formAvatarUri) {
                 try {
-                    const withAvatar = await api.uploadChildAvatar(activeProfile.id, formAvatarUri);
+                    const withAvatar = await api.uploadChildAvatar(target.id, formAvatarUri);
+                    if (!isCurrent()) return;
                     prof = childToProfile(withAvatar);
                 } catch (e) {
                     throw new Error(`Profile saved, but its photo could not be saved: ${e.message}. Retry to finish.`);
                 }
             }
+            if (!isCurrent()) return;
             setProfiles((prev) => prev.map((p) => (p.id === prof.id ? { ...prof, currentWeight: p.currentWeight, currentHeight: p.currentHeight } : p)));
             setFormAvatarUri("");
             goBack();
         } catch (e) {
-            toast.error(e.message || "Could not update child");
+            if (isCurrent()) toast.error(e.message || "Could not update child");
         } finally {
             setProfileSaving(null);
         }
     };
 
-    const openEditModal = () => {
+    const openEditModal = ({ photo = false } = {}) => {
+        if (!activeProfile || profileSaving) return;
+        const target = { id: activeProfile.id, epoch: sessionEpoch };
+        editTarget.current = target;
+        if (currentView === "dashboard") profileFlow.current = { ...target, offset: homeOffset.current };
+
         const emergency = activeProfile.emergencyContactDetails || {};
+        setFormBirthHead(activeProfile.birthHeadCircumference != null ? String(activeProfile.birthHeadCircumference) : "");
         setFormName(activeProfile.name);
         setFormDob(activeProfile.dateOfBirth);
         setFormGender(activeProfile.gender);
@@ -907,6 +977,9 @@ function MainAppShell({
         setFormTimeOfBirth(activeProfile.timeOfBirth || "");
         setFormAvatarUri("");
         changeView("editBabyProfile");
+        if (photo) pickImage().then(uri => {
+            if (uri && editTarget.current === target && recordStore.getEpoch() === target.epoch && activeBabyId.current === target.id) setFormAvatarUri(uri);
+        }).catch(error => { if (editTarget.current === target) toast.error(error.message || "Could not choose photo"); });
     };
 
     const openBloodTypeMenu = () => {
@@ -923,6 +996,7 @@ function MainAppShell({
 
     // Open the add-baby modal with a clean avatar picker + fields.
     const openAddModal = () => {
+        setFormBirthHead("");
         setFormNickname("");
         setFormPlaceOfBirth("");
         setFormTimeOfBirth("");
@@ -940,8 +1014,10 @@ function MainAppShell({
                     activeOpacity={pickerAvailable() ? 0.85 : 1}
                     onPress={async () => {
                         if (!pickerAvailable()) return;
+                        const target = editTarget.current;
+                        const epoch = recordStore.getEpoch();
                         const uri = await pickImage();
-                        if (uri) setFormAvatarUri(uri);
+                        if (uri && recordStore.getEpoch() === epoch && editTarget.current === target) setFormAvatarUri(uri);
                     }}
                     accessibilityRole="button"
                     accessibilityLabel="Choose baby photo"
@@ -969,9 +1045,8 @@ function MainAppShell({
     // Show the branded loading screen until icon fonts are ready, the saved
     // session has been restored, and the one-time onboarding check resolves —
     // so no screen ever renders with blank icons or a flash of the carousel.
-    // The splash stays up until fonts, the restored session and the first-run
-    // check have all resolved — and for its own minimum duration on top of
-    // that, so a warm start shows a moment of brand instead of a flicker.
+    // React splash also waits for the logo's visible interval; native keeps
+    // the OS splash until readiness without adding a second splash hold.
     const ready =
         fontsReady &&
         assetsReady &&
@@ -980,8 +1055,8 @@ function MainAppShell({
         !bootstrapping &&
         onboarded !== null;
     useEffect(() => {
-        setLoadingReady(ready && (Platform.OS !== "web" || webSplashDone));
-    }, [ready, webSplashDone, setLoadingReady]);
+        setLoadingReady(ready && (!usesReactSplash || reactSplashDone));
+    }, [ready, usesReactSplash, reactSplashDone, setLoadingReady]);
     useEffect(() => {
         if (ready && Platform.OS !== "web" && SplashScreen) {
             SplashScreen.hideAsync().catch(() => {});
@@ -989,14 +1064,16 @@ function MainAppShell({
     }, [ready]);
 
     if (!ready) {
-        return Platform.OS === "web" || !SplashScreen ? <Splash /> : null;
+        return usesReactSplash ? <Splash /> : null;
     }
-    if (Platform.OS === "web" && !webSplashDone) {
-        return <Splash appReady onFinished={() => setWebSplashDone(true)} />;
+    if (usesReactSplash && !reactSplashDone) {
+        return <Splash appReady onFinished={() => setReactSplashDone(true)} />;
     }
 
     if (professionalMode) {
-        return <ProfessionalView onExit={() => setProfessionalMode(false)} />;
+        return <ProfessionalView initialShare={incomingShare} onExit={() => {
+            consultationLinks.clearBrowserConsultation(); setIncomingShare(null); setProfessionalMode(false);
+        }} />;
     }
 
     if (!isAuthenticated) {
@@ -1044,7 +1121,8 @@ function MainAppShell({
 
     return (
         // The page background is a gradient, not a flat fill, and its stops
-        // come from the active palette — so it switches with the child the same
+        // come from the active palette; Search opts into its white-blue canvas.
+        // Other screens switch with the child the same
         // way every accent already does. The final stop IS colors.background,
         // because every status and record-type colour in theme.js was
         // contrast-verified against that flat value. See theme.js pageGradient.
@@ -1057,7 +1135,7 @@ function MainAppShell({
         // between cards, which is where a page background is actually seen.
         <ScrollContext.Provider value={scroll}>
         <Gradient
-            colors={colors.pageGradient}
+            colors={pageGradient}
             locations={[0, 0.5, 1]}
             start={{ x: 0.5, y: 0 }}
             end={{ x: 0.5, y: 1 }}
@@ -1071,170 +1149,12 @@ function MainAppShell({
                 { paddingLeft: insets.left, paddingRight: insets.right },
             ]}
         >
-            <StatusBar barStyle={scheme === "dark" ? "light-content" : "dark-content"} backgroundColor={colors.pageGradient[0]} />
+            <StatusBar barStyle={scheme === "dark" ? "light-content" : "dark-content"} backgroundColor={pageGradient[0]} />
             <BlurTargetView ref={blurTargetRef} style={styles.blurTarget}>
+            {/* Native blur captures the same page gradient beneath content. */}
+            <Gradient pointerEvents="none" colors={pageGradient} locations={[0, 0.5, 1]}
+                start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={StyleSheet.absoluteFillObject} />
             <MutationFeedback profiles={profiles} top={headerHeight + space.xs} />
-
-            {/* Dynamic Header — rendered AFTER the content below so it paints
-                on top of it. It floats over the page rather than sitting above
-                it, which is what lets content scroll beneath the bar and makes
-                its white background mean something. */}
-            <Animated.View
-                pointerEvents="box-none"
-                style={[styles.header, { paddingTop: insets.top }]}
-                onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
-            >
-                {/* The white ground, as an OVERLAY with animated opacity rather
-                    than an animated backgroundColor — colour is not
-                    native-driver-safe, opacity is, and it composites over the
-                    gradient correctly. The hairline fades in with it. */}
-                <Animated.View
-                    pointerEvents="none"
-                    style={[
-                        styles.headerBg,
-                        {
-                            opacity: scroll.scrollY.interpolate({
-                                inputRange: [0, HEADER_COLLAPSE],
-                                outputRange: [0, 1],
-                                extrapolate: "clamp",
-                            }),
-                        },
-                    ]}
-                />
-                <View style={styles.headerRow}>
-                <View style={styles.headerLeft}>
-                    {SCREEN_TITLES[currentView] ? (
-                        <>
-                            <TouchableOpacity
-                                onPress={goBack}
-                                style={styles.backBtn}
-                                accessibilityRole="button"
-                                accessibilityLabel="Back"
-                            >
-                                <Ionicons name="arrow-back" size={22} color={colors.text} />
-                            </TouchableOpacity>
-                            <Text style={styles.screenTitle} numberOfLines={1}>
-                                {SCREEN_TITLES[currentView]}
-                            </Text>
-                        </>
-                    ) : (
-                        // The child's name IS the switcher. The chevron shows
-                        // even with a single child, because the sheet also
-                        // holds "Add another child" — the affordance that used
-                        // to sit under the Dashboard's switcher row.
-                        <Pressable
-                            ref={nameRef}
-                            onPress={openSwitcher}
-                            style={({ pressed, hovered }) => [
-                                styles.babyNameBtn,
-                                { opacity: hovered ? 0.8 : pressed ? 0.7 : 1 },
-                            ]}
-                            accessibilityRole="button"
-                            accessibilityLabel={`${activeProfile.name}${
-                                otherChildNeedsAttention
-                                    ? ". Another child needs attention"
-                                    : ""
-                            }`}
-                            accessibilityHint="Switches between your children"
-                        >
-                            {/* The name, alert dot and chevron scale as ONE
-                                group, so the chevron shrinks with the title
-                                instead of stranding a gap beside it.
-
-                                The Pressable stays OUTSIDE this view, so the
-                                touch target keeps its full 44pt at every scroll
-                                position — scaling the tappable area down to
-                                0.667 would leave a ~29pt target when collapsed.
-
-                                Scale, not fontSize: animating fontSize re-lays
-                                out the text every scroll frame and forces the
-                                whole animation off the native driver.
-                                transformOrigin keeps it pinned left (RN 0.74+;
-                                this project is on 0.85). */}
-                            <Animated.View
-                                style={[
-                                    styles.babyNameScale,
-                                    {
-                                        transform: [
-                                            {
-                                                scale: scroll.scrollY.interpolate({
-                                                    inputRange: [0, HEADER_COLLAPSE],
-                                                    outputRange: [1, HEADER_TITLE_MIN / HEADER_TITLE_MAX],
-                                                    extrapolate: "clamp",
-                                                }),
-                                            },
-                                        ],
-                                    },
-                                ]}
-                            >
-                                {/* numberOfLines is load-bearing: headerLeft
-                                    and headerRight were both unbounded in a
-                                    space-between row, so a long child name grew
-                                    the left side until it pushed the search /
-                                    QR / menu buttons off-screen. More so at
-                                    30px. The name shown here is the SHORT form
-                                    — see headerName() — because a full Filipino
-                                    name at this size truncates to about eight
-                                    characters, and the large state would then
-                                    truncate harder than the small one. */}
-                                <Text style={styles.babyName} numberOfLines={1} ellipsizeMode="tail">
-                                    {headerName(activeProfile)}
-                                </Text>
-                                {/* Coral dot = some OTHER child needs attention.
-                                    The active child's own problems are already
-                                    stated by the Needs Attention card. */}
-                                {otherChildNeedsAttention ? (
-                                    <View style={styles.babyNameDot} />
-                                ) : null}
-                                <Ionicons
-                                    name={switcherOpen ? "chevron-up" : "chevron-down"}
-                                    size={20}
-                                    color={colors.textMuted}
-                                    style={styles.babyNameChevron}
-                                />
-                            </Animated.View>
-                        </Pressable>
-                    )}
-                </View>
-                <View style={styles.headerRight}>
-                    <TouchableOpacity
-                        onPress={() => changeView("search")}
-                        style={[styles.menuBtn, { marginRight: space.md }]}
-                        accessibilityRole="button"
-                        accessibilityLabel="Search records"
-                    >
-                        <Ionicons name="search-outline" size={22} color={colors.primary} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        onPress={() => {
-                            setUnseenCount(0);
-                            changeView("share");
-                        }}
-                        style={styles.headerQrBtn}
-                        accessibilityRole="button"
-                        accessibilityLabel="Share records by QR code"
-                    >
-                        <Ionicons name="qr-code" size={20} color={colors.primary} />
-                        {unseenCount > 0 && (
-                            <View style={styles.headerBadge}>
-                                <Text style={styles.headerBadgeText}>
-                                    {unseenCount > 9 ? "9+" : unseenCount}
-                                </Text>
-                            </View>
-                        )}
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        onPress={() => changeView("viewProfile")}
-                        style={styles.profileBtn}
-                        accessibilityRole="button"
-                        accessibilityLabel="Open profile and settings"
-                        accessibilityState={{ selected: currentView === "viewProfile" }}
-                    >
-                        <Avatar uri={parentAvatar} name={parentName} size={36} borderWidth={2} />
-                    </TouchableOpacity>
-                </View>
-                </View>
-            </Animated.View>
 
             {/* Main Container View content */}
             <Animated.View
@@ -1245,7 +1165,10 @@ function MainAppShell({
             >
                 {currentView === "dashboard" && (
                     <Dashboard
+                        key={`${sessionEpoch}:${activeProfile.id}`}
                         profile={activeProfile}
+                        initialScrollOffset={homeRestore?.id === activeProfile.id && homeRestore.epoch === sessionEpoch ? homeRestore.offset : null}
+                        onScrollRestored={() => setHomeRestore(null)}
                         parentName={parentName}
                         onOpenEditModal={openEditModal}
                         onUpdateProfile={(updated) =>
@@ -1258,6 +1181,8 @@ function MainAppShell({
                         onChangeView={changeView}
                     />
                 )}
+                {currentView === "babyProfile" && <BabyProfileScreen key={`${sessionEpoch}:${babyProfileTarget?.id}`}
+                    profile={viewedBaby} onBack={goBack} onEdit={openEditModal} />}
                 {currentView === "health" && (
                     <Health
                         profile={activeProfile}
@@ -1277,6 +1202,7 @@ function MainAppShell({
                 )}
                 {currentView === "growth" && (
                     <Growth
+                        blurTarget={blurTargetRef}
                         profile={activeProfile}
                         savedDateView={growthDateViewsRef.current[activeProfile.id] || null}
                         onDateViewChange={(view) => {
@@ -1297,6 +1223,7 @@ function MainAppShell({
                 )}
                 {currentView === "nutrition" && (
                     <NutritionTracker
+                        blurTarget={blurTargetRef}
                         profile={activeProfile}
                         savedDateView={nutritionDateViewsRef.current[activeProfile.id] || null}
                         onDateViewChange={(view) => {
@@ -1309,6 +1236,9 @@ function MainAppShell({
                 {currentView === "services" && <Services />}
                 {currentView === "calendar" && <CalendarView profile={activeProfile} onNavigate={changeView} />}
                 {currentView === "allActivity" && <AllActivity profile={activeProfile} />}
+                {currentView === "notifications" && (
+                    <Notifications key={`${sessionEpoch}:${activeProfile.id}`} profile={activeProfile} inbox={notificationInbox} onNavigate={changeView} />
+                )}
                 {currentView === "search" && (
                     <Search key={`${sessionEpoch}:${activeProfile.id}`} profile={activeProfile} onNavigate={changeView} />
                 )}
@@ -1319,6 +1249,8 @@ function MainAppShell({
                         immunizations={immunizations}
                         milestones={milestones}
                         appointments={appointments}
+                        initialSection={navPayload?.section}
+                        initialAccessEntry={navPayload?.accessEntry}
                         onClose={goBack}
                     />
                 )}
@@ -1365,7 +1297,7 @@ function MainAppShell({
                     onSubmit={handleEditProfile} busy={profileSaving === "edit"} submitLabel="Save Changes">
                     <RecordFormGroup>
 
-                                {renderAvatarPicker(activeProfile.avatarUrl)}
+                                {renderAvatarPicker(activeProfile.hasRecordedAvatar === false ? "" : activeProfile.avatarUrl)}
 
                                 <RecordFormRow label={<Text style={styles.modalLabel}>
                                     {t("profileNameLabel")}
@@ -1456,6 +1388,8 @@ function MainAppShell({
                                     <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
                                 </TouchableOpacity>
                                 </FieldShell>
+                                <MeasurementField label="Birth Head Circumference (optional)" unit="cm" min={20} max={65}
+                                    value={formBirthHead} onChange={setFormBirthHead} />
                                 <RecordFormRow label={<Text style={styles.modalLabel}>Birth Hospital</Text>}>
 
                                 <TextInput
@@ -1511,45 +1445,165 @@ function MainAppShell({
                     </RecordFormGroup>
                 </RecordFormScreen> : null}
             </Animated.View>
+            {/* Capture the scroll-fading ground, but never the foreground controls. */}
+            {currentView !== "babyProfile" && <Animated.View
+                pointerEvents="none"
+                style={[
+                    styles.headerBg,
+                    { height: headerHeight, bottom: undefined },
+                    {
+                        opacity: scroll.scrollY.interpolate({
+                            inputRange: [0, HEADER_COLLAPSE],
+                            outputRange: [0, 1],
+                            extrapolate: "clamp",
+                        }),
+                    },
+                ]}
+            />}
             </BlurTargetView>
 
-            <TabBar activeView={currentView}
+            {/* Dynamic Header — rendered AFTER the content below so it paints
+                on top of it. It floats over the page rather than sitting above
+                it, which is what lets content scroll beneath the bar and makes
+                its white background mean something. */}
+            {currentView !== "babyProfile" && <Animated.View
+                pointerEvents="box-none"
+                style={[styles.header, { left: insets.left, right: insets.right, paddingTop: insets.top }]}
+                onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
+            >
+                <View style={styles.headerRow}>
+                <View style={styles.headerLeft}>
+                    {SCREEN_TITLES[currentView] ? (
+                        <>
+                            <TouchableOpacity
+                                onPress={goBack}
+                                style={[styles.backBtn, currentView === "share" && { width: 44, height: 44, borderRadius: 22, boxShadow: colors.shareSurface.iconShadow }]}
+                                accessibilityRole="button"
+                                accessibilityLabel="Back"
+                            >
+                                {currentView === "share" ? <Gradient pointerEvents="none" colors={colors.shareSurface.control} style={[StyleSheet.absoluteFillObject, { borderRadius: 22 }]} /> : null}
+                                <Ionicons name={currentView === "share" ? "chevron-back" : "arrow-back"} size={22} color={currentView === "share" ? colors.shareSurface.azure : colors.text} />
+                            </TouchableOpacity>
+                            <Text style={styles.screenTitle} numberOfLines={1}>
+                                {SCREEN_TITLES[currentView]}
+                            </Text>
+                        </>
+                    ) : (
+                        // The child's name IS the switcher. The chevron shows
+                        // even with a single child, because the sheet also
+                        // holds "Add another child" — the affordance that used
+                        // to sit under the Dashboard's switcher row.
+                        <Pressable
+                            ref={nameRef}
+                            onPress={openSwitcher}
+                            style={({ pressed, hovered }) => [
+                                styles.babyNameBtn,
+                                { opacity: hovered ? 0.8 : pressed ? 0.7 : 1 },
+                            ]}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${activeProfile.name}${
+                                otherChildNeedsAttention
+                                    ? ". Another child needs attention"
+                                    : ""
+                            }`}
+                            accessibilityHint="Switches between your children"
+                        >
+                            {/* The name, alert dot and chevron scale as ONE
+                                group, so the chevron shrinks with the title
+                                instead of stranding a gap beside it.
+
+                                The Pressable stays OUTSIDE this view, so the
+                                touch target keeps its full 44pt at every scroll
+                                position — scaling the tappable area down to
+                                0.667 would leave a ~29pt target when collapsed.
+
+                                Scale, not fontSize: animating fontSize re-lays
+                                out the text every scroll frame and forces the
+                                whole animation off the native driver.
+                                transformOrigin keeps it pinned left (RN 0.74+;
+                                this project is on 0.85). */}
+                            <Animated.View
+                                style={[
+                                    styles.babyNameScale,
+                                    {
+                                        transform: [
+                                            {
+                                                scale: scroll.scrollY.interpolate({
+                                                    inputRange: [0, HEADER_COLLAPSE],
+                                                    outputRange: [1, HEADER_TITLE_MIN / HEADER_TITLE_MAX],
+                                                    extrapolate: "clamp",
+                                                }),
+                                            },
+                                        ],
+                                    },
+                                ]}
+                            >
+                                {/* numberOfLines is load-bearing: headerLeft
+                                    and headerRight were both unbounded in a
+                                    space-between row, so a long child name grew
+                                    the left side until it pushed the search /
+                                    QR / menu buttons off-screen. More so at
+                                    30px. The name shown here is the SHORT form
+                                    — see headerName() — because a full Filipino
+                                    name at this size truncates to about eight
+                                    characters, and the large state would then
+                                    truncate harder than the small one. */}
+                                <Text style={styles.babyName} numberOfLines={1} ellipsizeMode="tail">
+                                    {headerName(activeProfile)}
+                                </Text>
+                                {/* Coral dot = some OTHER child needs attention.
+                                    The active child's own problems are already
+                                    stated by the Needs Attention card. */}
+                                {otherChildNeedsAttention ? (
+                                    <View style={styles.babyNameDot} />
+                                ) : null}
+                                <Ionicons
+                                    name={switcherOpen ? "chevron-up" : "chevron-down"}
+                                    size={20}
+                                    color={colors.textMuted}
+                                    style={styles.babyNameChevron}
+                                />
+                            </Animated.View>
+                        </Pressable>
+                    )}
+                </View>
+                <View style={styles.headerRight}>
+                    {activeProfile ? <NotificationMenu count={notificationInbox.unreadCount} blurTarget={blurTargetRef}
+                        onOpen={() => { openHeaderView("notifications"); notificationInbox.refresh(); }} /> : null}
+                    <GlassHeaderButton icon="search" blurTarget={blurTargetRef}
+                        onPress={() => openHeaderView("search")}
+                        accessibilityLabel="Search records" />
+                    <GlassHeaderButton icon="qr" blurTarget={blurTargetRef} badgeCount={unseenCount}
+                        onPress={() => {
+                            setUnseenCount(0);
+                            openHeaderView("share");
+                        }}
+                        accessibilityLabel="Share records by QR code" />
+                    <GlassHeaderButton icon="profile" blurTarget={blurTargetRef}
+                        onPress={() => openHeaderView("viewProfile")}
+                        selected={currentView === "viewProfile"}
+                        accessibilityLabel="Open profile and settings" />
+                </View>
+                </View>
+            </Animated.View>}
+
+            {currentView !== "babyProfile" && <TabBar activeView={currentView}
                 blurTarget={blurTargetRef}
                 onLayout={(event) => setTabBarHeight(event.nativeEvent.layout.height)}
                 onSelect={(view) => {
                     if (Haptics?.selectionAsync) Haptics.selectionAsync().catch(() => {});
                     changeView(view);
                 }}
-            />
+            />}
 
             {/* Floating add button, above the tab bar on the five record
                 screens. See FAB_VIEWS above for why it is no longer global. */}
             {showFab ? (
-                <TouchableOpacity
-                    onPress={() => setActionSheetVisible(true)}
-                    style={[
-                        styles.fab,
-                        // Sits a fixed gap above the MEASURED tab bar, so it
-                        // stays clear of it at any font scale and above any
-                        // home indicator, including the first-frame fallback.
-                        { bottom: (tabBarHeight || TAB_BAR_BASE_HEIGHT + insets.bottom) + space.md },
-                    ]}
-                    accessibilityRole="button"
-                    accessibilityLabel="Add a record"
-                >
-                    <BlurView
-                        blurTarget={blurTargetRef}
-                        blurMethod={Platform.OS === "android" ? "dimezisBlurViewSdk31Plus" : undefined}
-                        intensity={76}
-                        tint={scheme === "dark" ? "systemMaterialDark" : "systemMaterialLight"}
-                        style={styles.fabGlass}
-                    >
-                        <Gradient colors={[colors.primary + "C7", colors.accent + "A8"]} style={styles.fabTint}>
-                            <View pointerEvents="none" style={styles.fabHighlight} />
-                            <Ionicons name="add" size={30} color={colors.onPrimary} />
-                        </Gradient>
-                    </BlurView>
-                </TouchableOpacity>
+                <GlassFab onPress={() => setActionSheetVisible(true)} blurTarget={blurTargetRef}
+                    appearance="azureGlass"
+                    style={[styles.fab, {
+                        bottom: (tabBarHeight || TAB_BAR_BASE_HEIGHT + insets.bottom) + space.md,
+                    }]} />
             ) : null}
 
             <ActionSheet
@@ -1643,6 +1697,8 @@ function MainAppShell({
                                 value={formWeight} onChange={setFormWeight} />
                             <MeasurementField label="Birth Height" unit="cm" min={20} max={140}
                                 value={formHeight} onChange={setFormHeight} />
+                            <MeasurementField label="Birth Head Circumference (optional)" unit="cm" min={20} max={65}
+                                value={formBirthHead} onChange={setFormBirthHead} />
 
                             <RecordFormRow label={<Text style={styles.modalLabel}>Blood Type</Text>}>
 
@@ -1942,8 +1998,8 @@ const makeStyles = (colors) => StyleSheet.create({
         borderBottomWidth: 1,
         borderBottomColor: colors.hairline,
     },
-    // The left side takes the slack and shrinks; the right side (three fixed
-    // 42pt buttons) never does. Previously both were unbounded, so whichever
+    // The left side takes the slack and shrinks; the right side (four fixed
+    // 44pt buttons) never does. Previously both were unbounded, so whichever
     // had more content won and the other overflowed the screen edge.
     headerLeft: {
         flexDirection: "row",
@@ -1955,33 +2011,9 @@ const makeStyles = (colors) => StyleSheet.create({
     headerRight: {
         flexDirection: "row",
         alignItems: "center",
+        gap: space.xs,
         flexShrink: 0,
     },
-    headerQrBtn: {
-        width: MIN_TOUCH,
-        height: MIN_TOUCH,
-        borderRadius: radius.lg,
-        borderCurve: "continuous",
-        backgroundColor: colors.softGreen,
-        alignItems: "center",
-        justifyContent: "center",
-        marginRight: space.md,
-    },
-    headerBadge: {
-        position: "absolute",
-        top: -4,
-        right: -4,
-        minWidth: 18,
-        height: 18,
-        borderRadius: 9,
-        paddingHorizontal: 4,
-        backgroundColor: colors.danger,
-        alignItems: "center",
-        justifyContent: "center",
-        borderWidth: 2,
-        borderColor: colors.surface,
-    },
-    headerBadgeText: { color: "#FFFFFF", fontSize: 11, fontWeight: "800" },
     babyNameBtn: {
         flexDirection: "row",
         alignItems: "center",
@@ -2047,22 +2079,6 @@ const makeStyles = (colors) => StyleSheet.create({
         marginLeft: -space.sm, // optical alignment with the screen content below
     },
     screenTitle: { ...type.heading, color: colors.text, flexShrink: 1 },
-    menuBtn: {
-        width: MIN_TOUCH,
-        height: MIN_TOUCH,
-        borderRadius: radius.lg,
-        borderCurve: "continuous",
-        backgroundColor: colors.softGreen,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    profileBtn: {
-        width: MIN_TOUCH,
-        height: MIN_TOUCH,
-        borderRadius: radius.pill,
-        alignItems: "center",
-        justifyContent: "center",
-    },
     content: {
         flex: 1,
     },
@@ -2070,40 +2086,7 @@ const makeStyles = (colors) => StyleSheet.create({
         flex: 1,
     },
 
-    fab: {
-        position: "absolute",
-        right: space.lg,
-        // `bottom` is applied inline from the measured tab-bar height — it was
-        // a hardcoded 92 that only cleared the bar at one font scale.
-        width: 56,
-        height: 56,
-        borderRadius: 28,
-        borderCurve: "continuous",
-        ...shadow.accent,
-    },
-    fabGlass: {
-        flex: 1,
-        overflow: "hidden",
-        borderRadius: 28,
-        borderCurve: "continuous",
-        borderWidth: 1,
-        borderColor: colors.surface + "CC",
-        backgroundColor: colors.primary + "52",
-    },
-    fabTint: {
-        flex: 1,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    fabHighlight: {
-        position: "absolute",
-        left: 7,
-        right: 7,
-        top: 5,
-        height: 14,
-        borderRadius: radius.pill,
-        backgroundColor: colors.onPrimary + "30",
-    },
+    fab: { position: "absolute", right: space.lg },
     modalBg: {
         flex: 1,
         backgroundColor: "rgba(28,25,23,0.55)",

@@ -33,7 +33,7 @@ assert.deepEqual(
     {
         entryType: "milk", milkType: "Mixed", feedMethod: "bottle", formulaBrand: "A+",
         formulaScoops: "4.5", quantity: "135", breastmilkQuantity: "60", unit: "mL", durationMinutes: "",
-        foodIntroduced: "", reactionSeverity: "none", reaction: "",
+        foodIntroduced: "", foodCategory: "", reactionSeverity: "none", reaction: "",
         date: "2026-09-19", time: "10:30", notes: "Evening feed",
     },
 );

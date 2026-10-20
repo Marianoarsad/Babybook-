@@ -4,6 +4,7 @@ const path = require("path");
 
 const chart = fs.readFileSync(path.join(__dirname, "NutritionTrendChart.js"), "utf8");
 const screen = fs.readFileSync(path.join(__dirname, "..", "NutritionTracker.js"), "utf8");
+const chartFilter = fs.readFileSync(path.join(__dirname, "GlassChartFilterPopover.js"), "utf8");
 const checks = [
     ["combined card title", screen.includes('title="Nutrition Over Time"')],
     ["legacy cards removed", !screen.includes('title="Milk Over Time"') && !screen.includes('title="Food Over Time"')],
@@ -19,19 +20,19 @@ const checks = [
     ["Milk measure filter shares the average header", chart.includes("headerControl") && chart.includes("styles.averageHeader") && screen.includes("headerControl={(") && !screen.includes("measureControlRow")],
     ["Milk measure filter matches the Home chart control", screen.includes("minWidth: 128") && screen.includes("borderRadius: radius.pill") && screen.includes("measureSelectText: { ...type.label") && screen.includes("size={18}") && screen.includes("color={colors.textSecondary}")],
     ["Milk measure menu is an inline trigger-width select", /visible=\{measureMenuOpen\}[\s\S]*?variant="select"/.test(screen) && /selected=\{measureKey === m\.key\}[\s\S]*?variant="select"/.test(screen)],
-    ["Nutrition chart switcher uses the funnel checklist", screen.includes('accessibilityLabel={`Nutrition chart filter, ${chartKeys.length} charts shown`}') && screen.includes('animation="warp"') && screen.includes('accessibilityRole="switch"')],
-    ["Nutrition chart switches use a white thumb in both states", screen.includes("thumbColor={colors.onPrimary}") && screen.includes("activeThumbColor: colors.onPrimary")],
-    ["Nutrition chart switcher keeps one chart visible", screen.includes("checked && chartKeys.length === 1") && screen.includes("toggleRequiredKey(current, chart.key, NUTRITION_CHART_KEYS)")],
-    ["Nutrition chart visibility follows checked keys", screen.includes("showMilkChart ?") && screen.includes("showFoodChart ?") && screen.includes("showMilkChart ? styles.trendChartDivider")],
+    ["Nutrition chart switcher shares Growth's glass checklist", screen.includes('name="tune" size={26} color={colors.nutritionSurface.series}') && screen.includes('accessibilityLabel={`Nutrition chart filter, ${chartKeys.length} charts shown`}') && screen.includes("<GlassChartFilterPopover") && chartFilter.includes('appearance="glass"') && chartFilter.includes('dimBackdrop={false}')],
+    ["Nutrition chart switches use a white convex knob", chartFilter.includes("material.knob") && chartFilter.includes("styles.knob") && chartFilter.includes('accessibilityRole="switch"')],
+    ["Nutrition chart switcher keeps one chart visible", chartFilter.includes("checked && selectedKeys.length === 1") && screen.includes("toggleRequiredKey(current, key, NUTRITION_CHART_KEYS)")],
+    ["Nutrition chart visibility follows checked keys", screen.includes("showMilkChart ?") && screen.includes("showFoodChart ?") && screen.includes("styles.foodChart")],
     ["Milk measure label has no redundant prefix", !screen.includes("Milk · {activeMeasure.label}")],
     ["unit label clears the top y-axis value", chart.includes("const chartHeight = 216") && chart.includes("const padTop = 28")],
     ["seven-day threshold selects bars or lines", chart.includes("selectedDayCount > 7") && chart.includes("const lineMode") && chart.includes("!lineMode ? (")],
     ["dashed average line stays in bar mode", chart.includes('strokeDasharray="6 6"') && chart.includes("geometry.yFor(average)")],
-    ["latest non-empty bar emphasized", chart.includes("point.value > 0 ? index : found") && chart.includes("bar.latest ? 1 : 0.68")],
+    ["latest non-empty bar emphasized", chart.includes("point.value > 0 ? index : found") && chart.includes('bar.latest ? "latest" : "bar"')],
     ["long ranges use Growth-style line treatment", chart.includes("LinearGradient") && chart.includes('strokeWidth={2.5}') && chart.includes('r={7}') && chart.includes('strokeDasharray={lineMode ? "4 4" : undefined}')],
     ["line spans the full plot width", chart.includes("leftPad + (index / (points.length - 1)) * plotW")],
     ["chart accessibility follows its visual type", chart.includes('lineMode ? "line chart" : "bar chart"')],
-    ["theme-aware Milk and Food colors", screen.includes("color={colors.primary}") && screen.includes("color={colors.accent}")],
+    ["lines, averages and sliders retain their existing series color", (screen.match(/color={colors.nutritionSurface.series}/g) || []).length === 3],
     ["legacy feeding pattern is removed", !screen.includes("const pattern =") && !screen.includes('title="Feeding Pattern"')],
 ];
 

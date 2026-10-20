@@ -18,44 +18,76 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 // columns, so anything comparing two feeds has to stitch them back together.
 export const byMoment = (a, b) => (a.date + (a.time || "")).localeCompare(b.date + (b.time || ""));
 
+export const recordedFeedingTime = value => /^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(value || "") ? value.slice(0, 5) : null;
+
+// Local event dates/times stay separate; creation timestamps cannot date an untimed feed.
+export function dailyFeedingSummary(entries, day = todayLocal()) {
+    const rows = (entries || []).filter(e => e && e.date === day && ["milk", "solid"].includes(e.entryType || "milk"))
+        .slice().sort((a, b) => byMoment(b, a));
+    let milkEntries = 0, loggedMilkVolumeMl = null, lastFeedingTime = null;
+    const measured = value => value != null && value !== "" && Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : null;
+    for (const entry of rows) {
+        const time = recordedFeedingTime(entry.time);
+        if (time != null) {
+            if (lastFeedingTime == null || time > lastFeedingTime) lastFeedingTime = time;
+        }
+        if (entry.entryType === "solid") continue;
+        milkEntries++;
+        if (entry.feedMethod === "breast" || !["", "mL", "oz", "L"].includes(entry.unit || "")) continue;
+        const quantity = measured(entry.quantity);
+        const breastmilkQuantity = entry.milkType === "Mixed" ? measured(entry.breastmilkQuantity) : null;
+        if (quantity != null || breastmilkQuantity != null)
+            loggedMilkVolumeMl = (loggedMilkVolumeMl ?? 0) + feedVolumeMl({ ...entry, quantity, breastmilkQuantity });
+    }
+    const totalEntries = rows.length, solidFoodEntries = totalEntries - milkEntries;
+    return { entries: rows, totalEntries, milkEntries, solidFoodEntries, loggedMilkVolumeMl, lastFeedingTime,
+        milkPercentage: totalEntries ? milkEntries / totalEntries * 100 : 0,
+        solidFoodPercentage: totalEntries ? solidFoodEntries / totalEntries * 100 : 0 };
+}
+
+export const feedingPercentage = value => value > 0 && value < 1 ? "<1%" : `${Math.round(value)}%`;
+
 export const foodKey = (name) => String(name || "").trim().toLowerCase();
 
 export function todayNutritionStats(entries, today, currentTime) {
     const rows = entries || [];
     const milk = rows.filter((e) => (e.entryType || "milk") === "milk");
     const todayMilk = milk.filter((e) => e.date === today);
+    const todayRows = rows.filter((e) => e.date === today);
     const lastFeed = milk.filter((e) => e.time && e.date <= today).sort(byMoment).pop();
     const sinceLastFeed = lastFeed
         ? minutesBetween(lastFeed.date, lastFeed.time, today, currentTime)
         : null;
     return {
         count: todayMilk.length,
+        totalCount: todayRows.length,
         volume: todayMilk.reduce((sum, e) => sum + feedVolumeMl(e), 0),
         breastMinutes: todayMilk.reduce(
             (sum, e) => sum + (e.feedMethod === "breast" ? Number(e.durationMinutes) || 0 : 0),
             0,
         ),
-        solidCount: rows.filter((e) => e.entryType === "solid" && e.date === today).length,
+        solidCount: todayRows.filter((e) => e.entryType === "solid").length,
+        lastFeedDate: lastFeed?.date || "",
+        lastFeedTime: lastFeed?.time || "",
         sinceLastFeed: sinceLastFeed != null && sinceLastFeed >= 0 ? sinceLastFeed : null,
     };
+}
+
+export function feedingMixCategory(entry) {
+    if (entry?.entryType === "solid") return "solid";
+    if ((entry?.entryType || "milk") !== "milk") return null;
+    if (entry.milkType === "Breastmilk" || (!entry.milkType && entry.feedMethod === "breast")) return "breastmilk";
+    if (entry.milkType === "Formula") return "formula";
+    if (entry.milkType === "Mixed") return "mixed";
+    return null;
 }
 
 export function todayFeedingMix(entries, today = todayLocal()) {
     const counts = { solid: 0, breastmilk: 0, formula: 0, mixed: 0 };
     for (const entry of entries || []) {
         if (entry.date !== today) continue;
-        if (entry.entryType === "solid") {
-            counts.solid++;
-            continue;
-        }
-        if ((entry.entryType || "milk") !== "milk") continue;
-        if (entry.milkType === "Breastmilk" || (!entry.milkType && entry.feedMethod === "breast")) {
-            counts.breastmilk++;
-        } else if (entry.milkType === "Formula") {
-            counts.formula++;
-        } else if (entry.milkType === "Mixed") {
-            counts.mixed++;
-        }
+        const category = feedingMixCategory(entry);
+        if (category) counts[category]++;
     }
     return { ...counts, total: counts.solid + counts.breastmilk + counts.formula + counts.mixed };
 }
@@ -171,14 +203,15 @@ export function milkDurations(milk, today = todayLocal()) {
     for (const e of sorted) {
         const last = runs[runs.length - 1];
         const t = e.milkType || "Unspecified";
-        if (last && last.type === t) last.end = e.date;
-        else runs.push({ type: t, start: e.date, end: e.date });
+        if (last && last.type === t) { last.end = e.date; last.sourceIds.push(e.id); }
+        else runs.push({ type: t, start: e.date, end: e.date, sourceIds: [e.id] });
     }
     const periods = runs.map((r) => ({
         type: r.type,
         start: r.start,
         end: r.end,
         days: dayDiffInclusive(r.start, r.end),
+        sourceIds: r.sourceIds,
     }));
     const lastRun = runs[runs.length - 1];
     const current = lastRun
@@ -230,9 +263,9 @@ export function solidFoodStats(solids, monthPrefix) {
     return {
         distinct: firstByFood.size,
         first: firsts.length ? firsts.slice().sort(byMoment)[0] : null,
-        newThisMonth: monthPrefix ? firsts.filter((e) => e.date.slice(0, 7) === monthPrefix).length : 0,
+        newThisMonth: monthPrefix ? firsts.filter((e) => e.date?.slice(0, 7) === monthPrefix).length : 0,
         reactions: solids
-            .filter((e) => e.reactionSeverity === "mild" || e.reactionSeverity === "severe")
+            .filter((e) => e.reactionSeverity === "mild" || e.reactionSeverity === "severe" || (!e.reactionSeverity && !!e.reaction))
             .sort((a, b) => byMoment(b, a)),
     };
 }

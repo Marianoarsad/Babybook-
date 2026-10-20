@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+import RecordIcon from "./RecordIcon";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, TextInput, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { radius, space, type } from "../../theme";
@@ -33,7 +34,7 @@ import RecordFormSheet, { RecordFormGroup, RecordFormRow } from "./RecordFormShe
 //
 // `onSaved(record, kind)` receives the already-adapted record so the caller
 // prepends to the right list without refetching.
-export default function AddMemoryModal({ visible, profile, milestones = [], onClose, onSaved }) {
+export default function AddMemoryModal({ visible, profile, milestones = [], editMemory = null, recordKind = "memory", onClose, onSaved }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const { t } = useLanguage();
@@ -47,8 +48,18 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
     const [photoUri, setPhotoUri] = useState("");
     const [saving, setSaving] = useState(false);
 
-    const isMilestone = kind === "milestone";
-    const saveRecord = useRecordSave(visible, profile.id, isMilestone ? "milestones" : "memories");
+    const editing = !!editMemory;
+    const isMilestone = (editing ? recordKind : kind) === "milestone";
+    const saveRecord = useRecordSave(visible, profile.id, isMilestone ? "milestones" : "memories", editMemory?.id);
+    const active = useRef(false), pending = useRef(false);
+    useEffect(() => {
+        active.current = visible;
+        if (visible && editMemory) {
+            setCaption(editMemory.title || ""); setTitle(editMemory.title || "");
+            setNotes(editMemory.description || ""); setDate(editMemory.date || "");
+        }
+        return () => { active.current = false; };
+    }, [visible, profile.id, editMemory?.id]);
 
     // Checklist items this child has not recorded yet, drawn from their own
     // age band. Tapping one fills the exact title the Development Checklist
@@ -77,14 +88,25 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
     };
 
     const handleSave = async () => {
+        if (pending.current) return;
         const name = (isMilestone ? title : caption).trim();
         if (!name) {
             toast.error(isMilestone ? "Please enter a milestone" : "Please enter a caption");
             return;
         }
+        pending.current = true;
         setSaving(true);
         try {
-            if (isMilestone) {
+            if (editing) {
+                const fields = isMilestone
+                    ? { title: name, description: notes || null, date_recorded: date || null,
+                        ...(date !== editMemory.date ? { age_achieved: ageAtDate(profile.dateOfBirth, date) || null } : {}) }
+                    : { caption: name, notes: notes || null, date_recorded: date || null };
+                const saved = await saveRecord(fields);
+                if (!active.current) return;
+                onSaved?.((isMilestone ? milestoneToApp : memoryToApp)(saved), recordKind);
+                toast.success(isMilestone ? "Milestone saved" : "Memory saved");
+            } else if (isMilestone) {
                 const fields = {
                     title: name,
                     description: notes.trim() || null,
@@ -115,29 +137,29 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
             }
             // Only clear on success — on failure everything typed stays put
             // instead of vanishing.
-            reset();
-            onClose();
+            if (active.current) { reset(); onClose(); }
         } catch (e) {
-            toast.error(e.message || (isMilestone ? "Could not save milestone" : "Could not save memory"));
+            if (active.current) toast.error(e.message || (isMilestone ? "Could not save milestone" : "Could not save memory"));
         } finally {
+            pending.current = false;
             setSaving(false);
         }
     };
 
     const KINDS = [
         { key: "memory", label: "Photo", icon: "image-outline" },
-        { key: "milestone", label: "Milestone", icon: "trophy-outline" },
+        { key: "milestone", label: "Milestone" },
     ];
 
     return (
-        <RecordFormSheet visible={visible} title={"Add to Gallery"}
+        <RecordFormSheet visible={visible} title={editing ? `Edit ${isMilestone ? "Milestone" : "Memory"}` : "Add to Gallery"}
             onClose={onClose} onSubmit={handleSave} busy={saving}
             cancelLabel={t("cancel")} submitLabel={t("save")}>
             <RecordFormGroup>
 
                         {/* Which kind of entry — the only choice that changes
                             where this record goes. */}
-                        <View style={styles.segment}>
+                        {!editing && <View style={styles.segment}>
                             {KINDS.map((k) => {
                                 const on = kind === k.key;
                                 return (
@@ -149,11 +171,8 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
                                         accessibilityState={{ selected: on }}
                                         accessibilityLabel={`Add a ${k.label.toLowerCase()}`}
                                     >
-                                        <Ionicons
-                                            name={k.icon}
-                                            size={16}
-                                            color={on ? colors.onPrimary : colors.textSecondary}
-                                        />
+                                        {k.key === "milestone" ? <RecordIcon category="milestone" size={24} />
+                                            : <Ionicons name={k.icon} size={16} color={on ? colors.onPrimary : colors.textSecondary} />}
                                         <Text
                                             style={[styles.segmentText, on && styles.segmentTextOn]}
                                         >
@@ -162,7 +181,7 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
                                     </TouchableOpacity>
                                 );
                             })}
-                        </View>
+                        </View>}
 
                             {isMilestone ? (
                                 <>
@@ -177,7 +196,7 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
                                     />
                                     </RecordFormRow>
 
-                                    {chips.length > 0 && (
+                                    {!editing && chips.length > 0 && (
                                         <>
                                             <Text style={styles.chipsLabel}>
                                                 From the Development Checklist
@@ -229,10 +248,10 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
                                 label={isMilestone ? "Date it happened" : "Date"}
                                 value={date}
                                 onChange={setDate}
-                                maximumDate={todayLocal()}
+                                maximumDate={editing && editMemory.date > todayLocal() ? editMemory.date : todayLocal()}
                             />
 
-                            {pickerAvailable() && (
+                            {!editing && pickerAvailable() && (
                                 <TouchableOpacity
                                     style={styles.choosePhotoBtn}
                                     onPress={async () => {

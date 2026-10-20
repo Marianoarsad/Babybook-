@@ -16,6 +16,16 @@ export function timeValue({ period, hour, minute }) {
     return `${pad(hour24)}:${pad(Number(minute))}`;
 }
 
+export function durationValue({ hour, minute }) {
+    const total = Math.trunc(Number(hour)) * 60 + Math.trunc(Number(minute));
+    return Math.max(1, Math.min(1440, Number.isFinite(total) ? total : 60));
+}
+
+export function durationParts(value) {
+    const total = Math.max(1, Math.min(1440, Number.isFinite(Number(value)) ? Math.trunc(Number(value)) : 60));
+    return { hour: Math.floor(total / 60), minute: total % 60 };
+}
+
 export function pickerDateParts(value, fallback) {
     const source = /^\d{4}-\d{2}-\d{2}$/.test(String(value || "")) ? value : fallback;
     const [year, month, day] = String(source).split("-").map(Number);

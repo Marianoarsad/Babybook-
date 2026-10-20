@@ -1,16 +1,22 @@
-import React, { useMemo, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import React, { useId, useMemo, useState } from "react";
+import { Animated, StyleSheet, Text, View } from "react-native";
 import Svg, { Circle, Defs, LinearGradient, Line, Path, Stop, Text as SvgText } from "react-native-svg";
 import { useTheme } from "../../context/ThemeContext";
 import { space, type } from "../../theme";
 import { evenDateSlots, evenYearSlots, weekdayAbbreviation } from "../../utils/dates";
 import { wholeNumberLabel } from "../../utils/whoGrowth";
 
+import { NutritionBackground } from "./NutritionVisuals";
+import { useNutritionMotion } from "./NutritionMotion";
+import { RollingNumber } from "./RollingNumber";
+import useReducedMotion from "./useReducedMotion";
+
+const AnimatedPath = Animated.createAnimatedComponent(Path);
 const averageLabel = (value) => value < 10 ? value.toFixed(1) : String(Math.round(value));
 const Y_TICK_COUNT = 7;
 
 function roundedBarPath(x, y, width, baseline) {
-    const radius = Math.min(width / 2, 8, (baseline - y) / 2);
+    const radius = Math.min(width / 2, (baseline - y) / 2);
     return [
         `M ${x.toFixed(1)} ${baseline.toFixed(1)}`,
         `L ${x.toFixed(1)} ${(y + radius).toFixed(1)}`,
@@ -33,10 +39,14 @@ export default function NutritionTrendChart({
     emptyMessage,
     loading,
     headerControl,
+    headerIcon,
 }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const [width, setWidth] = useState(0);
+    const reducedMotion = useReducedMotion();
+    const gradientId = "nutrition-" + useId().replace(/[^a-zA-Z0-9_-]/g, "");
+    const material = colors.nutritionSurface;
     const chartHeight = 216;
     const padTop = 28;
     const padBottom = 28;
@@ -101,6 +111,7 @@ export default function NutritionTrendChart({
                     point,
                     path: point.value > 0 ? roundedBarPath(x, y, barWidth, baseline) : null,
                     latest: index === latestIndex,
+                    height: baseline - y,
                     x,
                     width: barWidth,
                     centerX: x + barWidth / 2,
@@ -166,27 +177,37 @@ export default function NutritionTrendChart({
         }));
     }, [datePreset, dateWindow.from, dateWindow.to, geometry, leftPad, lineMode, plotW, points.length, shortRange]);
 
-    if (loading && !points.length) return null;
-    if (!points.length) return <Text style={styles.empty}>{emptyMessage}</Text>;
-
-    const averageText = `${averageLabel(Number(average) || 0)} ${unit}`;
+    const label = averageLabel(Number.isFinite(Number(average)) ? Number(average) : 0);
+    const heights = useMemo(() => !lineMode && geometry
+        ? Object.fromEntries(geometry.bars.map((bar, index) => [bar.point.sort || index, bar.height]))
+        : {}, [geometry, lineMode]);
+    const dataKey = JSON.stringify([dateWindow.from, dateWindow.to, unit, granularity, label,
+        points.map(point => [point.sort, point.value])]);
+    const motion = useNutritionMotion({ label, heights, dataKey, width,
+        ready: Boolean(geometry) || !points.length, reducedMotion });
+    const averageText = `${label} ${unit}`;
     const chartKind = lineMode ? "line chart" : "bar chart";
-    const gradientId = `nutrition-${String(title || "trend").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+
     return (
-        <View>
-            <Text style={styles.title}>{title}</Text>
+        <View style={styles.card}>
+            <NutritionBackground />
             <View style={styles.averageHeader}>
+                {headerIcon}
+                <View style={styles.summary}>
+                    <Text style={styles.title}>{title}</Text>
                 <View
                     accessible
                     accessibilityLabel={`${title} ${chartKind}, average ${averageText} per ${granularity || "period"}`}
                     style={styles.averageCopy}
                 >
-                    <Text selectable style={styles.average}>{averageText}</Text>
+                    <RollingNumber motion={motion} unit={unit} style={styles.average}
+                        precision={motion.label.includes(".") || motion.fromValue < 10 ? 1 : 0} />
                     <Text style={styles.averageCaption}>Average per {granularity || "period"}</Text>
+                </View>
                 </View>
                 {headerControl}
             </View>
-            <View
+            {loading && !points.length ? <Text style={styles.empty}>Loading…</Text> : !points.length ? <Text style={styles.empty}>{emptyMessage}</Text> : <View
                 accessible
                 accessibilityLabel={`${title} ${chartKind}`}
                 style={{ height: chartHeight }}
@@ -194,14 +215,15 @@ export default function NutritionTrendChart({
             >
                 {geometry ? (
                     <Svg width={width} height={chartHeight}>
-                        {lineMode ? (
-                            <Defs>
+                        <Defs>
                                 <LinearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
                                     <Stop offset="0" stopColor={color} stopOpacity={0.22} />
                                     <Stop offset="1" stopColor={color} stopOpacity={0.02} />
                                 </LinearGradient>
-                            </Defs>
-                        ) : null}
+                            {["bar", "latest"].map(kind => <LinearGradient key={kind} id={gradientId + "-" + kind} x1="0" y1="0" x2="1" y2="1">
+                                {(kind === "bar" ? material.bar : material.latestBar).map((shade, index) => <Stop key={index} offset={index} stopColor={shade} />)}
+                            </LinearGradient>)}
+                        </Defs>
                         {yAxis.ticks.map((value, index) => (
                             <React.Fragment key={`y-${index}`}>
                                 <Line
@@ -209,7 +231,7 @@ export default function NutritionTrendChart({
                                     y1={geometry.yFor(value)}
                                     x2={leftPad + plotW}
                                     y2={geometry.yFor(value)}
-                                    stroke={colors.hairline}
+                                    stroke={material.grid}
                                     strokeWidth={1}
                                     strokeDasharray={lineMode ? "4 4" : undefined}
                                     strokeLinecap={lineMode ? "round" : undefined}
@@ -220,7 +242,7 @@ export default function NutritionTrendChart({
                                     fontSize={12}
                                     fontFamily={type.caption.fontFamily}
                                     fontWeight={type.caption.fontWeight}
-                                    fill={colors.textMuted}
+                                    fill={material.axis}
                                     textAnchor="start"
                                 >
                                     {wholeNumberLabel(value)}
@@ -233,7 +255,7 @@ export default function NutritionTrendChart({
                             fontSize={11}
                             fontFamily={type.caption.fontFamily}
                             fontWeight={type.caption.fontWeight}
-                            fill={colors.textMuted}
+                            fill={material.axis}
                             textAnchor="start"
                         >
                             {unit}
@@ -251,14 +273,18 @@ export default function NutritionTrendChart({
                                     strokeLinecap="round"
                                     opacity={0.72}
                                 />
-                                {geometry.bars.map((bar, index) => bar.path ? (
-                                    <Path
-                                        key={bar.point.sort || index}
-                                        d={bar.path}
-                                        fill={color}
-                                        opacity={bar.latest ? 1 : 0.68}
-                                    />
-                                ) : null)}
+                                {geometry.bars.map((bar, index) => {
+                                    const key = bar.point.sort || index;
+                                    const before = motion.fromHeights[key] || 0;
+                                    if (!bar.path && !(motion.animated && before > 0)) return null;
+                                    const baseline = padTop + plotH;
+                                    const path = roundedBarPath(bar.x, baseline - bar.height, bar.width, baseline);
+                                    return <AnimatedPath key={key}
+                                        d={motion.pending ? roundedBarPath(bar.x, baseline, bar.width, baseline)
+                                            : motion.animated ? motion.bars.interpolate({ inputRange: [0, 1],
+                                                outputRange: [roundedBarPath(bar.x, baseline - before, bar.width, baseline), path] }) : path}
+                                        fill={`url(#${gradientId}-${bar.latest ? "latest" : "bar"})`} />;
+                                })}
                             </>
                         ) : (
                             <>
@@ -309,7 +335,7 @@ export default function NutritionTrendChart({
                                 fontSize={tick.fontSize}
                                 fontFamily={type.caption.fontFamily}
                                 fontWeight={type.caption.fontWeight}
-                                fill={colors.textMuted}
+                                fill={material.axis}
                                 textAnchor="middle"
                             >
                                 {tick.label}
@@ -317,19 +343,22 @@ export default function NutritionTrendChart({
                         ))}
                     </Svg>
                 ) : null}
-            </View>
+            </View>}
         </View>
     );
 }
 
 const makeStyles = (colors) => StyleSheet.create({
-    title: { ...type.bodyStrong, color: colors.text },
+    card: { borderRadius: 24, padding: space.md, boxShadow: colors.nutritionSurface.cardShadow, overflow: "visible" },
+    summary: { flexGrow: 1, flexShrink: 1, minWidth: 110 },
+    title: { ...type.bodyStrong, color: colors.text, textTransform: "capitalize" },
     averageHeader: {
         flexDirection: "row",
-        alignItems: "flex-start",
+        alignItems: "center",
+        flexWrap: "wrap",
         justifyContent: "space-between",
         gap: space.md,
-        marginTop: space.sm,
+        marginTop: 0,
     },
     averageCopy: { flex: 1, minWidth: 0 },
     average: {
@@ -339,6 +368,6 @@ const makeStyles = (colors) => StyleSheet.create({
         lineHeight: 34,
         fontVariant: ["tabular-nums"],
     },
-    averageCaption: { ...type.body, color: colors.textMuted, marginTop: 2, paddingBottom: space.md },
-    empty: { ...type.caption, color: colors.textMuted, lineHeight: 18, paddingVertical: space.lg },
+    averageCaption: { ...type.body, color: colors.nutritionSurface.axis, marginTop: 2, paddingBottom: space.md },
+    empty: { ...type.caption, color: colors.nutritionSurface.axis, lineHeight: 18, paddingVertical: space.lg },
 });

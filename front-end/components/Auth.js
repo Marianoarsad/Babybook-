@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from "react";
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from "react-native";
+import { Image, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from "react-native";
 import Modal from "./ui/AppModal";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -9,6 +9,7 @@ import { useTheme } from "../context/ThemeContext";
 import { MIN_TOUCH, radius, space, type } from "../theme";
 import Button from "./ui/Button";
 import Field from "./ui/Field";
+import Gradient from "./ui/Gradient";
 import KeyboardAvoider from "./ui/KeyboardAvoider";
 import SocialSignIn from "./auth/SocialSignIn";
 import { useToast } from "./ui/Toast";
@@ -16,7 +17,8 @@ import { useToast } from "./ui/Toast";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 export default function Auth({ onLoginSuccess, onProfessional, onBack, initialScene = "login" }) {
-    const { colors } = useTheme();
+    const { colors, scheme } = useTheme();
+    const professionalForeground = scheme === "dark" ? colors.background : colors.onPrimary;
     const { width, height } = useWindowDimensions();
     const insets = useSafeAreaInsets();
     const heroHeight = Math.max(140, Math.min(220, width * 0.54, height * 0.27));
@@ -158,7 +160,14 @@ export default function Auth({ onLoginSuccess, onProfessional, onBack, initialSc
                                     <Divider label="or continue with" colors={colors} />
                                     <SocialSignIn onCredential={handleSocialCredential} onError={showSocialError} loadingProvider={loadingProvider} />
                                     <InlineSwitch prompt="New to BabyBook+?" action="Create an account" onPress={goRegister} colors={colors} />
-                                    <TouchableOpacity onPress={onProfessional} accessibilityRole="button" style={styles.professional}><Ionicons name="medkit-outline" size={18} color={colors.textSecondary} /><Text style={styles.professionalText}>Healthcare professional access</Text></TouchableOpacity>
+                                    <Pressable onPress={onProfessional} accessibilityRole="button" accessibilityLabel="Healthcare professional access"
+                                        style={({ pressed, focused }) => [styles.professional, pressed && { opacity: 0.85 },
+                                            focused && { boxShadow: `0 0 0 3px ${colors.primary}59` }]}>
+                                        <Gradient colors={[colors.primaryDark, colors.primary]} style={styles.professionalFill}>
+                                            <Ionicons name="medkit-outline" size={20} color={professionalForeground} />
+                                            <Text style={[styles.professionalText, { color: professionalForeground }]}>Healthcare professional access</Text>
+                                        </Gradient>
+                                    </Pressable>
                                 </>
                             ) : scene === "register" ? (
                                 <>
@@ -230,8 +239,10 @@ const makeStyles = (colors, widePreview) => StyleSheet.create({
     title: { ...type.title, color: colors.text, textAlign: "center" },
     subtitle: { ...type.body, color: colors.textSecondary, textAlign: "center" },
     forgot: { alignSelf: "flex-end", marginTop: -space.sm, marginBottom: space.sm },
-    professional: { minHeight: MIN_TOUCH, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.sm, marginTop: space.sm },
-    professionalText: { ...type.label, color: colors.textSecondary },
+    professional: { marginTop: space.md, borderRadius: radius.pill },
+    professionalFill: { minHeight: MIN_TOUCH + 4, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.sm,
+        paddingHorizontal: space.lg, paddingVertical: space.md, borderRadius: radius.pill },
+    professionalText: { ...type.label, flexShrink: 1, textAlign: "center" },
     steps: { alignItems: "center", gap: space.sm, marginBottom: space.lg },
     stepBars: { width: 116, flexDirection: "row", gap: space.xs },
     stepBar: { flex: 1, height: 4, borderRadius: radius.pill },
@@ -241,12 +252,12 @@ const makeStyles = (colors, widePreview) => StyleSheet.create({
     chips: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginBottom: space.sm },
     error: { ...type.caption, color: colors.danger, marginBottom: space.md },
     consentCard: { flexDirection: "row", alignItems: "flex-start", gap: space.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt, padding: space.lg, marginVertical: space.lg },
-    consentTitle: { ...type.bodyStrong, color: colors.text, marginBottom: space.xs },
+    consentTitle: { ...type.bodyStrong, color: colors.text, marginBottom: space.xs, textTransform: "capitalize" },
     consentBody: { ...type.caption, color: colors.textSecondary },
     checkboxRow: { minHeight: MIN_TOUCH, flexDirection: "row", alignItems: "flex-start", gap: space.sm },
     checkboxText: { ...type.body, color: colors.textSecondary, flex: 1 },
     stepActions: { flexDirection: "row", gap: space.sm, marginTop: space.lg },
     successCard: { alignItems: "center", gap: space.sm, borderRadius: radius.lg, backgroundColor: colors.successBg, padding: space.xl },
-    successTitle: { ...type.heading, color: colors.success },
+    successTitle: { ...type.heading, color: colors.success, textTransform: "capitalize" },
     successBody: { ...type.body, color: colors.textSecondary, textAlign: "center" },
 });

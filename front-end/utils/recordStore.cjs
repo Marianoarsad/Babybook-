@@ -21,7 +21,7 @@ function publish(target) {
             else if (op.type === "update") rows = rows.map((row) => sameId(row.id, op.id) ? { ...row, ...op.body, _pending: true } : row);
             else rows = [{ ...op.body, id: `tmp-${op.key}`, _pending: true }, ...rows];
         }
-        const dateField = { growth: "date_recorded", nutrition: "entry_date", milestones: "date_recorded",
+        const dateField = { growth: "date_recorded", nutrition: "entry_date", "milk-type-periods": "start_date", milestones: "date_recorded",
             memories: "date_recorded", "medication-doses": "given_date", shares: "generate_date", "access-log": "access_date" }[target.resource];
         target.rows = dateField ? [...rows].sort((a, b) => String(b[dateField] || "").localeCompare(String(a[dateField] || ""))
             || String(b.entry_time || b.given_time || "").localeCompare(String(a.entry_time || a.given_time || ""))

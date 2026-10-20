@@ -7,6 +7,7 @@ const { upload, extOf } = require("../middleware/upload");
 const { encrypt, decryptRow } = require("../utils/crypto");
 const storage = require("../utils/storage");
 const { createOnce, receiptRecord } = require("../utils/mutationReceipts");
+const { validateMemoryFields } = require("../utils/memoryFields");
 
 const MEM_ENCRYPTED = ["caption", "notes"];
 
@@ -73,5 +74,20 @@ router.delete(
         res.status(204).end();
     })
 );
+
+// Metadata-only updates preserve the original storage reference and image bytes.
+router.put("/:childId/memories/:id", asyncHandler(async (req, res) => {
+    const fields = ["caption", "notes", "date_recorded", "is_favorite"].filter(key => Object.hasOwn(req.body, key));
+    if (!fields.length) throw new ApiError(400, "No editable fields supplied");
+    validateMemoryFields(req.body);
+    const values = fields.map(key => MEM_ENCRYPTED.includes(key) ? encrypt(req.body[key]) : req.body[key]);
+    const { rows } = await query(
+        `UPDATE memories SET ${fields.map((key, i) => `${key} = $${i + 1}`).join(", ")} WHERE id = $${fields.length + 1} AND child_id = $${fields.length + 2} RETURNING *`,
+        [...values, req.params.id, req.child.id]
+    );
+    if (!rows[0]) throw new ApiError(404, "Memory not found");
+    const [resolved] = await storage.resolveUrlField(rows, "photo_url");
+    res.json(decryptRow(resolved, MEM_ENCRYPTED));
+}));
 
 module.exports = router;

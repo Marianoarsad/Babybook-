@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Modal from "./AppModal";
 import { Ionicons } from "@expo/vector-icons";
 import { MIN_TOUCH, radius, shadow, space, type } from "../../theme";
@@ -10,6 +11,8 @@ import { shortDate, todayLocal } from "../../utils/dates";
 import {
     availablePickerDates,
     closestAvailableDate,
+    durationParts,
+    durationValue,
     pickerDateParts,
     pickerDateValue,
     pickerYears,
@@ -37,11 +40,15 @@ function clampDate(value, minimumDate, maximumDate) {
     return fallback;
 }
 
-function WheelColumn({ values, value, onChange, format = String, label, styles, compact = false, weight = 1, active }) {
+function WheelColumn({ values, value, onChange, format = String, label, styles, compact = false, weight = 1, active, disabled = false }) {
     const index = Math.max(0, values.indexOf(value));
     const itemHeight = compact ? 44 : 64;
     const scrollRef = useRef(null);
     const draggingRef = useRef(false);
+    const positionedRef = useRef(false);
+    const programmaticRef = useRef(false);
+    const programmaticTargetRef = useRef(index * itemHeight);
+    const programmaticTimer = useRef(null);
     const offsetRef = useRef(index * itemHeight);
     const settleTimer = useRef(null);
     const clearSettle = () => {
@@ -49,6 +56,7 @@ function WheelColumn({ values, value, onChange, format = String, label, styles, 
         settleTimer.current = null;
     };
     const selectAtOffset = (offset = offsetRef.current) => {
+        if (disabled) return;
         const nextIndex = Math.max(0, Math.min(values.length - 1, Math.round(offset / itemHeight)));
         if (values[nextIndex] !== value) onChange(values[nextIndex]);
     };
@@ -56,11 +64,52 @@ function WheelColumn({ values, value, onChange, format = String, label, styles, 
         clearSettle();
         settleTimer.current = setTimeout(selectAtOffset, 100);
     };
+    const clearProgrammatic = () => {
+        if (programmaticTimer.current) clearTimeout(programmaticTimer.current);
+        programmaticTimer.current = null;
+        programmaticRef.current = false;
+    };
+    const scheduleProgrammaticEnd = (delay = 120) => {
+        if (programmaticTimer.current) clearTimeout(programmaticTimer.current);
+        programmaticTimer.current = setTimeout(() => {
+            programmaticTimer.current = null;
+            programmaticRef.current = false;
+            offsetRef.current = programmaticTargetRef.current;
+        }, delay);
+    };
     const scrollToValue = () => {
-        if (active) scrollRef.current?.scrollTo({ x: 0, y: index * itemHeight, animated: false });
+        if (!active) {
+            positionedRef.current = false;
+            clearProgrammatic();
+            return;
+        }
+        const target = index * itemHeight;
+        const animated = positionedRef.current && Math.abs(offsetRef.current - target) > 1;
+        if (animated) {
+            clearSettle();
+            programmaticRef.current = true;
+            programmaticTargetRef.current = target;
+            scrollRef.current?.scrollTo({ x: 0, y: target, animated: true });
+            scheduleProgrammaticEnd(400);
+        } else if (!positionedRef.current) {
+            offsetRef.current = target;
+            scrollRef.current?.scrollTo({ x: 0, y: target, animated: false });
+        }
+        positionedRef.current = true;
+    };
+    const positionOnLayout = () => {
+        if (!active) return;
+        const target = index * itemHeight;
+        clearProgrammatic();
+        offsetRef.current = target;
+        positionedRef.current = true;
+        scrollRef.current?.scrollTo({ x: 0, y: target, animated: false });
     };
     useEffect(scrollToValue, [active, index, itemHeight]);
-    useEffect(() => () => clearSettle(), []);
+    useEffect(() => () => {
+        clearSettle();
+        clearProgrammatic();
+    }, []);
     return (
         <View style={[styles.wheelColumn, compact && styles.dateWheelColumn, { flex: weight }]} accessibilityLabel={label}>
             <ScrollView
@@ -68,15 +117,22 @@ function WheelColumn({ values, value, onChange, format = String, label, styles, 
                 style={[styles.wheelScroll, compact && styles.dateWheelScroll]}
                 contentContainerStyle={[styles.wheelContent, compact && styles.dateWheelContent]}
                 showsVerticalScrollIndicator={false}
+                nestedScrollEnabled
+                scrollEnabled={!disabled}
                 snapToInterval={itemHeight}
-                decelerationRate="fast"
-                onLayout={scrollToValue}
+                decelerationRate="normal"
+                onLayout={positionOnLayout}
                 scrollEventThrottle={16}
                 onScroll={({ nativeEvent }) => {
                     offsetRef.current = nativeEvent.contentOffset.y;
+                    if (programmaticRef.current) {
+                        scheduleProgrammaticEnd();
+                        return;
+                    }
                     if (!draggingRef.current) scheduleSelection();
                 }}
                 onScrollBeginDrag={() => {
+                    clearProgrammatic();
                     draggingRef.current = true;
                     clearSettle();
                 }}
@@ -88,12 +144,14 @@ function WheelColumn({ values, value, onChange, format = String, label, styles, 
                 onMomentumScrollBegin={clearSettle}
                 onMomentumScrollEnd={({ nativeEvent }) => {
                     clearSettle();
+                    clearProgrammatic();
                     offsetRef.current = nativeEvent.contentOffset.y;
                     selectAtOffset();
                 }}
             >
                 {values.map((item, itemIndex) => (
                     <TouchableOpacity
+                        disabled={disabled}
                         key={item == null ? `empty-${itemIndex}` : item}
                         style={[
                             styles.wheelItem,
@@ -102,7 +160,7 @@ function WheelColumn({ values, value, onChange, format = String, label, styles, 
                         onPress={() => item !== value && onChange(item)}
                         accessibilityRole="button"
                         accessibilityLabel={`${label} ${format(item)}`}
-                        accessibilityState={{ selected: item === value }}
+                        accessibilityState={{ selected: item === value, disabled }}
                     >
                         <Text style={[
                             styles.wheelText,
@@ -134,8 +192,11 @@ export function DateWheelPicker({
     maximumDate,
     availableDates,
     accessibilityLabel = "Choose date",
+    headerAccessory,
 }) {
     const { colors } = useTheme();
+    const { height } = useWindowDimensions();
+    const insets = useSafeAreaInsets();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const [draft, setDraft] = useState(() => clampDate(value, minimumDate, maximumDate));
 
@@ -186,24 +247,17 @@ export function DateWheelPicker({
 
     return (
         <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-            <TouchableOpacity
-                activeOpacity={1}
-                style={styles.datePickerBackdrop}
-                onPress={onClose}
-                accessibilityRole="button"
-                accessibilityLabel="Close date picker"
-            >
-                <TouchableOpacity
-                    activeOpacity={1}
-                    style={styles.card}
-                    onPress={() => {}}
-                    accessibilityViewIsModal
-                    accessibilityLabel={accessibilityLabel}
-                >
+            <View style={styles.datePickerBackdrop}>
+                <TouchableOpacity activeOpacity={1} style={StyleSheet.absoluteFillObject} onPress={onClose}
+                    accessibilityRole="button" accessibilityLabel="Close date picker" />
+                <View style={styles.card} accessibilityViewIsModal accessibilityLabel={accessibilityLabel}>
+                    <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled showsVerticalScrollIndicator={false}
+                        style={{ flexGrow: 0, maxHeight: Math.max(100, height - insets.top - insets.bottom - 2 * (space.lg + space.md)) }}>
                     <View style={styles.heading}>
                         <Text style={styles.title}>{accessibilityLabel}</Text>
                         <Text style={styles.subtitle}>{shortDate(draft)}</Text>
                     </View>
+                    {headerAccessory}
                     {restricted && !allowedDates.length ? (
                         <View style={styles.dateEmpty}><Text style={styles.dateEmptyText}>No recorded dates available.</Text></View>
                     ) : (
@@ -220,8 +274,9 @@ export function DateWheelPicker({
                             <PrimaryButton label="Done" disabled={restricted && !allowedDates.length} onPress={() => { onChange(draft); onClose(); }} styles={styles} />
                         </View>
                     </View>
-                </TouchableOpacity>
-            </TouchableOpacity>
+                    </ScrollView>
+                </View>
+            </View>
         </Modal>
     );
 }
@@ -229,6 +284,32 @@ export function DateWheelPicker({
 function formatTime(value) {
     const { period, hour, minute } = timeParts(value);
     return `${hour}:${pad(minute)} ${period}`;
+}
+
+export function DurationWheel({ value, onChange, disabled = false }) {
+    const { colors } = useTheme(), p = colors.shareSurface;
+    const styles = useMemo(() => {
+        const base = makeStyles(colors);
+        return { ...base, durationLabel: { ...base.durationLabel, color: p.secondary },
+            durationColumnGroup: { ...base.durationColumnGroup, gap: 12, maxWidth: 360 },
+            durationLabels: { ...base.durationLabels, maxWidth: 360, gap: 12 },
+            wheelText: { ...base.wheelText, fontSize: 30, color: p.text }, wheelTextMuted: { color: p.secondary, opacity: 0.65 } };
+    }, [colors]);
+    const parts = durationParts(value);
+    const hours = Array.from({ length: 25 }, (_, index) => index);
+    const minutes = parts.hour === 24 ? [0] : Array.from({ length: parts.hour === 0 ? 59 : 60 }, (_, index) => index + (parts.hour === 0 ? 1 : 0));
+    return <View>
+        <View style={styles.durationLabels}><Text style={styles.durationLabel}>Hours</Text><Text style={styles.durationLabel}>Minutes</Text></View>
+        <View style={styles.durationWheels}><View style={styles.durationColumnGroup}>
+            {[{ label: "Hours", values: hours, value: parts.hour, update: hour => durationValue({ hour, minute: parts.minute }) },
+                { label: "Minutes", values: minutes, value: parts.minute, update: minute => durationValue({ hour: parts.hour, minute }) }].map(column =>
+                <View key={column.label} style={{ flex: 1, height: 240, justifyContent: "center" }}>
+                    <View pointerEvents="none" style={[styles.selectionBand, styles.regularSelectionBand, { borderRadius: 16, backgroundColor: p.methodActive[1] }]} />
+                    <View style={{ height: 192 }}><WheelColumn values={column.values} value={column.value} format={pad} label={column.label}
+                        onChange={next => { if (!disabled) onChange(column.update(next)); }} styles={styles} disabled={disabled} active /></View>
+                </View>)}
+        </View></View>
+    </View>;
 }
 
 function PickerField({
@@ -430,6 +511,10 @@ const makeStyles = (colors) => StyleSheet.create({
     primaryButtonDisabled: { opacity: 0.45 },
     primaryButtonLabel: { ...type.label, color: colors.onPrimary },
     wheels: { height: 240, flexDirection: "row", alignItems: "center", position: "relative" },
+    durationLabels: { width: "66.6667%", alignSelf: "center", flexDirection: "row", paddingTop: space.sm },
+    durationLabel: { flex: 1, ...type.caption, color: colors.textMuted, textAlign: "center" },
+    durationWheels: { height: 240, alignItems: "center", position: "relative" },
+    durationColumnGroup: { width: "66.6667%", height: "100%", flexDirection: "row", alignItems: "center" },
     measurementWheels: { height: 240, justifyContent: "center", position: "relative" },
     measurementNumberGroup: { width: "66.6667%", height: "100%", flexDirection: "row", alignItems: "center", alignSelf: "center", position: "relative" },
     measurementDecimal: { ...type.heading, color: colors.text, paddingHorizontal: 2 },

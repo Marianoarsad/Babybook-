@@ -21,8 +21,18 @@ const BUCKET = process.env.SUPABASE_STORAGE_BUCKET || "attachments";
 const SIGNED_URL_TTL = 3600; // 1 hour — long enough to cover a normal viewing session
 
 let client = null;
+function assertStorageEnvironment(url, environment = process.env) {
+    if (new URL(url).hostname !== "icssxprtxspcgmkompdj.supabase.co") return;
+    const databaseHost = environment.DATABASE_URL
+        ? new URL(environment.DATABASE_URL).hostname
+        : environment.PGHOST || "localhost";
+    if (environment.NODE_ENV !== "production"
+        || ["localhost", "127.0.0.1", "[::1]", "::1"].includes(databaseHost)) {
+        throw new Error("Production Storage is blocked in local/development/test environments. Configure BabyBook+ Development Storage instead.");
+    }
+}
+
 function getClient() {
-    if (client) return client;
     const url = process.env.SUPABASE_URL;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!url || !key) {
@@ -30,6 +40,8 @@ function getClient() {
             "SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are not set — required for file storage."
         );
     }
+    assertStorageEnvironment(url);
+    if (client) return client;
     client = createClient(url, key);
     return client;
 }
@@ -86,4 +98,4 @@ async function deleteFile(ref) {
     }
 }
 
-module.exports = { uploadFile, resolveUrl, resolveUrlField, deleteFile, isStorageRef, BUCKET };
+module.exports = { uploadFile, resolveUrl, resolveUrlField, deleteFile, isStorageRef, BUCKET, assertStorageEnvironment };

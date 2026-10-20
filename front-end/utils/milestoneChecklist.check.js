@@ -9,7 +9,7 @@ const src = fs
     .replace(/export (function|const)/g, "$1");
 const M = new Function(
     `${src}\nreturn { AGE_CHECKLISTS, CHECKPOINTS, DOMAINS, normalizeTitle, findRecorded,
-                      suggestedTitles, checkpointFor, bandLabel, itemsForCheckpoint };`,
+                      suggestedTitles, checkpointFor, bandLabel, itemsForCheckpoint, summarizeChecklist };`,
 )();
 
 let fail = 0;
@@ -112,6 +112,29 @@ eq("every domain has an icon and a tint",
     M.DOMAINS.every((d) => !!d.icon && !!d.tint && !!d.label), true);
 eq("checkpoints are sorted ascending",
     M.CHECKPOINTS.every((c, i) => i === 0 || c > M.CHECKPOINTS[i - 1]), true);
+
+// ---- derived checklist progress (read-only, scoped to the selected band) ----
+const band9 = Object.freeze(M.itemsForCheckpoint(9).map(Object.freeze));
+const completed9 = Object.freeze(band9.filter(item => item.domain === "social" || item.title === "Sits without support")
+    .map((item, index) => Object.freeze({ id: String(index), title: `  ${item.title.toUpperCase()}  `,
+        isCompleted: true, date: "2026-06-16", photoUrl: "original.jpg", ageAchieved: "7 months" })));
+const untouched = JSON.stringify([band9, completed9]);
+const summary = M.summarizeChecklist(band9, completed9);
+eq("9 month progress uses actual 4/11", [summary.completed, summary.total, summary.percentage], [4, 11, 36]);
+eq("all four category totals are accurate", summary.categories.map(c => [c.key, c.completed, c.total]),
+    [["social", 3, 3], ["language", 0, 2], ["cognitive", 0, 2], ["motor", 1, 4]]);
+eq("photo row retains the original record reference", summary.categories[3].entries[3].record === completed9[3], true);
+eq("summary does not mutate input data", JSON.stringify([band9, completed9]) === untouched, true);
+eq("zero total is safe", M.summarizeChecklist([], completed9), { completed: 0, total: 0, percentage: 0, categories: [] });
+eq("one of three rounds to 33", M.summarizeChecklist(band9.slice(0, 3), [completed9[0]]).percentage, 33);
+eq("unrecording updates progress", M.summarizeChecklist(band9, completed9.map((r, i) => i ? r : { ...r, isCompleted: false })).completed, 3);
+eq("unrelated records do not count", M.summarizeChecklist(band9, [{ title: "First steps", isCompleted: true }]).completed, 0);
+for (const band of M.CHECKPOINTS) {
+    const items = M.itemsForCheckpoint(band);
+    const done = M.summarizeChecklist(items, items.map(item => ({ title: item.title, isCompleted: true })));
+    eq(`${band} months complete progress`, [done.completed, done.total, done.percentage], [items.length, items.length, 100]);
+    eq(`${band} months category sums`, done.categories.reduce((total, category) => total + category.total, 0), items.length);
+}
 
 console.log(`\ncorpus: ${M.AGE_CHECKLISTS.length} items across ${M.CHECKPOINTS.length} checkpoints`);
 console.log(fail ? `${fail} of ${ran} failed` : `all ${ran} passed`);

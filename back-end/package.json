@@ -11,6 +11,10 @@
         "db:seed": "node src/db/seed.js",
         "db:seed:demo": "node src/db/seedDemoYear.js",
         "db:seed:demo:check": "node src/db/seedDemoYear.check.js",
+        "db:seed:milk-type-demo": "node src/db/seedMilkTypeDemo.js",
+        "db:seed:milk-type-demo:check": "node src/db/seedMilkTypeDemo.check.js",
+        "db:seed:solid-food-demo": "node src/db/seedSolidFoodDemo.js",
+        "db:seed:solid-food-demo:check": "node src/db/seedSolidFoodDemo.check.js",
         "db:reset": "node src/db/migrate.js && node src/db/seed.js",
         "test": "jest --runInBand"
     },

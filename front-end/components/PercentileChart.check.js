@@ -3,11 +3,14 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const babel = require("@babel/core");
-let width = 280;
+let width = 280, nextId = 0;
 const React = {
     createElement: (type, props, ...children) => ({ type, props: props || {}, children: children.flat(Infinity).filter(Boolean) }),
     useMemo: (fn) => fn(),
-    useState: () => [width, () => {}],
+    useId: () => ":chart-" + (++nextId) + ":",
+    useState: initial => [initial === 0 ? width : initial, () => {}],
+    useRef: initial => ({ current: initial }),
+    useEffect() {}, useLayoutEffect() {},
     Fragment: "Fragment",
 };
 const colors = { primary: "purple", surface: "white", textMuted: "muted" };
@@ -20,8 +23,9 @@ function load(file) {
     const module = { exports: {} };
     const requireMock = (name) => {
         if (name === "react") return React;
-        if (name === "react-native") return { View: "View", Text: "Text", StyleSheet: { create: (styles) => styles } };
-        if (name === "react-native-svg") return { __esModule: true, default: "Svg", Text: "SvgText", ...Object.fromEntries(["Path", "Circle", "Line", "Defs", "LinearGradient", "Stop", "Rect"].map((key) => [key, key])) };
+        if (name === "react-native") return { View: "View", Text: "Text", StyleSheet: { create: (styles) => styles },
+            Animated: { Value: class { constructor(value) { this.value = value; } }, createAnimatedComponent: component => component } };
+        if (name === "react-native-svg") return { __esModule: true, default: "Svg", Text: "SvgText", ...Object.fromEntries(["Path", "Circle", "Line", "Defs", "LinearGradient", "Stop", "Rect", "G", "ClipPath"].map((key) => [key, key])) };
         if (name.endsWith("ThemeContext")) return { useTheme: () => ({ colors }) };
         if (name.endsWith("LanguageContext")) return { useLanguage: () => ({ language: "en", t: (key) => key }) };
         if (name.endsWith("/theme")) return theme;
@@ -32,7 +36,8 @@ function load(file) {
     return module.exports;
 }
 const Chart = load(path.join(__dirname, "PercentileChart.js")).default;
-const flatten = (node) => node && typeof node === "object" ? [node, ...node.children.flatMap(flatten)] : [];
+const flatten = (node) => node && typeof node === "object" ? typeof node.type === "function"
+    ? flatten(node.type(node.props)) : [node, ...node.children.flatMap(flatten)] : [];
 let checked = 0;
 for (width of [240, 280, 340, 420]) {
     for (const compact of [true, false]) {
@@ -160,4 +165,62 @@ const annualDots = annualNodes.filter((node) => node.type === "Circle" && node.p
 assert.equal(annualDots.length, 3, "Year view keeps one latest measurement per year");
 assert.equal(annualDots[0].props.cx, 44);
 assert.equal(annualDots.at(-1).props.cx, width - 24);
-console.log(`Passed ${checked} chart layouts: collision-safe equal x slots, seven aligned y guides, no extra latest-value caption.`);
+
+const scopedGrid = flatten(Chart({ dateOfBirth: "2020-02-18", rows: [{ id: 1, date_recorded: "2026-09-01", weight: 20 }], areaFill: true, gridColor: "growth-grid" })).filter(node => String(node.props.key).startsWith("grid-"));
+assert.equal(scopedGrid.length, 7);
+assert(scopedGrid.every(node => node.props.stroke === "growth-grid"), "Optional grid styling leaves shared defaults intact");
+
+const { PALETTES, DARK_PALETTES } = load(path.join(__dirname, "../theme.js"));
+const gradientIds = new Set();
+for (const palettes of [PALETTES, DARK_PALETTES]) {
+    for (const gender of ["boy", "girl", "neutral"]) {
+        for (const indicator of ["weight", "height", "head"]) {
+            const seriesTheme = palettes[gender].growthSurface.metric[indicator];
+            const field = indicator === "head" ? "head_circumference" : indicator;
+            const props = {
+                indicator, dateOfBirth: "2025-01-01", areaFill: true, compact: true,
+                gridColor: "neutral-grid",
+                rows: [
+                    { id: 1, date_recorded: "2026-08-01", [field]: 10 },
+                    { id: 2, date_recorded: "2026-09-01", [field]: 12 },
+                ],
+            };
+            const legacy = flatten(Chart({ ...props, seriesColor: "legacy-line" }));
+            const themed = flatten(Chart({ ...props, seriesColor: "legacy-line", seriesTheme }));
+            const paths = tree => tree.filter(n => n.type === "Path");
+            const circles = tree => tree.filter(n => n.type === "Circle");
+            const positions = tree => circles(tree).map(n => {
+                const { cx, cy, r, strokeWidth } = n.props;
+                return { cx, cy, r, strokeWidth };
+            });
+            assert.deepEqual(paths(themed).map(n => n.props.d), paths(legacy).map(n => n.props.d));
+            assert.deepEqual(positions(themed), positions(legacy), "Palette changes preserve marker geometry");
+            const line = paths(themed).find(n => n.props.fill === "none");
+            assert.equal(line.props.stroke, seriesTheme.line);
+            assert.equal(line.props.strokeWidth, 2.5);
+            const outer = circles(themed).find(n => n.props.r === 7);
+            assert.equal(outer.props.stroke, seriesTheme.accent);
+            for (const dot of circles(themed)) {
+                assert.equal(dot.props.fill, "#FFFFFF");
+                assert.equal(dot.props.stroke, dot.props.cx === outer.props.cx && dot.props.cy === outer.props.cy
+                    ? seriesTheme.accent : seriesTheme.line);
+                if (dot.props.r !== 7) assert.equal(dot.props.strokeOpacity, 1);
+            }
+            const stops = themed.filter(n => n.type === "Stop");
+            assert.deepEqual(stops.map(n => n.props.stopOpacity), [0.18, 0.01]);
+            assert(stops.every(n => n.props.stopColor === seriesTheme.line));
+            const gradient = themed.find(n => n.type === "LinearGradient");
+            assert(/^[a-zA-Z0-9_-]+$/.test(gradient.props.id));
+            assert(!gradientIds.has(gradient.props.id), "Each chart instance has its own gradient");
+            gradientIds.add(gradient.props.id);
+            assert.equal(paths(themed).find(n => n.props.fill.startsWith("url(")).props.fill, "url(#" + gradient.props.id + ")");
+            assert(themed.filter(n => n.type === "Line").every(n => n.props.stroke === "neutral-grid"));
+            assert(themed.filter(n => n.type === "SvgText").every(n => n.props.fill === colors.textMuted));
+            assert.deepEqual(legacy.filter(n => n.type === "Stop").map(n => n.props.stopOpacity), [0.22, 0.02]);
+            assert(circles(legacy).every(n => n.props.fill === colors.surface && n.props.stroke === "legacy-line"));
+            assert.equal(circles(legacy).find(n => n.props.r === 2.5).props.strokeOpacity, 0.62);
+        }
+    }
+}
+
+console.log(`Passed ${checked} chart layouts and 18 scoped metric palettes: collision-safe equal x slots, seven aligned y guides, no extra latest-value caption.`);

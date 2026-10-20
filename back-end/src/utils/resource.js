@@ -139,16 +139,26 @@ function createResourceRouter({
         "/:id",
         asyncHandler(async (req, res) => {
             const data = pickBody(req.body);
-            if (validate) validate(data, { isCreate: false });
             const encData = encrypted.length ? encryptFields(data, encrypted) : data;
             const cols = Object.keys(encData);
             if (cols.length === 0) throw new ApiError(400, "No updatable fields provided");
             const setClause = cols.map((c, i) => `${c} = $${i + 1}`).join(", ");
             const params = [...Object.values(encData), req.params.id, req.child.id];
-            const { rows } = await query(
-                `UPDATE ${table} SET ${setClause} WHERE id = $${cols.length + 1} AND child_id = $${cols.length + 2} RETURNING *`,
-                params
-            );
+            const update = (client, existing) => {
+                if (validate) validate(data, { isCreate: false, existing });
+                return client.query(
+                    `UPDATE ${table} SET ${setClause} WHERE id = $${cols.length + 1} AND child_id = $${cols.length + 2} RETURNING *`,
+                    params
+                );
+            };
+            const { rows } = table === "medical_history" ? await withTransaction(async (client) => {
+                const current = await client.query(
+                    "SELECT category, allergy_type FROM medical_history WHERE id = $1 AND child_id = $2 FOR UPDATE",
+                    [req.params.id, req.child.id]
+                );
+                if (!current.rows[0]) throw new ApiError(404, "Record not found");
+                return update(client, current.rows[0]);
+            }) : await update({ query });
             if (!rows[0]) throw new ApiError(404, "Record not found");
             res.json(await presentOne(rows[0]));
         })

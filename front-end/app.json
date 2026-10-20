@@ -15,7 +15,7 @@
     "android": {
       "package": "com.babybookplus.app",
       "adaptiveIcon": {
-        "backgroundColor": "#F2F5F7",
+        "backgroundColor": "#287BFA",
         "foregroundImage": "./assets/adaptive-icon.png",
         "monochromeImage": "./assets/monochrome-icon.png"
       },
@@ -46,11 +46,11 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#F2F5F7",
+          "backgroundColor": "#287BFA",
           "imageWidth": 200,
           "image": "./assets/splash-icon.png",
           "dark": {
-            "backgroundColor": "#12151A",
+            "backgroundColor": "#287BFA",
             "image": "./assets/splash-icon.png"
           }
         }

@@ -1,18 +1,22 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { Animated, View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, useWindowDimensions } from "react-native";
+import HospitalStayIcon from "./ui/HospitalStayIcon";
+import VaccineIcon from "./ui/VaccineIcon";
+import { recordItemStyle } from "../theme";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, useWindowDimensions } from "react-native";
 import Modal from "./ui/AppModal";
 import { Ionicons } from "@expo/vector-icons";
 import { Calendar } from "react-native-calendars";
 import { useTheme } from "../context/ThemeContext";
 import { space, radius, shadow, type, MIN_TOUCH } from "../theme";
 import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
-import { useScroll } from "../context/ScrollContext";
 import { api } from "../utils/api";
-import { useRecords, useRecordSave } from "../utils/useRecords";
+import { useRecords, useScreenRefresh, useRecordSave } from "../utils/useRecords";
 import { buildCalendarEvents } from "../utils/calendarEvents";
 import { AppointmentsSkeleton } from "./ui/Skeleton";
 import ShowMore from "./ui/ShowMore";
-import { useRefreshControl } from "./ui/useRefreshControl";
+import PlansDashboardCard, { PlanAddButton, PlansEmptyState } from "./ui/PlansDashboardCard";
+import Gradient from "./ui/Gradient";
+import PullToRefreshScrollView from "./ui/PullToRefreshScrollView";
 import { DateField, TimeField } from "./ui/DateField";
 import { useToast } from "./ui/Toast";
 import { scheduleReminder } from "../utils/notifications";
@@ -22,9 +26,10 @@ import { LEAD_TIME_KEY, LEAD_TIME_OPTIONS } from "./settings/GeneralSettings";
 import RecordFormSheet, { DeleteConfirmation, RecordFormGroup, RecordFormRow } from "./ui/RecordFormSheet";
 import PlanDetail from "./ui/PlanDetail";
 import SwipeActionRow from "./ui/SwipeActionRow";
-import { shortDate, shortTime, shiftMonthClamped, todayLocal, toLocalISO } from "../utils/dates";
+import { shortDate, shortTime, shiftMonthClamped, todayLocal } from "../utils/dates";
+import MedicationIcon from "./ui/MedicationIcon";
 import { plannedEnd } from "../utils/medication";
-import { selectableMonths } from "../utils/pickers";
+import { CalendarArtwork, CalendarControl, CalendarDateCell, CalendarMonthTransition, CalendarSurface } from "./ui/CalendarVisuals";
 
 // Category -> theme-derived marker/accent color. Kept to semantic status tones
 // (not brand hex) so it stays consistent across the girl/boy palette switch.
@@ -80,12 +85,11 @@ export default function CalendarView({ profile, onNavigate }) {
     const legendWidth = Math.min(300, screenWidth - space.lg * 2);
     const padBottom = useScreenPadBottom();
     const padTop = useScreenPadTop();
-    const { scrollProps } = useScroll();
     const toast = useToast();
     const legendButtonRef = useRef(null);
 
     const [selectedDate, setSelectedDate] = useState(todayISO());
-    const [loading, setLoading] = useState(true);
+    const [activePlanTab, setActivePlanTab] = useState("today");
     const [savingEvent, setSavingEvent] = useState(false);
     const [deletingEventId, setDeletingEventId] = useState(null);
     const [detailEvent, setDetailEvent] = useState(null);
@@ -119,30 +123,14 @@ export default function CalendarView({ profile, onNavigate }) {
         [vaccinations, checkups, medHistory, customEvents, planStatuses]);
     const saveEvent = useRecordSave(showEventModal, childId, "calendar-events", editingEventId);
 
-    const loadEvents = useCallback(async () => {
-        if (!childId) return;
-        setLoading(true);
-        try {
-            const [vaccinations, checkups, medHistory, customEvents, planStatuses] = await Promise.all([
-                api.listRecords(childId, "vaccinations", { loading: "nonblocking" }).catch(() => []),
-                api.listRecords(childId, "checkups", { loading: "nonblocking" }).catch(() => []),
-                api.listRecords(childId, "medical-history", { loading: "nonblocking" }).catch(() => []),
-                api.listRecords(childId, "calendar-events", { loading: "nonblocking" }).catch(() => []),
-                api.listRecords(childId, "calendar-plan-statuses", { loading: "nonblocking" }).catch(() => []),
-            ]);
-
-        } catch (e) {
-            console.log("calendar load:", e.message);
-        } finally {
-            setLoading(false);
-        }
+    const fetchEvents = useCallback(async () => {
+        if (!childId) return [];
+        const resources = ["vaccinations", "checkups", "medical-history", "calendar-events", "calendar-plan-statuses"];
+        const results = await Promise.allSettled(resources.map((resource) =>
+            api.listRecords(childId, resource, { loading: "nonblocking" })));
+        return resources.filter((_, index) => results[index].status === "rejected");
     }, [childId]);
-
-    useEffect(() => {
-        loadEvents();
-    }, [loadEvents]);
-
-    const refreshControl = useRefreshControl(loading, loadEvents);
+    const { refreshing: loading, failures: refreshFailures, refresh: loadEvents } = useScreenRefresh(childId, fetchEvents);
 
     useEffect(() => {
         (async () => {
@@ -151,13 +139,14 @@ export default function CalendarView({ profile, onNavigate }) {
         })();
     }, []);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         setUpcomingVisible(LIST_PAGE);
         setOverdueVisible(LIST_PAGE);
+        setActivePlanTab("today");
         setOpenSwipeId(null);
     }, [selectedDate, childId]);
 
-    useEffect(() => setCompletedVisible(LIST_PAGE), [childId]);
+    useLayoutEffect(() => setCompletedVisible(LIST_PAGE), [childId]);
 
     const markedDates = useMemo(() => {
         const marks = {};
@@ -184,14 +173,14 @@ export default function CalendarView({ profile, onNavigate }) {
         marks[selectedDate] = {
             ...(marks[selectedDate] || {}),
             selected: true,
-            selectedColor: colors.primary,
+            selectedColor: colors.calendarSurface.active[1],
         };
         return marks;
     }, [eventsByDate, selectedDate, colors]);
 
     const calendarTheme = useMemo(
         () => ({
-            calendarBackground: colors.surface,
+            calendarBackground: "transparent",
             textSectionTitleColor: colors.textMuted,
             selectedDayBackgroundColor: colors.primary,
             selectedDayTextColor: colors.onPrimary,
@@ -207,29 +196,15 @@ export default function CalendarView({ profile, onNavigate }) {
             textDayFontWeight: type.caption.fontWeight,
             textDayHeaderFontFamily: type.caption.fontFamily,
             textDayHeaderFontWeight: "700",
-            // react-native-calendars draws its day cells at 32pt, which is the
-            // whole tap target for picking a date — the most-tapped control on
-            // this screen. `stylesheet.day.basic` is the library's own
-            // documented override hook; only the box grows, the type and the
-            // rounded event bands are drawn immediately beneath it.
-            "stylesheet.day.basic": {
-                base: {
-                    width: "100%",
-                    height: MIN_TOUCH,
-                    alignItems: "center",
-                    justifyContent: "center",
-                },
-                text: { ...type.caption, marginTop: 0 },
-                selected: { width: 36, height: 36, borderRadius: radius.pill },
+            // Keep the built-in header mounted for its imperative swipe handlers.
+            "stylesheet.calendar.header": {
+                header: { height: 0, marginTop: 0, paddingHorizontal: 0 },
+                headerContainer: { height: 0 },
             },
             "stylesheet.calendar.main": {
-                container: { paddingLeft: 0, paddingRight: 0, backgroundColor: colors.surface },
-                week: { marginVertical: 2, flexDirection: "row", justifyContent: "space-around" },
-            },
-            "stylesheet.marking": {
-                period: { height: 3, marginVertical: 1 },
-                startingDay: { borderTopLeftRadius: 2, borderBottomLeftRadius: 2, marginLeft: 4 },
-                endingDay: { borderTopRightRadius: 2, borderBottomRightRadius: 2, marginRight: 4 },
+                container: { paddingLeft: 0, paddingRight: 0, backgroundColor: "transparent", overflow: "visible" },
+                week: { marginVertical: 4, flexDirection: "row", justifyContent: "space-around" },
+                dayContainer: { flex: 1, alignItems: "center", overflow: "visible" },
             },
         }),
         [colors],
@@ -292,7 +267,7 @@ export default function CalendarView({ profile, onNavigate }) {
 
     const openMonthPicker = () => {
         const selectedYear = Number(selectedDate.slice(0, 4));
-        setMonthPickerYear(Math.max(selectedYear, new Date().getFullYear()));
+        setMonthPickerYear(selectedYear);
         setShowMonthPicker(true);
     };
 
@@ -307,10 +282,9 @@ export default function CalendarView({ profile, onNavigate }) {
     };
 
     const selectMonth = (monthIndex) => {
-        const current = new Date(`${selectedDate}T00:00:00`);
-        const lastDay = new Date(monthPickerYear, monthIndex + 1, 0).getDate();
-        const next = new Date(monthPickerYear, monthIndex, Math.min(current.getDate(), lastDay));
-        setSelectedDate(toLocalISO(next));
+        const offset = (monthPickerYear - Number(selectedDate.slice(0, 4))) * 12
+            + monthIndex - (Number(selectedDate.slice(5, 7)) - 1);
+        setSelectedDate(shiftMonthClamped(selectedDate, offset));
         setShowMonthPicker(false);
     };
 
@@ -428,20 +402,23 @@ export default function CalendarView({ profile, onNavigate }) {
         const when = showDate ? shortDate(ev.date) : ev.time ? shortTime(ev.time) : "All day";
         return (
             <>
-                <View style={styles.eventWhen}>
+                {!showDate ? <View style={styles.eventWhen}>
                     <Text style={[styles.eventWhenText, { color: tone }]} numberOfLines={2}>
                         {when}
                     </Text>
-                </View>
+                </View> : null}
+                {ev.category === "hospitalization" ? <HospitalStayIcon size={32} /> : ev.category === "vaccination" ? <VaccineIcon size={32} /> : ev.category === "medication" ? <MedicationIcon record={ev.sourceRecord} size={32} /> : null}
                 <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={styles.eventTitle} numberOfLines={2} ellipsizeMode="tail">
                         {ev.title}
                     </Text>
                     <Text style={styles.eventSubtitle} numberOfLines={2} ellipsizeMode="tail">
                         {meta.label}
-                        {showDate && ev.time ? ` · ${shortTime(ev.time)}` : ""}
                         {ev.subtitle ? ` · ${ev.subtitle}` : ""}
                     </Text>
+                    {showDate ? <Text style={[styles.eventSubtitle, { marginTop: space.xs }]}>
+                        {when}{ev.time ? ` · ${shortTime(ev.time)}` : ""}
+                    </Text> : null}
                 </View>
                 {checklist ? (
                     <TouchableOpacity
@@ -479,11 +456,13 @@ export default function CalendarView({ profile, onNavigate }) {
         return (
             <TouchableOpacity
                 key={ev.id}
-                style={[styles.eventRow, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                style={styles.eventRow}
                 onPress={() => setDetailEvent(ev)}
                 accessibilityRole="button"
                 accessibilityLabel={`${meta.label}: ${ev.title}`}
             >
+                <Gradient accessible={false} pointerEvents="none" colors={colors.recordItem.surface}
+                    style={[StyleSheet.absoluteFillObject, { borderRadius: 24 }]} />
                 {renderEventContent(ev, showDate, checklist, tone, true)}
             </TouchableOpacity>
         );
@@ -529,13 +508,11 @@ export default function CalendarView({ profile, onNavigate }) {
                     style={[
                         styles.eventRow,
                         styles.swipeEventRow,
-                        neutral
-                            ? { backgroundColor: colors.surface, borderColor: colors.border }
-                            : custom
-                            ? { backgroundColor: tone + "12", borderColor: tone + "40" }
-                            : { backgroundColor: colors.successBg, borderColor: colors.success + "55" },
+                        { backgroundColor: colors.recordItem.surface[0] },
                     ]}
                 >
+                    <Gradient accessible={false} pointerEvents="none" colors={colors.recordItem.surface}
+                        style={[StyleSheet.absoluteFillObject, { borderRadius: 24 }]} />
                     {renderEventContent(ev, showDate, checklist, neutral ? colors.textSecondary : tone, neutral)}
                 </View>
             </SwipeActionRow>
@@ -578,43 +555,64 @@ export default function CalendarView({ profile, onNavigate }) {
 
     return (
         <View style={styles.container}>
-            <Animated.ScrollView
+            <PullToRefreshScrollView scope={childId} refreshing={loading} onRefresh={loadEvents}
+                error={refreshFailures.length ? "Some records could not be refreshed. Please retry." : ""}
                 contentContainerStyle={[styles.scrollContent, { paddingTop: padTop, paddingBottom: padBottom }]}
-                refreshControl={refreshControl}
-                {...scrollProps}
                 keyboardShouldPersistTaps="handled"
             >
-                <View style={styles.monthCard}>
-                    <TouchableOpacity
-                        ref={legendButtonRef}
-                        onPress={openLegend}
-                        style={styles.legendButton}
-                        accessibilityRole="button"
-                        accessibilityLabel="Show calendar legend"
-                        accessibilityState={{ expanded: showLegend }}
-                    >
-                        <Ionicons name="information-circle-outline" size={24} color={colors.primary} />
-                    </TouchableOpacity>
-                    <Text style={styles.selectedDate} selectable>
-                        {shortDate(selectedDate)}
-                    </Text>
+                <View style={styles.monthCard} testID="calendar-card">
+                    <CalendarSurface />
+                    <View style={styles.calendarHeader}>
+                        <CalendarControl
+                            onPress={openMonthPicker}
+                            style={styles.headerIconButton}
+                            kind="icon"
+                            circular
+                            accessibilityRole="button"
+                            accessibilityLabel="Choose month and year"
+                            accessibilityState={{ expanded: showMonthPicker }}
+                        >
+                            <CalendarArtwork />
+                        </CalendarControl>
+                        <CalendarControl
+                            ref={legendButtonRef}
+                            onPress={openLegend}
+                            style={styles.headerIconButton}
+                            kind="icon"
+                            circular
+                            accessibilityRole="button"
+                            accessibilityLabel="Show calendar legend"
+                            accessibilityState={{ expanded: showLegend }}
+                        >
+                            <CalendarArtwork information />
+                        </CalendarControl>
+                    </View>
                     <View style={styles.monthStrip}>
-                        {monthOptions.map(({ offset, date }) => (
-                            <TouchableOpacity
+                        {monthOptions.map(({ offset, date }) => offset === 0 ? (
+                            <View
                                 key={offset}
-                                onPress={() => offset === 0 ? openMonthPicker() : changeMonth(offset)}
-                                style={[styles.monthOption, offset === 0 && styles.monthOptionActive]}
+                                style={[styles.monthOption, styles.monthOptionActive]}
+                                accessible
+                                accessibilityLabel={`${monthText(date)} ${date.slice(0, 4)}`}
+                                testID="calendar-active-month"
+                            >
+                                <CalendarSurface kind="active" radius={999} />
+                                <Text style={[styles.monthOptionText, styles.monthOptionTextActive]} numberOfLines={1}>
+                                    {monthText(date)}
+                                </Text>
+                            </View>
+                        ) : (
+                            <CalendarControl
+                                key={offset}
+                                onPress={() => changeMonth(offset)}
+                                style={styles.monthOption}
                                 accessibilityRole="button"
                                 accessibilityLabel={`${monthText(date)} ${date.slice(0, 4)}`}
-                                accessibilityState={{ selected: offset === 0 }}
                             >
-                                <Text
-                                    style={[styles.monthOptionText, offset === 0 && styles.monthOptionTextActive]}
-                                    numberOfLines={1}
-                                >
-                                    {monthText(date, offset !== 0)}
+                                <Text style={styles.monthOptionText} numberOfLines={1}>
+                                    {monthText(date, true)}
                                 </Text>
-                            </TouchableOpacity>
+                            </CalendarControl>
                         ))}
                     </View>
                     <View style={styles.weekdayRow}>
@@ -624,62 +622,49 @@ export default function CalendarView({ profile, onNavigate }) {
                             </Text>
                         ))}
                     </View>
-                    <Calendar
-                        current={selectedDate}
-                        firstDay={1}
-                        enableSwipeMonths
-                        disableMonthChange
-                        customHeader={EmptyCalendarHeader}
-                        markingType="multi-period"
-                        markedDates={markedDates}
-                        onDayPress={(day) => setSelectedDate(day.dateString)}
-                        onMonthChange={handleMonthChange}
-                        theme={calendarTheme}
-                        style={styles.monthCalendar}
-                    />
+                    <CalendarMonthTransition month={selectedDate.slice(0, 7)} width={screenWidth}>
+                        <Calendar
+                            initialDate={`${selectedDate.slice(0, 7)}-01`}
+                            firstDay={1}
+                            enableSwipeMonths
+                            disableMonthChange
+                            hideArrows
+                            hideDayNames
+                            renderHeader={EmptyCalendarHeader}
+                            headerStyle={styles.hiddenCalendarHeader}
+                            dayComponent={CalendarDateCell}
+                            markingType="multi-period"
+                            markedDates={markedDates}
+                            onDayPress={(day) => setSelectedDate(day.dateString)}
+                            onMonthChange={handleMonthChange}
+                            theme={calendarTheme}
+                            style={styles.monthCalendar}
+                        />
+                    </CalendarMonthTransition>
                 </View>
 
-                <View style={styles.planSection}>
-                    <View style={styles.planHeader}>
-                        <View style={styles.planTitleGroup}>
-                            <Text style={[styles.planTitle, styles.selectedPlanTitle]} numberOfLines={1}>
-                                {selectedDate === today ? "Today's plan" : `Plan for ${shortDate(selectedDate)}`}
-                            </Text>
-                            <View style={styles.countBadge}>
-                                <Text style={styles.countBadgeText} selectable>{incompleteDayEvents.length}</Text>
-                            </View>
-                        </View>
-                        <TouchableOpacity
-                            onPress={openCreateModal}
-                            style={styles.addPlanAction}
-                            accessibilityRole="button"
-                            accessibilityLabel={`Add a plan for ${shortDate(selectedDate)}`}
-                        >
-                            <Text style={styles.addPlanText}>Add plan</Text>
-                        </TouchableOpacity>
-                    </View>
-                    {loading && !dayEvents.length ? (
+                <PlansDashboardCard
+                    value={activePlanTab}
+                    onChange={(value) => { setOpenSwipeId(null); setActivePlanTab(value); }}
+                    counts={{ today: incompleteDayEvents.length, upcoming: upcomingEvents.length,
+                        overdue: overdueEvents.length, completed: completedEvents.length }}
+                    title={{ today: selectedDate === today ? "Today's Plan" : `Plan for ${shortDate(selectedDate)}`,
+                        upcoming: "Upcoming Plans", overdue: "Overdue", completed: "Completed" }[activePlanTab]}
+                    action={activePlanTab === "today" && incompleteDayEvents.length > 0 ?
+                        <PlanAddButton onPress={openCreateModal} accessibilityLabel={`Add a plan for ${shortDate(selectedDate)}`} /> : null}
+                >
+                    {activePlanTab === "today" ? loading && !dayEvents.length ? (
                         <AppointmentsSkeleton />
                     ) : incompleteDayEvents.length ? (
                         incompleteDayEvents.map((event) => renderSwipeableRow(event, false, true, () => setDetailEvent(event), true))
-                    ) : dayEvents.length ? (
-                        <Text style={styles.planEmpty}>No unfinished plans for this day.</Text>
                     ) : (
-                        <Text style={styles.planEmpty}>No plans recorded for this day.</Text>
-                    )}
-                </View>
-
-                <View style={styles.planSection}>
-                    <View style={styles.planHeader}>
-                        <Text style={styles.planTitle}>Upcoming plans</Text>
-                        <View style={styles.countBadge}>
-                            <Text style={styles.countBadgeText} selectable>{upcomingEvents.length}</Text>
-                        </View>
-                    </View>
-                    {upcomingEvents.length ? (
+                        <PlansEmptyState message={dayEvents.length ? "No unfinished plans for this day." : "No plans recorded for this day."}
+                            onAddPlan={openCreateModal} addPlanLabel={`Add a plan for ${shortDate(selectedDate)}`} />
+                    ) : activePlanTab === "upcoming" ? upcomingEvents.length ? (
                         <>
                             {upcomingEvents.slice(0, upcomingVisible).map((event) => renderSwipeableRow(event, true, false, () => setDetailEvent(event)))}
                             <ShowMore
+                                appearance="measurementHistory"
                                 total={upcomingEvents.length}
                                 visible={upcomingVisible}
                                 noun="plans"
@@ -687,23 +672,12 @@ export default function CalendarView({ profile, onNavigate }) {
                             />
                         </>
                     ) : (
-                        <Text style={styles.planEmpty}>No upcoming plans.</Text>
-                    )}
-                </View>
-
-                <View style={styles.planSection}>
-                    <View style={styles.planHeader}>
-                        <Text style={styles.planTitle}>Overdue</Text>
-                        <View style={[styles.countBadge, overdueEvents.length > 0 && styles.overdueBadge]}>
-                            <Text style={[styles.countBadgeText, overdueEvents.length > 0 && styles.overdueBadgeText]} selectable>
-                                {overdueEvents.length}
-                            </Text>
-                        </View>
-                    </View>
-                    {overdueEvents.length ? (
+                        <PlansEmptyState message="No upcoming plans." />
+                    ) : activePlanTab === "overdue" ? overdueEvents.length ? (
                         <>
                             {overdueEvents.slice(0, overdueVisible).map((event) => renderEventRow(event, true))}
                             <ShowMore
+                                appearance="measurementHistory"
                                 total={overdueEvents.length}
                                 visible={overdueVisible}
                                 noun="overdue plans"
@@ -711,18 +685,8 @@ export default function CalendarView({ profile, onNavigate }) {
                             />
                         </>
                     ) : (
-                        <Text style={styles.planEmpty}>No overdue vaccines or checkups.</Text>
-                    )}
-                </View>
-
-                <View style={styles.planSection}>
-                    <View style={styles.planHeader}>
-                        <Text style={styles.planTitle}>Completed</Text>
-                        <View style={styles.countBadge}>
-                            <Text style={styles.countBadgeText} selectable>{completedEvents.length}</Text>
-                        </View>
-                    </View>
-                    {completedEvents.length ? (
+                        <PlansEmptyState message="No overdue vaccines or checkups." />
+                    ) : completedEvents.length ? (
                         <>
                             {visibleTodayCompleted.length ? (
                                 <>
@@ -732,6 +696,7 @@ export default function CalendarView({ profile, onNavigate }) {
                             ) : null}
                             {visibleOtherCompleted.map((event) => renderSwipeableRow(event, true, true, () => setDetailEvent(event), true))}
                             <ShowMore
+                                appearance="measurementHistory"
                                 total={completedEvents.length}
                                 visible={completedVisible}
                                 noun="completed plans"
@@ -739,10 +704,10 @@ export default function CalendarView({ profile, onNavigate }) {
                             />
                         </>
                     ) : (
-                        <Text style={styles.planEmpty}>No completed plans.</Text>
+                        <PlansEmptyState message="No completed plans." />
                     )}
-                </View>
-            </Animated.ScrollView>
+                </PlansDashboardCard>
+            </PullToRefreshScrollView>
 
             <Modal visible={showLegend} transparent animationType="fade" onRequestClose={() => setShowLegend(false)}>
                 <TouchableOpacity activeOpacity={1} style={styles.legendBackdrop} onPress={() => setShowLegend(false)}>
@@ -768,24 +733,32 @@ export default function CalendarView({ profile, onNavigate }) {
                 <TouchableOpacity activeOpacity={1} style={styles.modalBg} onPress={() => setShowMonthPicker(false)}>
                     <TouchableOpacity activeOpacity={1} style={styles.monthPickerCard} onPress={() => {}}>
                         <View style={styles.monthPickerHeading}>
-                            <Text style={styles.monthPickerTitle}>{monthPickerYear}</Text>
-                            <Text style={styles.monthPickerHint}>Choose an available month</Text>
+                            <View style={styles.yearNavigation}>
+                                <CalendarControl circular kind="icon" style={styles.yearButton} onPress={() => setMonthPickerYear(year => year - 1)}
+                                    accessibilityRole="button" accessibilityLabel="Previous year">
+                                    <Ionicons name="chevron-back" size={20} color={colors.calendarSurface.text} />
+                                </CalendarControl>
+                                <Text style={styles.monthPickerTitle} accessibilityLiveRegion="polite">{monthPickerYear}</Text>
+                                <CalendarControl circular kind="icon" style={styles.yearButton} onPress={() => setMonthPickerYear(year => year + 1)}
+                                    accessibilityRole="button" accessibilityLabel="Next year">
+                                    <Ionicons name="chevron-forward" size={20} color={colors.calendarSurface.text} />
+                                </CalendarControl>
+                            </View>
+                            <Text style={styles.monthPickerHint}>Choose a month and year</Text>
                         </View>
                         <View style={styles.monthGrid}>
                             {MONTHS.map((label, index) => {
-                                const enabled = selectableMonths(monthPickerYear).includes(index);
                                 const selected = Number(selectedDate.slice(0, 4)) === monthPickerYear && Number(selectedDate.slice(5, 7)) === index + 1;
                                 return (
                                     <TouchableOpacity
                                         key={label}
                                         style={[styles.monthCell, selected && styles.monthCellSelected]}
-                                        disabled={!enabled}
                                         onPress={() => selectMonth(index)}
                                         accessibilityRole="button"
                                         accessibilityLabel={`${label} ${monthPickerYear}`}
-                                        accessibilityState={{ disabled: !enabled, selected }}
+                                        accessibilityState={{ selected }}
                                     >
-                                        <Text style={[styles.monthCellText, selected && styles.monthCellTextSelected, !enabled && styles.monthCellDisabled]}>{label}</Text>
+                                        <Text style={[styles.monthCellText, selected && styles.monthCellTextSelected]}>{label}</Text>
                                     </TouchableOpacity>
                                 );
                             })}
@@ -800,6 +773,7 @@ export default function CalendarView({ profile, onNavigate }) {
             <PlanDetail
                 visible={!!detailEvent}
                 plan={detailPlan}
+                heroContent={detailEvent?.category === "hospitalization" ? <HospitalStayIcon size={48} /> : detailEvent?.category === "vaccination" ? <VaccineIcon size={48} /> : detailEvent?.category === "medication" ? <MedicationIcon record={detailEvent.sourceRecord} size={48} /> : undefined}
                 onClose={() => setDetailEvent(null)}
                 onEdit={() => {
                     if (detailEvent?.category === "custom") {
@@ -882,52 +856,35 @@ const makeStyles = (colors) =>
         // underneath the tab bar and the floating button.
         scrollContent: { padding: space.lg },
         monthCard: {
-            backgroundColor: colors.surface,
-            borderWidth: 1,
-            borderColor: colors.hairline,
-            borderRadius: radius.xl,
+            backgroundColor: colors.calendarSurface.panel[1],
+            borderRadius: 28,
             borderCurve: "continuous",
-            paddingHorizontal: space.sm,
-            paddingTop: space.lg,
+            paddingHorizontal: space.md,
+            paddingTop: space.md,
             paddingBottom: space.md,
             marginBottom: space.md,
-            ...shadow.card,
+            overflow: "visible",
+            boxShadow: colors.calendarSurface.panelShadow,
         },
-        legendButton: {
-            position: "absolute",
-            top: space.sm,
-            right: space.sm,
-            zIndex: 1,
+        calendarHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+        headerIconButton: {
             width: MIN_TOUCH,
             height: MIN_TOUCH,
-            borderRadius: radius.pill,
-            borderCurve: "continuous",
-            alignItems: "center",
-            justifyContent: "center",
         },
-        selectedDate: {
-            ...type.label,
-            fontSize: type.label.fontSize * 1.1,
-            color: colors.textSecondary,
-            textAlign: "center",
-            fontVariant: ["tabular-nums"],
-            paddingTop: 33,
-            marginBottom: space.md,
-        },
-        monthStrip: { flexDirection: "row", alignItems: "center", gap: space.sm, marginBottom: space.md },
+        monthStrip: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: space.md },
         monthOption: {
             flex: 1,
+            minWidth: 0,
             minHeight: MIN_TOUCH,
+            flexDirection: "row",
+            gap: 4,
             alignItems: "center",
             justifyContent: "center",
-            borderRadius: radius.md,
-            borderCurve: "continuous",
             paddingHorizontal: space.xs,
-            backgroundColor: colors.surfaceAlt,
         },
-        monthOptionActive: { backgroundColor: colors.primary, ...shadow.card },
-        monthOptionText: { ...type.caption, color: colors.textMuted },
-        monthOptionTextActive: { color: colors.onPrimary, fontWeight: "700" },
+        monthOptionActive: { flex: 1.3, borderRadius: 999, boxShadow: colors.calendarSurface.activeShadow },
+        monthOptionText: { ...type.label, fontSize: 13, flexShrink: 1, color: colors.calendarSurface.secondary },
+        monthOptionTextActive: { color: colors.calendarSurface.onActive, fontWeight: "700" },
         monthPickerCard: {
             width: "100%",
             maxWidth: 360,
@@ -938,17 +895,18 @@ const makeStyles = (colors) =>
             ...shadow.raised,
         },
         monthPickerHeading: { alignItems: "center", padding: space.sm, gap: 2 },
+        yearNavigation: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%", marginBottom: space.sm },
+        yearButton: { width: MIN_TOUCH, height: MIN_TOUCH },
         monthPickerTitle: { ...type.heading, color: colors.text },
         monthPickerHint: { ...type.caption, color: colors.textMuted },
         monthGrid: { flexDirection: "row", flexWrap: "wrap", paddingVertical: space.md },
         monthCell: { width: "33.333%", minHeight: 52, alignItems: "center", justifyContent: "center", borderRadius: radius.md, borderCurve: "continuous" },
-        monthCellSelected: { backgroundColor: colors.primary },
+        monthCellSelected: { backgroundColor: colors.calendarSurface.active[2] },
         monthCellText: { ...type.label, color: colors.textSecondary },
-        monthCellTextSelected: { color: colors.onPrimary },
-        monthCellDisabled: { color: colors.placeholder, opacity: 0.55 },
+        monthCellTextSelected: { color: colors.calendarSurface.onActive },
         monthPickerBack: { minHeight: MIN_TOUCH, alignSelf: "flex-end", justifyContent: "center", paddingHorizontal: space.sm },
         monthPickerBackText: { ...type.label, color: colors.textSecondary },
-        weekdayRow: { flexDirection: "row", paddingHorizontal: 5, marginBottom: space.xs },
+        weekdayRow: { flexDirection: "row", marginBottom: space.xs },
         weekdayText: {
             ...type.caption,
             flex: 1,
@@ -956,7 +914,8 @@ const makeStyles = (colors) =>
             fontWeight: "700",
             textAlign: "center",
         },
-        monthCalendar: { backgroundColor: colors.surface },
+        monthCalendar: { backgroundColor: "transparent", overflow: "visible" },
+        hiddenCalendarHeader: { display: "none" },
         legendBackdrop: { flex: 1 },
         legendPopover: {
             position: "absolute",
@@ -996,63 +955,16 @@ const makeStyles = (colors) =>
         },
         // The band sits above the text so the longest label fits its third at 320pt.
         legendText: { ...type.caption, fontSize: 12, color: colors.textSecondary, textAlign: "center", width: "100%" },
-        planSection: {
-            backgroundColor: colors.surface,
-            borderWidth: 1,
-            borderColor: colors.hairline,
-            borderRadius: radius.xl,
-            borderCurve: "continuous",
-            padding: space.lg,
-            marginBottom: space.md,
-            ...shadow.card,
-        },
-        planHeader: {
-            minHeight: MIN_TOUCH,
-            flexDirection: "row",
-            alignItems: "center",
-            gap: space.sm,
-            marginBottom: space.sm,
-        },
-        planTitle: { ...type.heading, color: colors.text },
-        planTitleGroup: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space.sm },
-        selectedPlanTitle: { flexShrink: 1 },
-        countBadge: {
-            minWidth: 28,
-            height: 28,
-            paddingHorizontal: space.sm,
-            borderRadius: radius.pill,
-            borderCurve: "continuous",
-            overflow: "hidden",
-            backgroundColor: colors.surfaceAlt,
-            alignItems: "center",
-            justifyContent: "center",
-        },
-        countBadgeText: {
-            ...type.caption,
-            color: colors.textSecondary,
-            textAlign: "center",
-            fontVariant: ["tabular-nums"],
-        },
-        overdueBadge: { backgroundColor: colors.dangerBg },
-        overdueBadgeText: { color: colors.danger, fontWeight: "700" },
-        addPlanAction: {
-            minHeight: MIN_TOUCH,
-            justifyContent: "center",
-            paddingHorizontal: space.sm,
-        },
-        addPlanText: { ...type.label, color: colors.primaryDark },
-        planEmpty: { ...type.caption, color: colors.textMuted, paddingVertical: space.md },
         completedGroupTitle: { ...type.label, color: colors.textSecondary, marginBottom: space.sm },
-        eventRow: {
+        eventRow: { ...recordItemStyle(colors),
             flexDirection: "row",
             alignItems: "center",
             padding: space.md,
-            borderWidth: 1,
-            borderRadius: radius.lg,
+
+
             borderCurve: "continuous",
-            marginBottom: space.sm,
-        },
-        swipeEventRow: { marginBottom: 0, minHeight: 72 },
+             borderRadius: 24, borderWidth: 0, marginBottom: 12, overflow: "visible", paddingHorizontal: 12},
+        swipeEventRow: { marginBottom: 0, minHeight: 72  , boxShadow: "none"},
         eventWhen: {
             width: 76,
             alignSelf: "stretch",

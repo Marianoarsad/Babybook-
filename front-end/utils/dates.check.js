@@ -4,10 +4,10 @@ const fs = require("fs");
 const path = require("path");
 const src = fs.readFileSync(path.join(__dirname, "dates.js"), "utf8").replace(/export function/g, "function");
 const M = new Function(
-    `${src}\nreturn { todayLocal, toLocalISO, shiftMonthClamped, shortDate, monthLabel, shortTime, overdueBy,
+    `${src}\nreturn { todayLocal, toLocalISO, shiftMonthClamped, shortDate, fullMonthDate, monthLabel, shortTime, overdueBy,
                       nowLocalTime, durationText, minutesBetween, ageAtDate, monthsBetween,
-                      spanText, ageLabel, compactDate, weekdayAbbreviation, shortDateRange, numericDateRange, setRangeEndpoint,
-                      dateRangePreset, evenDateSlots, evenYearSlots,
+                      spanText, ageLabel, compactDate, weekdayAbbreviation, shortDateRange, numericDate, numericDateRange, setRangeEndpoint,
+                      dateRangePreset, recentDateRange, evenDateSlots, evenYearSlots,
                       dateEndpointBounds, weekOfMonth, weekRangeFromSelection,
                       monthRangeFromSelection };`,
 )();
@@ -32,21 +32,37 @@ eq("shortDate iso", M.shortDate("2025-07-19"), "19 Jul 2025");
 eq("shortDate datetime", M.shortDate("2027-02-06T09:00:00Z"), "06 Feb 2027");
 eq("shortDate empty", M.shortDate(""), "");
 eq("shortDate junk", M.shortDate("not-a-date"), "");
+for (const [value, expected] of [["2029-02-28", "February 28 2029"], ["2028-09-13", "September 13 2028"],
+    ["2026-11-17", "November 17 2026"], ["2025-11-18", "November 18 2025"],
+    ["2028-02-29", "February 29 2028"], ["2026-01-01T00:00:00Z", "January 1 2026"],
+    ["2026-02-29", ""], ["2026-04-31", ""], ["2026-13-01", ""], ["not-a-date", ""], [null, ""]]) {
+    eq(`fullMonthDate ${value}`, M.fullMonthDate(value), expected);
+}
+const originalTimezone = process.env.TZ;
+for (const timezone of ["Asia/Manila", "America/Los_Angeles", "Pacific/Kiritimati"]) {
+    process.env.TZ = timezone;
+    eq(`date-only stays January 1 in ${timezone}`, M.fullMonthDate("2026-01-01"), "January 1 2026");
+}
+if (originalTimezone === undefined) delete process.env.TZ;
+else process.env.TZ = originalTimezone;
 const currentYear = new Date().getFullYear();
 const pastYear = currentYear - 1;
-eq("compactDate", M.compactDate(`${currentYear}-09-04`), "4 Sept");
-eq("compactDate with year", M.compactDate("2026-09-04", true), "4 Sept 2026");
+eq("compactDate", M.compactDate(`${currentYear}-09-04`), "4 Sep");
+eq("compactDate with year", M.compactDate("2026-09-04", true), "4 Sep 2026");
 eq("weekday Monday", M.weekdayAbbreviation("2026-09-21"), "Mon");
 eq("weekday Tuesday", M.weekdayAbbreviation("2026-09-22"), "Tue");
 eq("weekday invalid", M.weekdayAbbreviation(""), "");
-eq("shortDateRange same day", M.shortDateRange(`${currentYear}-09-04`, `${currentYear}-09-04`), "4 Sept");
-eq("shortDateRange same month", M.shortDateRange(`${currentYear}-09-01`, `${currentYear}-09-04`), "1–4 Sept");
-eq("shortDateRange past year", M.shortDateRange(`${pastYear}-09-01`, `${pastYear}-09-04`), `1–4 Sept ${pastYear}`);
-eq("shortDateRange across months", M.shortDateRange(`${currentYear}-08-28`, `${currentYear}-09-04`), `28 Aug–4 Sept ${currentYear}`);
+eq("shortDateRange same day", M.shortDateRange(`${currentYear}-09-04`, `${currentYear}-09-04`), "4 Sep");
+eq("shortDateRange same month", M.shortDateRange(`${currentYear}-09-01`, `${currentYear}-09-04`), "1–4 Sep");
+eq("shortDateRange past year", M.shortDateRange(`${pastYear}-09-01`, `${pastYear}-09-04`), `1–4 Sep ${pastYear}`);
+eq("shortDateRange across months", M.shortDateRange(`${currentYear}-08-28`, `${currentYear}-09-04`), `28 Aug–4 Sep ${currentYear}`);
 eq("shortDateRange invalid", M.shortDateRange("", "2026-09-04"), "");
 eq("numericDateRange", M.numericDateRange("2026-09-01", "2026-09-14"), "01/09/2026 - 14/09/2026");
 eq("numericDateRange same day", M.numericDateRange("2026-09-04", "2026-09-04"), "04/09/2026 - 04/09/2026");
 eq("numericDateRange invalid", M.numericDateRange("", "2026-09-04"), "");
+eq("numericDate pads day and month", M.numericDate("2026-01-02"), "02/01/2026");
+eq("numericDate accepts timestamp", M.numericDate("2026-10-02T00:00:00Z"), "02/10/2026");
+eq("numericDate missing", M.numericDate(null), "");
 const axisSlots = M.evenDateSlots("2026-09-01", "2026-09-30");
 eq("date axis has seven slots", axisSlots.length, 7);
 eq("date axis reaches both edges", `${axisSlots[0]}|${axisSlots[6]}`, "2026-09-01|2026-09-30");
@@ -72,6 +88,8 @@ eq("preset week on Monday", JSON.stringify(M.dateRangePreset("week", "2025-01-01
 eq("preset month", JSON.stringify(M.dateRangePreset("month", "2025-01-01", "2026-09-05")), '{"from":"2026-09-01","to":"2026-09-05"}');
 eq("preset leap month", JSON.stringify(M.dateRangePreset("month", "2025-01-01", "2028-02-29")), '{"from":"2028-02-01","to":"2028-02-29"}');
 eq("preset year clamps to birth", JSON.stringify(M.dateRangePreset("year", "2026-04-12", "2026-09-05")), '{"from":"2026-04-12","to":"2026-09-05"}');
+eq("recent 30 days crosses the month boundary", JSON.stringify(M.recentDateRange(30, "2025-01-01", "2026-10-01")), '{"from":"2026-09-02","to":"2026-10-01"}');
+eq("recent range clamps to birth", JSON.stringify(M.recentDateRange(30, "2026-09-20", "2026-10-01")), '{"from":"2026-09-20","to":"2026-10-01"}');
 eq("week 1 from date", M.weekOfMonth("2026-09-07"), 1);
 eq("week 4 includes month tail", M.weekOfMonth("2026-09-30"), 4);
 eq("invalid week date", M.weekOfMonth(""), null);

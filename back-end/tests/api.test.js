@@ -17,6 +17,8 @@ const { pool } = require("../src/db/pool");
 beforeAll(async () => {
     const sql = fs.readFileSync(path.join(__dirname, "../src/db/schema.sql"), "utf8");
     await pool.query(sql);
+    await pool.query(fs.readFileSync(path.join(__dirname, "../src/db/migrations/018_qr_web_sharing.sql"), "utf8"));
+    await pool.query(fs.readFileSync(path.join(__dirname, "../src/db/migrations/019_server_only_records.sql"), "utf8"));
 });
 
 afterAll(async () => {
@@ -27,10 +29,65 @@ describe("BabyBook+ API", () => {
     let token;
     let childId;
 
+    test("milk-type periods retain feeding history, validate ranges, encrypt notes and scope CRUD and sharing", async () => {
+        const parent = await request(app).post("/api/auth/register").send({ fullName: "Period Fixture", email: `period${Date.now()}@example.com`, password: "password123", consentAccepted: true });
+        const authorization = `Bearer ${parent.body.token}`;
+        const child = await request(app).post("/api/children").set("Authorization", authorization).send({ first_name: "Period", last_name: "Fixture" });
+        const id = child.body.id, base = `/api/children/${id}`, endpoint = `${base}/milk-type-periods`;
+        await request(app).post(`${base}/nutrition`).set("Authorization", authorization).send({ entry_type: "milk", milk_type: "Formula", feed_method: "bottle", quantity: 120, unit: "mL", entry_date: "2026-10-15" });
+        const body = { milk_type: "Formula", start_date: "2026-10-09", end_date: null, notes: "Fictional private note" };
+        const create = () => request(app).post(endpoint).set("Authorization", authorization).set("X-Operation-Key", "milk_period_retry").send(body);
+        const first = await create(), retry = await create();
+        expect(first.status).toBe(201); expect(retry.body.id).toBe(first.body.id);
+        expect(first.body.notes).toBe(body.notes); expect(first.body.start_date).toBe(body.start_date);
+        expect((await pool.query("SELECT notes FROM milk_type_periods WHERE id=$1", [first.body.id])).rows[0].notes).toMatch(/^enc:v1:/);
+        expect((await request(app).get(endpoint)).status).toBe(401);
+        const stranger = await request(app).post("/api/auth/register").send({ fullName: "Other Fixture", email: `otherperiod${Date.now()}@example.com`, password: "password123", consentAccepted: true });
+        for (const method of ["get", "put", "delete"]) {
+            const result = await request(app)[method](`${endpoint}/${first.body.id}`).set("Authorization", `Bearer ${stranger.body.token}`).send({ notes: "Unauthorized" });
+            expect([403, 404]).toContain(result.status);
+        }
+        for (const patch of [{ end_date: "2026-10-08" }, { start_date: "2026-02-30" }, { milk_type: "Other" }, { start_date: null }]) {
+            expect((await request(app).put(`${endpoint}/${first.body.id}`).set("Authorization", authorization).send(patch)).status).toBe(400);
+        }
+        expect((await request(app).put(`${endpoint}/${first.body.id}`).set("Authorization", authorization).send({ end_date: "2026-10-15" })).status).toBe(200);
+        expect((await request(app).put(`${endpoint}/${first.body.id}`).set("Authorization", authorization).send({ start_date: "2026-10-16" })).status).toBe(400);
+        const { buildSnapshot, authorizedSnapshot } = require("../src/utils/snapshot");
+        const snapshot = await buildSnapshot({ id }, ["nutrition"]);
+        expect(snapshot.nutrition).toHaveLength(1); expect(snapshot.milkTypePeriods).toHaveLength(1);
+        expect(authorizedSnapshot(snapshot, ["profile"]).milkTypePeriods).toBeUndefined();
+        expect(snapshot.milkTypePeriods[0].notes).toBe(body.notes);
+        expect((await request(app).delete(`${endpoint}/${first.body.id}`).set("Authorization", authorization)).status).toBe(204);
+        expect((await request(app).get(endpoint).set("Authorization", authorization)).body).toHaveLength(0);
+        expect((await request(app).get(`${base}/nutrition`).set("Authorization", authorization)).body).toHaveLength(1);
+        // Rehearse the additive migration in a temporary schema, preserving public data.
+        const client = await pool.connect();
+        try {
+            await client.query("BEGIN; CREATE SCHEMA milk_period_migration_test; SET LOCAL search_path = milk_period_migration_test, public");
+            await client.query(fs.readFileSync(path.join(__dirname, "../src/db/migrations/020_milk_type_periods.sql"), "utf8"));
+            expect((await client.query("SELECT count(*)::int AS n FROM milk_period_migration_test.milk_type_periods")).rows[0].n).toBe(0);
+        } finally { await client.query("ROLLBACK"); client.release(); }
+    });
+
     test("health check", async () => {
         const res = await request(app).get("/api/health");
         expect(res.status).toBe(200);
         expect(res.body.ok).toBe(true);
+    });
+
+    test("application tables and their sequences are server-only without changing owner access", async () => {
+        const before = (await pool.query("SELECT count(*)::int AS n FROM users")).rows[0].n;
+        await pool.query(fs.readFileSync(path.join(__dirname, "../src/db/migrations/019_server_only_records.sql"), "utf8"));
+        const tables = (await pool.query("SELECT relrowsecurity, relforcerowsecurity, relacl FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r'")).rows;
+        expect(tables.length).toBeGreaterThan(20);
+        for (const table of tables) {
+            expect(table.relrowsecurity).toBe(true);
+            expect(table.relforcerowsecurity).toBe(false);
+            expect(String(table.relacl)).not.toMatch(/(?:\{|,)(?:|anon|authenticated)=/);
+        }
+        const sequences = (await pool.query("SELECT relacl FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='S'")).rows;
+        for (const sequence of sequences) expect(String(sequence.relacl)).not.toMatch(/(?:\{|,)(?:|anon|authenticated)=/);
+        expect((await pool.query("SELECT count(*)::int AS n FROM users")).rows[0].n).toBe(before);
     });
 
     test("register returns a token", async () => {
@@ -55,8 +112,9 @@ describe("BabyBook+ API", () => {
         const create = await request(app)
             .post("/api/children")
             .set("Authorization", `Bearer ${token}`)
-            .send({ first_name: "Maya", last_name: "Chen", blood_type: "O+" });
+            .send({ first_name: "Maya", last_name: "Chen", blood_type: "O+", birth_head_circumference: 34.5 });
         expect(create.status).toBe(201);
+        expect(Number(create.body.birth_head_circumference)).toBe(34.5);
         childId = create.body.id;
 
         const list = await request(app)
@@ -66,6 +124,54 @@ describe("BabyBook+ API", () => {
         expect(list.body.length).toBe(1);
     });
 
+    test("optional birth head and allergy classification round-trip without guessing legacy values", async () => {
+        const childPath = `/api/children/${childId}`;
+        const head = await request(app).put(childPath).set("Authorization", `Bearer ${token}`)
+            .send({ birth_head_circumference: 35.25 });
+        expect(head.status).toBe(200);
+        expect(Number(head.body.birth_head_circumference)).toBe(35.25);
+        const cleared = await request(app).put(childPath).set("Authorization", `Bearer ${token}`)
+            .send({ birth_head_circumference: null });
+        expect(cleared.status).toBe(200);
+        expect(cleared.body.birth_head_circumference).toBeNull();
+        for (const value of [19, 66, "letters", 34.555]) {
+            expect((await request(app).put(childPath).set("Authorization", `Bearer ${token}`)
+                .send({ birth_head_circumference: value })).status).toBe(422);
+        }
+        const resource = `${childPath}/medical-history`;
+        for (const allergy_type of [undefined, null, ""]) {
+            expect((await request(app).post(resource).set("Authorization", `Bearer ${token}`)
+                .send({ category: "Allergy", title: "Missing type", allergy_type })).status).toBe(400);
+        }
+        const allergy = await request(app).post(resource).set("Authorization", `Bearer ${token}`)
+            .send({ category: "Allergy", title: "Egg", allergy_type: "food" });
+        expect(allergy.status).toBe(201);
+        expect(allergy.body.allergy_type).toBe("food");
+        expect((await request(app).put(`${resource}/${allergy.body.id}`).set("Authorization", `Bearer ${token}`)
+            .send({ category: "Illness" })).status).toBe(400);
+        const changed = await request(app).put(`${resource}/${allergy.body.id}`).set("Authorization", `Bearer ${token}`)
+            .send({ allergy_type: "non_food" });
+        expect(changed.status).toBe(200);
+        expect(changed.body.allergy_type).toBe("non_food");
+        expect((await request(app).put(`${resource}/${allergy.body.id}`).set("Authorization", `Bearer ${token}`)
+            .send({ allergy_type: "unknown" })).status).toBe(400);
+        const unclassified = await request(app).put(`${resource}/${allergy.body.id}`).set("Authorization", `Bearer ${token}`)
+            .send({ allergy_type: null });
+        expect(unclassified.status).toBe(400);
+        const partial = await request(app).put(`${resource}/${allergy.body.id}`).set("Authorization", `Bearer ${token}`)
+            .send({ title: "Egg allergy" });
+        expect(partial.status).toBe(200);
+        expect(partial.body.allergy_type).toBe("non_food");
+        const legacy = await pool.query("INSERT INTO medical_history (child_id, category, title) VALUES ($1, 'Allergy', 'Legacy allergy') RETURNING id", [childId]);
+        const legacyPath = `${resource}/${legacy.rows[0].id}`;
+        expect((await request(app).put(legacyPath).set("Authorization", `Bearer ${token}`)
+            .send({ title: "Updated legacy allergy" })).status).toBe(400);
+        expect((await request(app).put(legacyPath).set("Authorization", `Bearer ${token}`)
+            .send({ allergy_type: "food" })).status).toBe(200);
+        expect((await request(app).delete(legacyPath).set("Authorization", `Bearer ${token}`)).status).toBe(204);
+        expect((await request(app).delete(`${resource}/${allergy.body.id}`).set("Authorization", `Bearer ${token}`)).status).toBe(204);
+    });
+
     test("adds a vaccination record", async () => {
         const res = await request(app)
             .post(`/api/children/${childId}/vaccinations`)
@@ -73,6 +179,23 @@ describe("BabyBook+ API", () => {
             .send({ vaccine_name: "HepB", visit_name: "Birth Dose", status: "completed", date_given: "2025-12-16" });
         expect(res.status).toBe(201);
         expect(res.body.vaccine_name).toBe("HepB");
+    });
+
+    test("growth validates measurements on create and partial update", async () => {
+        const path = `/api/children/${childId}/growth`;
+        const post = (body) => request(app).post(path).set("Authorization", `Bearer ${token}`).send(body);
+        expect((await post({ date_recorded: "2026-09-18" })).status).toBe(400);
+        expect((await post({ weight: "8kg" })).status).toBe(400);
+        expect((await post({ height: 141 })).status).toBe(400);
+        expect((await post({ head_circumference: 19 })).status).toBe(400);
+        const made = await post({ weight: 8, date_recorded: "2026-09-18" });
+        expect(made.status).toBe(201);
+        expect((await request(app).put(`${path}/${made.body.id}`)
+            .set("Authorization", `Bearer ${token}`).send({ weight: 41 })).status).toBe(400);
+        expect((await request(app).put(`${path}/${made.body.id}`)
+            .set("Authorization", `Bearer ${token}`).send({ notes: "Routine check" })).status).toBe(200);
+        expect((await request(app).delete(`${path}/${made.body.id}`)
+            .set("Authorization", `Bearer ${token}`)).status).toBe(204);
     });
 
     test("concurrent keyed creates share a receipt, reject changed payloads and cannot resurrect deleted records", async () => {
@@ -389,6 +512,7 @@ describe("BabyBook+ API", () => {
                 .post(`/api/children/${childId}/medication-doses`)
                 .set("Authorization", `Bearer ${token}`)
                 .send({ medication_id: medId, given_date: "2026-04-03", given_time: "08:00" });
+            expect(made.status).toBe(201);
             const del = await request(app)
                 .delete(`/api/children/${childId}/medication-doses/${made.body.id}`)
                 .set("Authorization", `Bearer ${token}`);
@@ -651,7 +775,7 @@ describe("BabyBook+ API", () => {
                 .post(`/api/children/${shareChildId}/shares/${shareId}/revoke`)
                 .set("Authorization", `Bearer ${token}`);
 
-            const after = await request(app).post("/api/consult/resolve").send({ code: shareCode });
+            const after = await request(app).post("/api/consult/resolve").send({ code: shareCode, professionalName: "Dr. Chen" });
             expect(after.status).toBe(410);
             expect(after.body.status).toBe("revoked");
 
@@ -673,5 +797,170 @@ describe("BabyBook+ API", () => {
             .get(`/api/children/${childId}/vaccinations`)
             .set("Authorization", `Bearer ${other.body.token}`);
         expect(res.status).toBe(404);
+    });
+
+    describe("QR web sharing safeguards", () => {
+        const { hashShareToken, credentialsFromQrPayload } = require("../src/utils/shareCode");
+        let demoChild;
+        const createShare = async (keys = ["profile"], ttlMinutes = 60) => {
+            const res = await request(app).post(`/api/children/${demoChild}/shares`)
+                .set("Authorization", `Bearer ${token}`).send({ recordKeys: keys, ttlMinutes });
+            expect(res.status).toBe(201);
+            return res.body;
+        };
+        beforeAll(async () => {
+            const res = await request(app).post("/api/children").set("Authorization", `Bearer ${token}`)
+                .send({ first_name: "Fictional", last_name: "QR Demo" });
+            expect(res.status).toBe(201); demoChild = res.body.id;
+            process.env.QR_WEB_LINKS_ENABLED = "true";
+            process.env.CONSULT_VIEWER_URL = "https://babybook-plus.expo.app/";
+        });
+        beforeEach(async () => { await pool.query("DELETE FROM consultation_access_limits"); });
+        afterAll(() => { delete process.env.QR_WEB_LINKS_ENABLED; delete process.env.CONSULT_VIEWER_URL; });
+
+        test("secure links resolve only after a name; hashes/snapshots stay out of owner responses", async () => {
+            const share = await createShare();
+            const credentials = credentialsFromQrPayload(share.qr_payload);
+            expect(share.qr_payload.startsWith("https://babybook-plus.expo.app/#consult=")).toBe(true);
+            expect(credentials.shareToken).toHaveLength(43);
+            expect(share.share_token_hash).toBeUndefined(); expect(share.payload).toBeUndefined();
+            const stored = (await pool.query("SELECT share_token_hash FROM shared_records WHERE id=$1", [share.id])).rows[0];
+            expect(stored.share_token_hash).toBe(hashShareToken(credentials.shareToken));
+            const before = (await pool.query("SELECT count(*)::int AS n FROM access_logs WHERE share_id=$1", [share.id])).rows[0].n;
+            for (const professionalName of ["", "   ", "x".repeat(101)]) {
+                expect((await request(app).post("/api/consult/resolve").send({ ...credentials, professionalName })).status).toBe(400);
+            }
+            const res = await request(app).post("/api/consult/resolve").send({ code: share.qr_payload, professionalName: "Dr. Fictional" });
+            expect(res.status).toBe(200); expect(res.body.payload.profile.name).toBe("Fictional QR Demo");
+            expect(res.headers["cache-control"]).toContain("no-store"); expect(res.body.serverNow).toBeTruthy();
+            const status = await request(app).post("/api/consult/status").send(credentials);
+            expect(Object.keys(status.body).sort()).toEqual(["expiresAt", "serverNow", "status"]);
+            expect((await pool.query("SELECT count(*)::int AS n FROM access_logs WHERE share_id=$1", [share.id])).rows[0].n).toBe(before + 1);
+            const bad = { ...credentials, shareToken: "x".repeat(43), professionalName: "Dr. Fictional" };
+            expect((await request(app).post("/api/consult/resolve").send(bad)).status).toBe(404);
+            expect((await request(app).post("/api/consult/resolve").send({ ...bad, shareToken: "bad" })).status).toBe(400);
+            expect((await request(app).post("/api/consult/resolve").send({ code: share.code, professionalName: "Manual Viewer" })).status).toBe(200);
+        });
+
+        test("withheld profile and unexpected legacy categories cannot leak live child details", async () => {
+            const share = await createShare(["growth"]);
+            await pool.query("UPDATE shared_records SET payload=$2::jsonb WHERE id=$1",
+                [share.id, JSON.stringify({ growth: [], profile: { name: "Never disclose" }, medicalHistory: [{ title: "Secret" }], unknown: "Secret" })]);
+            const res = await request(app).post("/api/consult/resolve").send({ code: share.qr_payload, professionalName: "Dr. Fictional" });
+            expect(res.status).toBe(200); expect(res.body.childName).toBe("Shared Baby Records");
+            expect(res.body.payload).toEqual({ growth: [] });
+        });
+
+        test("all selected categories survive resolution without adding unselected categories", async () => {
+            const keys = Object.keys(require("../src/utils/snapshot").RECORD_LABELS);
+            const share = await createShare(keys);
+            const res = await request(app).post("/api/consult/resolve").send({ code: share.qr_payload, professionalName: "All Categories" });
+            expect(res.status).toBe(200); expect(res.body.recordKeys).toEqual(keys);
+            expect(Object.keys(res.body.payload).sort()).toEqual([...keys, "milkTypePeriods"].sort());
+        });
+
+        test("snapshots stay frozen; unreadable source/snapshot fails closed without an access log", async () => {
+            const share = await createShare();
+            const original = (await pool.query("SELECT first_name FROM children WHERE id=$1", [demoChild])).rows[0].first_name;
+            await pool.query("UPDATE children SET first_name=$2 WHERE id=$1", [demoChild, "enc:v1:broken"]);
+            try {
+                const res = await request(app).post("/api/consult/resolve").send({ code: share.qr_payload, professionalName: "Frozen Viewer" });
+                expect(res.status).toBe(200); expect(res.body.childName).toBe("Fictional QR Demo");
+                const count = (await pool.query("SELECT count(*)::int AS n FROM shared_records WHERE child_id=$1", [demoChild])).rows[0].n;
+                const bad = await request(app).post(`/api/children/${demoChild}/shares`).set("Authorization", `Bearer ${token}`)
+                    .send({ recordKeys: ["profile"], ttlMinutes: 60 });
+                expect(bad.status).toBe(503); expect(bad.body.status).toBe("unreadable");
+                expect((await pool.query("SELECT count(*)::int AS n FROM shared_records WHERE child_id=$1", [demoChild])).rows[0].n).toBe(count);
+            } finally { await pool.query("UPDATE children SET first_name=$2 WHERE id=$1", [demoChild, original]); }
+            await pool.query("UPDATE shared_records SET payload=$2::jsonb WHERE id=$1", [share.id, JSON.stringify("enc:v1:broken")]);
+            const count = (await pool.query("SELECT count(*)::int AS n FROM access_logs WHERE share_id=$1", [share.id])).rows[0].n;
+            const bad = await request(app).post("/api/consult/resolve").send({ code: share.qr_payload, professionalName: "Cannot Open" });
+            expect(bad.status).toBe(503); expect(bad.body.status).toBe("unreadable");
+            expect((await pool.query("SELECT count(*)::int AS n FROM access_logs WHERE share_id=$1", [share.id])).rows[0].n).toBe(count);
+        });
+
+        test("status revalidation observes revocation and expiry without logging or returning records", async () => {
+            const revoked = await createShare(), expired = await createShare();
+            await request(app).post(`/api/children/${demoChild}/shares/${revoked.id}/revoke`).set("Authorization", `Bearer ${token}`);
+            await pool.query("UPDATE shared_records SET expiration_date=now()-interval '1 second' WHERE id=$1", [expired.id]);
+            for (const [share, state] of [[revoked, "revoked"], [expired, "expired"]]) {
+                const res = await request(app).post("/api/consult/status").send({ code: share.qr_payload });
+                expect(res.status).toBe(410); expect(res.body.status).toBe(state); expect(res.body.payload).toBeUndefined();
+                expect((await pool.query("SELECT payload FROM shared_records WHERE id=$1", [share.id])).rows[0].payload).toEqual({});
+                expect((await pool.query("SELECT count(*)::int AS n FROM access_logs WHERE share_id=$1", [share.id])).rows[0].n).toBe(0);
+            }
+        });
+
+        test("persistent network counters enforce 20 attempts and recover after their window", async () => {
+            for (let i = 0; i < 20; i++) expect((await request(app).post("/api/consult/resolve")
+                .send({ code: "ZZZZ-ZZZZ", professionalName: "Fictional" })).status).toBe(404);
+            const blocked = await request(app).post("/api/consult/resolve").send({ code: "ZZZZ-ZZZZ", professionalName: "Fictional" });
+            expect(blocked.status).toBe(429); expect(Number(blocked.headers["retry-after"])).toBeGreaterThan(0);
+            const counters = (await pool.query("SELECT * FROM consultation_access_limits")).rows;
+            expect(counters[0].attempts).toBe(21); expect(counters[0].bucket_key).toMatch(/^resolve:[a-f0-9]{64}$/);
+            await pool.query("UPDATE consultation_access_limits SET window_start=now()-interval '6 minutes'");
+            expect((await request(app).post("/api/consult/resolve").send({ code: "ZZZZ-ZZZZ", professionalName: "Fictional" })).status).toBe(404);
+        });
+
+        test("cleanup clears only dead snapshots, preserves all original rows/metadata/logs, and is idempotent", async () => {
+            const live = await createShare(), due = await createShare(), expired = await createShare(), revoked = await createShare();
+            await pool.query("UPDATE shared_records SET expiration_date=now()-interval '1 second' WHERE id=$1", [due.id]);
+            await pool.query("UPDATE shared_records SET status='expired' WHERE id=$1", [expired.id]);
+            await pool.query("UPDATE shared_records SET status='revoked' WHERE id=$1", [revoked.id]);
+            await request(app).post("/api/consult/resolve").send({ code: live.code, professionalName: "Preserved Viewer" });
+            const tables = ["users", "children", "vaccinations", "checkups", "medical_history", "medication_doses", "growth_records",
+                "milestones", "nutrition_records", "memories", "reminders", "calendar_events", "record_attachments", "access_logs"];
+            const originals = async () => {
+                const rows = {};
+                for (const table of tables) rows[table] = (await pool.query(`SELECT row_to_json(t) AS row FROM ${table} t ORDER BY id`)).rows;
+                return rows;
+            };
+            const before = await originals();
+            const sharesBefore = (await pool.query("SELECT id, child_id, code, qr_payload, shared_record_keys, expiration_date, generate_date, share_token_hash FROM shared_records ORDER BY id")).rows;
+            expect((await pool.query("SELECT public.babybook_share_snapshot_cleanup() AS n")).rows[0].n).toBe(3);
+            expect(await originals()).toEqual(before);
+            expect((await pool.query("SELECT id, child_id, code, qr_payload, shared_record_keys, expiration_date, generate_date, share_token_hash FROM shared_records ORDER BY id")).rows).toEqual(sharesBefore);
+            expect((await pool.query("SELECT payload FROM shared_records WHERE id=$1", [live.id])).rows[0].payload).not.toEqual({});
+            for (const share of [due, expired, revoked]) expect((await pool.query("SELECT payload FROM shared_records WHERE id=$1", [share.id])).rows[0].payload).toEqual({});
+            expect((await pool.query("SELECT public.babybook_share_snapshot_cleanup() AS n")).rows[0].n).toBe(0);
+            const privileges = (await pool.query("SELECT proacl FROM pg_proc WHERE oid='public.babybook_share_snapshot_cleanup()'::regprocedure")).rows[0].proacl;
+            expect(String(privileges)).not.toMatch(/(?:\{|,)=X/);
+            const identities = (await pool.query("SELECT relrowsecurity, relacl FROM pg_class WHERE oid='public.user_auth_identities'::regclass")).rows[0];
+            expect(identities.relrowsecurity).toBe(true);
+            expect(String(identities.relacl)).not.toMatch(/(?:\{|,)=/);
+        });
+
+        test("cleanup and revocation serialize without restoring records or overwriting revoked status", async () => {
+            const revoke = "UPDATE shared_records SET status='revoked', payload='{}'::jsonb WHERE id=$1 AND status='active'";
+            const cleanup = "SELECT public.babybook_share_snapshot_cleanup()";
+            for (const revokeFirst of [true, false]) {
+                const share = await createShare();
+                await pool.query("UPDATE shared_records SET expiration_date=now()-interval '1 second' WHERE id=$1", [share.id]);
+                const holder = await pool.connect(), waiter = await pool.connect();
+                let pending;
+                try {
+                    await holder.query("BEGIN; SET LOCAL statement_timeout='5s'");
+                    await waiter.query("SET statement_timeout='5s'");
+                    await holder.query(revokeFirst ? revoke : cleanup, revokeFirst ? [share.id] : []);
+                    pending = waiter.query(revokeFirst ? cleanup : revoke, revokeFirst ? [] : [share.id]);
+                    // Prove actual lock contention, rather than two sequential updates.
+                    let blocked = false;
+                    for (let i = 0; i < 100 && !blocked; i++) {
+                        blocked = (await pool.query("SELECT $1::int = ANY(pg_blocking_pids($2)) AS blocked", [holder.processID, waiter.processID])).rows[0].blocked;
+                        if (!blocked) await new Promise(resolve => setTimeout(resolve, 10));
+                    }
+                    expect(blocked).toBe(true);
+                    await holder.query("COMMIT");
+                    await pending;
+                    expect((await pool.query("SELECT status, payload FROM shared_records WHERE id=$1", [share.id])).rows[0])
+                        .toEqual({ status: revokeFirst ? "revoked" : "expired", payload: {} });
+                } finally {
+                    await holder.query("ROLLBACK");
+                    if (pending) await pending.catch(() => {});
+                    await waiter.query("RESET statement_timeout");
+                    holder.release(); waiter.release();
+                }
+            }
+        });
     });
 });

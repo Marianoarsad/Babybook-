@@ -5,7 +5,7 @@ const { query } = require("../db/pool");
 const { ApiError, asyncHandler } = require("../middleware/error");
 const { handleValidation } = require("../middleware/validate");
 const { requireAuth, requireChildOwnership } = require("../middleware/auth");
-const { generateCode, qrPayloadForCode } = require("../utils/shareCode");
+const { generateCode, generateShareToken, hashShareToken, qrPayloadForCode } = require("../utils/shareCode");
 const { RECORD_LABELS, buildSnapshot, sealPayload, PURGED_PAYLOAD_SQL } = require("../utils/snapshot");
 
 const router = express.Router();
@@ -51,23 +51,31 @@ router.post(
         const ttl = parseInt(req.body.ttlMinutes || "60", 10);
         // Optional. Travels inside the snapshot, not as a column — see the note
         // on buildSnapshot for why.
-        const payload = await buildSnapshot(req.child, keys, req.body.visitReason);
+        let payload;
+        try { payload = await buildSnapshot(req.child, keys, req.body.visitReason); }
+        catch (error) {
+            if (error.code !== "SHARED_RECORDS_UNREADABLE") throw error;
+            return res.status(503).json({ status: "unreadable",
+                error: "Some selected records could not be read. No share was created. Please contact the parent or app support." });
+        }
 
         // Ensure a unique code (retry a few times on the rare collision).
         let share;
         for (let attempt = 0; attempt < 5 && !share; attempt++) {
             const code = generateCode();
+            const shareToken = process.env.QR_WEB_LINKS_ENABLED === "true" ? generateShareToken() : null;
             try {
                 const { rows } = await query(
                     `INSERT INTO shared_records
-                        (child_id, code, qr_payload, shared_record_keys, payload, expiration_date)
-                     VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' minutes')::interval)
+                        (child_id, code, qr_payload, shared_record_keys, payload, expiration_date, share_token_hash)
+                     VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' minutes')::interval, $7)
                      RETURNING ${SHARE_COLUMNS}`,
                     // sealPayload, not JSON.stringify: the snapshot holds
                     // DECRYPTED medical data, and storing it in the clear would
                     // undo the field-level encryption every other table relies
                     // on. See the note in utils/snapshot.js.
-                    [req.child.id, code, qrPayloadForCode(code), JSON.stringify(keys), sealPayload(payload), String(ttl)]
+                    [req.child.id, code, qrPayloadForCode(code, shareToken), JSON.stringify([...new Set(keys)]),
+                        sealPayload(payload), String(ttl), shareToken ? hashShareToken(shareToken) : null]
                 );
                 share = rows[0];
             } catch (e) {

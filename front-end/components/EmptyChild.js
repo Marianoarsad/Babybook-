@@ -29,6 +29,7 @@ export default function EmptyChild({ parentName, onCreate, onLogOut }) {
     const [emergencyRelationship, setEmergencyRelationship] = useState("");
     const [emergencyNumber, setEmergencyNumber] = useState("");
     const [showMore, setShowMore] = useState(false);
+    const [birthHeadCircumference, setBirthHeadCircumference] = useState("");
     const [saving, setSaving] = useState(false);
     const [nameError, setNameError] = useState("");
 
@@ -46,6 +47,7 @@ export default function EmptyChild({ parentName, onCreate, onLogOut }) {
                 gender,
                 weight,
                 height,
+                birthHeadCircumference,
                 bloodType,
                 hospital,
                 pediatrician,
@@ -146,6 +148,8 @@ export default function EmptyChild({ parentName, onCreate, onLogOut }) {
 
                 <MeasurementField label="Birth Weight" unit="kg" min={0.3} max={40} defaultValue={3.2} value={weight} onChange={setWeight} />
                 <MeasurementField label="Birth Height" unit="cm" min={20} max={140} defaultValue={49} value={height} onChange={setHeight} />
+                <MeasurementField label="Birth Head Circumference (optional)" unit="cm" min={20} max={65}
+                    value={birthHeadCircumference} onChange={setBirthHeadCircumference} />
 
                 <TouchableOpacity
                     onPress={() => setShowMore((s) => !s)}

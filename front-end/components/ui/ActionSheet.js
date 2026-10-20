@@ -1,3 +1,8 @@
+import { IllnessIcon } from "./RecordIcon";
+import HospitalStayIcon from "./HospitalStayIcon";
+import SolidFoodIcon from "./SolidFoodIcon";
+import MilkIcon from "./MilkIcon";
+import VaccineIcon from "./VaccineIcon";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
     Animated,
@@ -9,6 +14,8 @@ import {
     useWindowDimensions,
 } from "react-native";
 import Modal from "./AppModal";
+import MedicationIcon from "./MedicationIcon";
+import GrowthIcon from "./GrowthIcon";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { expandedSheetHeight, recordSheetHeight } from "../../utils/responsive";
@@ -33,14 +40,14 @@ import useBottomSheetMotion from "./useBottomSheetMotion";
 // tabs, an alias switches AND opens a form. Every entry here is an alias,
 // because every entry here is meant to open something.
 const ACTIONS = {
-    milk: { label: "Milk", icon: "water-outline", tint: "recNutrition", view: "nutrition", tab: "milk" },
+    milk: { label: "Milk", tint: "recNutrition", view: "nutrition", tab: "milk" },
     food: { label: "Food", icon: "restaurant-outline", tint: "recNutrition", view: "nutrition", tab: "solid" },
-    growth: { label: "Growth", icon: "resize-outline", tint: "recGrowth", view: "growth", tab: "metrics" },
-    vaccine: { label: "Vaccine", icon: "medkit-outline", tint: "recVaccine", view: "health", tab: "vaccine" },
+    growth: { label: "Growth", tint: "recGrowth", view: "growth", tab: "metrics" },
+    vaccine: { label: "Vaccine", tint: "recVaccine", view: "health", tab: "vaccine" },
     checkup: { label: "Checkup", icon: "calendar-outline", tint: "recCheckup", view: "health", tab: "checkup" },
-    medication: { label: "Medication", icon: "medical-outline", tint: "recMedication", view: "health", tab: "medication" },
+    medication: { label: "Medication", tint: "recMedication", view: "health", tab: "medication" },
     illness: { label: "Condition", icon: "thermometer-outline", tint: "recIllness", view: "health", tab: "illness" },
-    hospitalization: { label: "Hospital stay", icon: "bed-outline", tint: "recHospitalization", view: "health", tab: "hospitalization" },
+    hospitalization: { label: "Hospital stay", tint: "recHospitalization", view: "health", tab: "hospitalization" },
     // One entry, because it opens one form that saves either kind.
     memory: { label: "Photo or milestone", icon: "image-outline", tint: "recMemory", view: "growth", tab: "memory" },
 };
@@ -144,9 +151,7 @@ export default function ActionSheet({ visible, onClose, onSelect }) {
                                         accessibilityRole="button"
                                         accessibilityLabel={`Add ${a.label}`}
                                     >
-                                        <View style={[styles.shortcutIcon, { backgroundColor: tint.bg }]}>
-                                            <Ionicons name={a.icon} size={22} color={tint.on} />
-                                        </View>
+                                        {key === "illness" ? <IllnessIcon size={44} /> : key === "hospitalization" ? <HospitalStayIcon size={44} /> : key === "vaccine" ? <VaccineIcon size={44} /> : key === "food" ? <SolidFoodIcon size={44} /> : key === "milk" ? <MilkIcon size={44} /> : key === "medication" ? <MedicationIcon size={44} /> : key === "growth" ? <GrowthIcon size={44} /> : <View style={[styles.shortcutIcon, { backgroundColor: tint.bg }]}><Ionicons name={a.icon} size={22} color={tint.on} /></View>}
                                         <Text style={styles.shortcutText} numberOfLines={1}>
                                             {a.label}
                                         </Text>
@@ -171,9 +176,7 @@ export default function ActionSheet({ visible, onClose, onSelect }) {
                                             accessibilityRole="button"
                                             accessibilityLabel={`Add ${a.label}`}
                                         >
-                                            <View style={[styles.itemIcon, { backgroundColor: tint.bg }]}>
-                                                <Ionicons name={a.icon} size={19} color={tint.on} />
-                                            </View>
+                                            {key === "illness" ? <IllnessIcon size={36} /> : key === "hospitalization" ? <HospitalStayIcon size={36} /> : key === "vaccine" ? <VaccineIcon size={36} /> : key === "food" ? <SolidFoodIcon size={36} /> : key === "milk" ? <MilkIcon size={36} /> : key === "medication" ? <MedicationIcon size={36} /> : key === "growth" ? <GrowthIcon size={36} /> : <View style={[styles.itemIcon, { backgroundColor: tint.bg }]}><Ionicons name={a.icon} size={19} color={tint.on} /></View>}
                                             <Text style={styles.itemText}>{a.label}</Text>
                                             <Ionicons
                                                 name="chevron-forward"

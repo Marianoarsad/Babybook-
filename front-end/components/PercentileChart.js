@@ -1,10 +1,11 @@
-import React, { useMemo, useState } from "react";
+import React, { useId, useMemo, useState } from "react";
 import { View, Text, StyleSheet } from "react-native";
-import Svg, { Path, Circle, Line, Text as SvgText, Defs, LinearGradient, Stop } from "react-native-svg";
+import Svg, { Path, Line, Text as SvgText, Defs, LinearGradient, Stop } from "react-native-svg";
 import { useTheme } from "../context/ThemeContext";
 import { useLanguage } from "../context/LanguageContext";
 import { space, type } from "../theme";
 import { evenDateSlots, evenYearSlots, weekdayAbbreviation } from "../utils/dates";
+import GrowthChartSeries from "./ui/GrowthChartSeries";
 import {
     WHO_MAX_DAY,
     ageInDays,
@@ -52,7 +53,11 @@ export default function PercentileChart({
     // only the family's recorded measurements.
     showReference = false,
     seriesColor,
+    seriesTheme,
+    // Tinted Growth cards need readable guides without changing shared defaults.
+    gridColor,
     areaFill = false,
+    animateLine = false,
     dateWindow = null,
     datePreset = null,
     yearRange = null,
@@ -63,7 +68,10 @@ export default function PercentileChart({
     const { colors } = useTheme();
     const { language, t } = useLanguage();
     const styles = useMemo(() => makeStyles(colors), [colors]);
-    const lineColor = seriesColor || colors.primary;
+    const lineColor = seriesTheme?.line || seriesColor || colors.primary;
+    const latestColor = seriesTheme?.accent || lineColor;
+    const pointFill = seriesTheme?.pointFill || colors.surface;
+    const gradientId = `growth-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
     const chartFontFamily = areaFill ? type.caption.fontFamily : undefined;
     const [width, setWidth] = useState(0);
     const selectedDayCount = useMemo(() => {
@@ -256,12 +264,19 @@ export default function PercentileChart({
             y: geo.yFor(p.value),
         }));
         const line = coords.map((c, i) => `${i ? "L" : "M"} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(" ");
+        let length = 0;
+        const vertices = coords.map((c, index) => {
+            const x = Number(c.x.toFixed(1)), y = Number(c.y.toFixed(1));
+            if (index) length += Math.hypot(x - Number(coords[index - 1].x.toFixed(1)), y - Number(coords[index - 1].y.toFixed(1)));
+            c.distance = length;
+            return { x, y, distance: length };
+        });
         const baseline = padTop + plotH;
         const area = `${line} L ${coords[coords.length - 1].x.toFixed(1)} ${baseline} L ${coords[0].x.toFixed(1)} ${baseline} Z`;
         const maxDots = compact ? 12 : 24;
         const step = Math.max(1, Math.ceil((coords.length - 1) / Math.max(1, maxDots - 1)));
         const dots = coords.filter((_, index) => index === 0 || index === coords.length - 1 || index % step === 0);
-        return { line, area, coords: dots, latest: coords[coords.length - 1] };
+        return { line, area, coords: dots, latest: coords[coords.length - 1], length, vertices };
     }, [chartPoints, compact, geo, multiYearMode, padTop, plotH]);
 
     const xTicks = useMemo(() => {
@@ -334,7 +349,8 @@ export default function PercentileChart({
         return out;
     }, [areaFill, shortRange, geo, chartPoints, yearRange, datePreset, domain, dateWindow, plotDateWindow, dateOfBirth, language, plotW, t]);
 
-    const latestHighlight = areaFill && childPath?.latest ? childPath.latest : null;
+    const revealKey = animateLine ? JSON.stringify([indicator, dateOfBirth, dateWindow, datePreset, yearRange,
+        chartPoints.map(point => [point.id, point.date, point.value])]) : "";
 
     if (!dateOfBirth) {
         return <Text style={[styles.note, areaFill && styles.parentChartText]}>{t(showReference ? "growthMissingDobReference" : "growthMissingDobPlot")}</Text>;
@@ -353,9 +369,9 @@ export default function PercentileChart({
                     <Svg width={width} height={chartHeight}>
                         {areaFill ? (
                             <Defs>
-                                <LinearGradient id={`growth-${indicator}`} x1="0" y1="0" x2="0" y2="1">
-                                    <Stop offset="0" stopColor={lineColor} stopOpacity={0.22} />
-                                    <Stop offset="1" stopColor={lineColor} stopOpacity={0.02} />
+                                <LinearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                                    <Stop offset="0" stopColor={lineColor} stopOpacity={seriesTheme ? 0.18 : 0.22} />
+                                    <Stop offset="1" stopColor={lineColor} stopOpacity={seriesTheme ? 0.01 : 0.02} />
                                 </LinearGradient>
                             </Defs>
                         ) : null}
@@ -411,7 +427,7 @@ export default function PercentileChart({
                                     y1={geo.yFor(v)}
                                     x2={gutter + plotW}
                                     y2={geo.yFor(v)}
-                                    stroke={colors.hairline}
+                                    stroke={gridColor || colors.hairline}
                                     strokeWidth={1}
                                     strokeDasharray={areaFill ? "4 4" : undefined}
                                     strokeLinecap={areaFill ? "round" : undefined}
@@ -457,48 +473,10 @@ export default function PercentileChart({
                             : null}
 
                         {/* The child */}
-                        {areaFill && childPath && chartPoints.length > 1 ? (
-                            <Path d={childPath.area} fill={`url(#growth-${indicator})`} />
-                        ) : null}
-                        {childPath && chartPoints.length > 1 ? (
-                            <Path
-                                d={childPath.line}
-                                stroke={lineColor}
-                                strokeWidth={2.5}
-                                strokeLinecap="round"
-                                strokeLinejoin={areaFill ? "miter" : "round"}
-                                fill="none"
-                            />
-                        ) : null}
-                        {childPath
-                            ? childPath.coords.map((c, i) => {
-                                  const selected = latestHighlight === c;
-                                  return (
-                                      <React.Fragment key={c.point?.id || `${c.point?.date}-${i}`}>
-                                          {selected ? (
-                                              <Circle
-                                                  cx={c.x}
-                                                  cy={c.y}
-                                                  r={7}
-                                                  fill={colors.surface}
-                                                  stroke={lineColor}
-                                                  strokeWidth={2}
-                                              />
-                                          ) : null}
-                                          <Circle
-                                              cx={c.x}
-                                              cy={c.y}
-                                              r={selected ? 3.5 : areaFill ? 2.5 : compact ? 2.75 : 3.5}
-                                              fill={colors.surface}
-                                              fillOpacity={1}
-                                              stroke={lineColor}
-                                              strokeWidth={areaFill ? 1.25 : 2}
-                                              strokeOpacity={selected || !areaFill ? 1 : 0.62}
-                                          />
-                                      </React.Fragment>
-                                  );
-                              })
-                            : null}
+                        {childPath ? <GrowthChartSeries path={childPath} animate={animateLine}
+                            dataKey={revealKey} width={width} height={chartHeight} gradientId={gradientId}
+                            areaFill={areaFill} compact={compact} lineColor={lineColor}
+                            latestColor={latestColor} pointFill={pointFill} seriesTheme={seriesTheme} /> : null}
 
                         {/* X scale — drawn in both sizes now. */}
                         {xTicks.map((t, i) => {

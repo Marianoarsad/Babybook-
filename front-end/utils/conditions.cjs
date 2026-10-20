@@ -37,6 +37,23 @@ function mergeConditions(records = [], allergies = [], hereditary = []) {
     return [...detailed, ...legacy];
 }
 
+function conditionsSummary(records = [], allergies = [], hereditary = []) {
+    const merged = mergeConditions(records, allergies, hereditary);
+    return { records: merged, counts: {
+        all: merged.length,
+        Illness: merged.filter(record => record.category === "Illness").length,
+        Allergy: merged.filter(record => record.category === "Allergy").length,
+        "Hereditary Condition": merged.filter(record => record.category === "Hereditary Condition").length,
+    } };
+}
+
+function conditionSavedStatus(record) {
+    if (record.legacy || typeof record.resolved !== "boolean") return "Not recorded";
+    if (record.category === "Hereditary Condition") return "Recorded";
+    if (record.category === "Allergy") return record.resolved ? "No longer active" : "Active";
+    return record.resolved ? "Better" : "Ongoing";
+}
+
 function conditionSummaries(records = [], allergies = [], hereditary = []) {
     const merged = mergeConditions(records, allergies, hereditary);
     return {
@@ -47,6 +64,8 @@ function conditionSummaries(records = [], allergies = [], hereditary = []) {
 
 module.exports = {
     CONDITION_CATEGORIES,
+    conditionsSummary,
+    conditionSavedStatus,
     conditionAttachmentType,
     conditionKey,
     conditionSummaries,

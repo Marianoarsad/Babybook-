@@ -33,7 +33,7 @@ function DetailRow({ label, value, color, styles }) {
     );
 }
 
-export default function PlanDetail({ visible, plan, onClose, onEdit, onDelete, onViewAttachment, deleting = false }) {
+export default function PlanDetail({ visible, plan, onClose, onEdit, onDelete, onViewAttachment, deleteAccessibilityLabel, deleting = false, heroContent, children }) {
     const { colors } = useTheme();
     const insets = useSafeAreaInsets();
     const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -56,7 +56,7 @@ export default function PlanDetail({ visible, plan, onClose, onEdit, onDelete, o
                         accessibilityLabel="Back"
                     >
                         <Ionicons name="chevron-back" size={22} color={colors.text} />
-                        <Text style={styles.headerPillText}>{shortDate(plan.date) || "Back"}</Text>
+                        <Text style={styles.headerPillText}>{plan.showDate === false ? "Back" : shortDate(plan.date) || "Back"}</Text>
                     </TouchableOpacity>
                     {onEdit ? (
                         <TouchableOpacity
@@ -74,13 +74,17 @@ export default function PlanDetail({ visible, plan, onClose, onEdit, onDelete, o
                     contentContainerStyle={[styles.content, { paddingBottom: space.xl + insets.bottom }]}
                     showsVerticalScrollIndicator={false}
                 >
-                    <View>
-                        <Text style={styles.title} selectable>{plan.title || "Untitled plan"}</Text>
-                        <Text style={styles.date} selectable>{longDate(plan.date)}</Text>
-                        {plan.showTime === false ? null : (
-                            <Text style={styles.time} selectable>{plan.time ? shortTime(plan.time) : "All-day"}</Text>
-                        )}
-                    </View>
+                    {plan.showTitle === false && plan.showDate === false && plan.showTime === false ? null : (
+                        <View>
+                            {plan.showTitle === false ? null : <Text style={styles.title} selectable>{plan.title || "Untitled plan"}</Text>}
+                            {plan.showDate === false ? null : <Text style={styles.date} selectable>{longDate(plan.date)}</Text>}
+                            {plan.showTime === false ? null : (
+                                <Text style={styles.time} selectable>{plan.time ? shortTime(plan.time) : "All-day"}</Text>
+                            )}
+                        </View>
+                    )}
+
+                    {heroContent}
 
                     <View style={styles.rows}>
                         <DetailRow label="Type" value={plan.categoryLabel} color={plan.color} styles={styles} />
@@ -92,6 +96,8 @@ export default function PlanDetail({ visible, plan, onClose, onEdit, onDelete, o
                             <DetailRow label="Alert" value={plan.reminderLabel || "None"} styles={styles} />
                         )}
                     </View>
+
+                    {children}
 
                     {onViewAttachment ? (
                         <TouchableOpacity
@@ -106,12 +112,14 @@ export default function PlanDetail({ visible, plan, onClose, onEdit, onDelete, o
                         </TouchableOpacity>
                     ) : null}
 
-                    <View style={styles.notesCard}>
-                        <Text style={styles.notesLabel}>Notes</Text>
-                        <Text style={plan.notes ? styles.notes : styles.notesEmpty} selectable>
-                            {plan.notes || "No notes added."}
-                        </Text>
-                    </View>
+                    {plan.showNotes === false ? null : (
+                        <View style={styles.notesCard}>
+                            <Text style={styles.notesLabel}>Notes</Text>
+                            <Text style={plan.notes ? styles.notes : styles.notesEmpty} selectable>
+                                {plan.notes || "No notes added."}
+                            </Text>
+                        </View>
+                    )}
 
                     {onDelete ? (
                         <TouchableOpacity
@@ -119,7 +127,7 @@ export default function PlanDetail({ visible, plan, onClose, onEdit, onDelete, o
                             style={styles.deleteButton}
                             disabled={deleting}
                             accessibilityRole="button"
-                            accessibilityLabel={`Delete ${plan.title}`}
+                            accessibilityLabel={deleteAccessibilityLabel || `Delete ${plan.title}`}
                             accessibilityState={{ disabled: deleting, busy: deleting }}
                         >
                             {(<Text style={styles.deleteText}>{plan.deleteLabel || "Delete plan"}</Text>)}

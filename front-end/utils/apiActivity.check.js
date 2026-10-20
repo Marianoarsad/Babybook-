@@ -265,7 +265,10 @@ async function check() {
     assert(!overlay.includes("<Text"), "No visible loading copy");
     assert(overlay.includes("loop.stop()") && overlay.includes("if (reduceMotion) return"));
     const app = fs.readFileSync(path.join(root, "App.js"), "utf8");
-    assert(app.includes('unseenAccessLog(activeProfile.id, { background: true })'));
+    const inbox = fs.readFileSync(path.join(root, "utils/useNotificationInbox.js"), "utf8");
+    assert(app.includes('useNotificationInbox(professionalMode ? null : activeProfile?.id, setUnseenCount)'));
+    assert(inbox.includes('const opts = { background: true, sessionEpoch: epoch }'));
+    assert(inbox.includes('api.unseenAccessLog(childId, opts)'));
     assert(app.includes('listRecords(childId, "reminders", { background: true })'));
     assert(app.includes('listRecords(p.id, "vaccinations", { background: true })'));
     const toast = fs.readFileSync(path.join(root, "components/ui/Toast.js"), "utf8");

@@ -2,30 +2,22 @@
 name: BabyBook+
 description: A parent-held child health record that stays tender for the family and credible for the clinician.
 colors:
-  rose-pink: "#EC4F96"
-  rose-pink-deep: "#D43D82"
-  rose-pink-light: "#FF7EB3"
-  rose-bg: "#FFF2F8"
-  rose-surface-alt: "#FFF7FB"
-  rose-border: "#F7DBE9"
-  rose-border-strong: "#F0C4DB"
-  rose-hairline: "#FBE9F1"
-  azure-blue: "#2F7BF6"
-  azure-blue-deep: "#1F66DB"
-  azure-blue-light: "#5B9DFF"
-  azure-bg: "#EEF4FF"
-  azure-surface-alt: "#F5F9FF"
-  azure-border: "#D9E4F6"
-  azure-border-strong: "#C2D5F0"
-  azure-hairline: "#EAF1FB"
-  periwinkle-indigo: "#5B6CFF"
-  periwinkle-indigo-deep: "#4A5AE8"
-  periwinkle-violet: "#8A6BFF"
-  periwinkle-bg: "#F4F6FF"
-  periwinkle-surface-alt: "#FAFBFF"
-  periwinkle-border: "#E7E9F5"
-  periwinkle-border-strong: "#D5D8EE"
-  periwinkle-hairline: "#F0F2FB"
+  rose-pink: "#C43D6E"
+  rose-pink-deep: "#9E2D57"
+  rose-pink-light: "#DD6E97"
+  rose-bg: "#F2F5F7"
+  rose-surface-alt: "#E8EDF0"
+  rose-border: "#CBD5DA"
+  rose-border-strong: "#AFBCC3"
+  rose-hairline: "#DCE3E7"
+  azure-blue: "#1768B3"
+  azure-blue-deep: "#0F4F8C"
+  azure-blue-light: "#4A93D6"
+  azure-bg: "#F2F5F7"
+  azure-surface-alt: "#E8EDF0"
+  azure-border: "#CBD5DA"
+  azure-border-strong: "#AFBCC3"
+  azure-hairline: "#DCE3E7"
   navy-ink: "#1B1F3B"
   navy-ink-secondary: "#3A4066"
   navy-ink-muted: "#5B618A"
@@ -169,12 +161,12 @@ components:
 
 Two people look at these screens and need opposite things from them. A parent, at home on a Tuesday night, is adding a feed or a photo to something that will outlive the app — they need warmth, ease, and the sense that they are tending to something precious. A clinician, handed a phone across a consultation table with ninety seconds to spare, needs to believe what they are reading. The system refuses to choose between them. Every surface is soft enough to be a keepsake and exact enough to be a record.
 
-That tension resolves through a strict division of labor. Color is expressive and changes constantly — the entire interface re-tints to the selected child, rose for a girl, azure for a boy, periwinkle before a child is chosen. Everything structural refuses to move: the ink stays the same deep navy in all three palettes, the shadows are always colorless, the status vocabulary (green, coral, amber, teal) is identical everywhere, and the eight module tints never shift a degree of hue. A parent switching between two children sees the app change clothes, not change shape. That constancy is what makes the record legible to a stranger who has never opened it before.
+That tension resolves through a strict division of labor. Color is expressive and changes constantly — the entire interface re-tints to the selected child, rose for a girl, azure for a boy, official BabyBook+ blue before a child is chosen. Everything structural refuses to move: the ink stays the same deep navy in all theme modes, the shadows are always colorless, the status vocabulary (green, coral, amber, teal) is identical everywhere, and the eight module tints never shift a degree of hue. A parent switching between two children sees the app change clothes, not change shape. That constancy is what makes the record legible to a stranger who has never opened it before.
 
 The register is **warm but precise**. Generous corner radii and pastel grounds do the warming; a heavy weight ladder, a disciplined four-point spacing grid, and unambiguous semantic color do the work. The explicit anti-reference is the cutesy baby app that trades legibility for decoration — pastel mush, script faces, sticker clutter, illustration where data belongs. Softness here is a surface treatment, never a substitute for structure. Nothing in this system should ever make a clinician squint, and nothing should ever make a parent feel they are reading a hospital chart about their own child.
 
 **Key Characteristics:**
-- Three runtime palettes over one unchanging chassis; the child selects the hue
+- Official Boy blue branding and a Girl pink theme over one unchanging chassis; automatic mode follows the child
 - Deep navy ink and colorless shadows anchor every palette identically
 - Squircle geometry throughout (`borderCurve: "continuous"`), never plain circular rounding
 - Hierarchy carried by font weight (800/700/500) more than by size
@@ -183,21 +175,21 @@ The register is **warm but precise**. Generous corner radii and pastel grounds d
 
 ## Colors
 
-A tri-palette system: one of three brand hues rides on top of a fixed neutral, tint, and status foundation that is byte-identical across all three.
+Boy blue is the official BabyBook+ palette. Girl pink remains available through automatic gender switching or a manual preference. The `neutral` theme key shares the Boy palette in light and dark mode; it no longer defines a separate purple brand hue. Runtime tokens in `front-end/theme.js` are the source of truth.
 
 ### Primary
 
-The primary is whichever of these three is active. They are peers, not a primary plus variants — no screen is ever designed against just one.
+The active brand ramp drives buttons, navigation, links, section accents, charts, and the FAB. Components read it from `useTheme()` rather than defining their own colors.
 
-- **Vivid Rose Pink** (`#EC4F96`): The girl palette's primary. Drives buttons, active navigation, links, section accents, and the FAB whenever the selected child is female.
-- **Clear Azure Blue** (`#2F7BF6`): The boy palette's primary, occupying every role Vivid Rose Pink does. Deliberately equal in saturation and weight so no layout shifts perceptually when the palette swaps.
-- **Soft Periwinkle Indigo** (`#5B6CFF`): The neutral palette's primary. Used before a child is selected — authentication, landing, registration — and throughout the healthcare professional's portal, where a child's gender should not color a clinical reading.
+- **Vivid Rose Pink** (`#C43D6E`): The girl palette's primary. Drives buttons, active navigation, links, section accents, and the FAB whenever the selected child is female.
+- **Official BabyBook+ Blue** (`#1768B3`): The existing Boy palette, also used for neutral/default branding before child selection and on auth and professional screens.
+The Girl ramp remains pink when selected automatically or manually; the official neutral blue does not follow the gender of a shared clinical record.
 
-Each carries a deepened variant for pressed and hover states (`#D43D82`, `#1F66DB`, `#4A5AE8`) and a lightened partner used as the second gradient stop (`#FF7EB3`, `#5B9DFF`, `#8A6BFF`).
+Light blue uses `primaryDark #0F4F8C`, `accent #4A93D6`, `primarySoft #E4EEF8`, and page gradient `#CCDEEE → #E8F0F7 → #F2F5F7`. Dark blue uses `primary #4B9FE0`, `primaryDark #B8DCF5`, `accent #7CBBED`, `primarySoft #1A2833`, and page gradient `#1F3346 → #18232E → #12151A`. Girl light mode retains `primaryDark #9E2D57` and `accent #DD6E97`.
 
 ### Neutral
 
-The ink ramp is shared by all three palettes and never re-tints.
+The ink ramp is shared by all theme modes and never re-tints.
 
 - **Deep Navy Ink** (`#1B1F3B`): All primary text, headings, and titles. A desaturated blue-black rather than true black, which keeps long lists from feeling harsh.
 - **Navy Ink Secondary** (`#3A4066`): Field labels, note text, and supporting copy inside list rows.
@@ -205,11 +197,11 @@ The ink ramp is shared by all three palettes and never re-tints.
 - **Placeholder Gray** (`#9AA0B4`): Input placeholders only. Deliberately lighter than muted ink so an empty field is never mistaken for a filled one.
 - **Surface White** (`#FFFFFF`): Every card and elevated surface, plus text and icons sitting on a filled brand button.
 
-Each palette contributes its own tinted grounds and borders — a page background, a subtler alternate surface, and three border weights (`hairline` for cards, `border` for inputs and chips, `borderStrong` for dashed empty states). These are the only structural values that re-tint.
+Brand ramps supply their own soft tints and page gradients. Surface and border tokens are shared within each color scheme.
 
 ### Secondary
 
-Eight fixed module tints, identical in all three palettes. They exist to color-code categories — the 40×40 icon container on a list row, a module badge — so a record type is recognizable before its label is read.
+Eight fixed module tints, identical in all theme modes. They exist to color-code categories — the 40×40 icon container on a list row, a module badge — so a record type is recognizable before its label is read.
 
 - **Tint Green** (`#E4EFE7`) · **Tint Coral** (`#FFE7E1`) · **Tint Blue** (`#E3EEFB`) · **Tint Amber** (`#FFF1DE`) · **Tint Violet** (`#EDE7FA`) · **Tint Teal** (`#E2FBF3`) · **Tint Pink** (`#FFE3EE`) · **Tint Indigo** (`#E7ECFF`)
 
@@ -224,19 +216,19 @@ Status color, shared and fixed. This is the vocabulary a clinician reads fastest
 
 ### Named Rules
 
-**The Quiet Chassis Rule.** Only `primary`, `background`, `surfaceAlt`, and the three border weights change between palettes. Ink, tints, statuses, and shadows are frozen. If a new token needs to differ per palette, it belongs in the palette blocks; if it doesn't, it belongs in `SHARED` — and the default is `SHARED`.
+**The Quiet Chassis Rule.** Only the brand ramp, soft tints, page gradients, and theme-derived chart colors change between palettes. Ink, tints, statuses, and shadows are frozen. If a new token needs to differ per palette, it belongs in the palette blocks; if it doesn't, it belongs in `SHARED` — and the default is `SHARED`.
 
-**The Three Books Rule.** Every screen must be checked in rose, azure, *and* periwinkle before it ships. A composition that only reads well against one hue is not finished. Never hard-code a brand hex in a component; read it from `useTheme()`.
+**The Theme Coverage Rule.** Every screen must be checked in Girl pink and official Boy blue, including neutral/default mode, in light and dark schemes before it ships. A composition that only reads well against one hue is not finished. Never hard-code a brand hex in a component; read it from `useTheme()`.
 
 **The Status Is Not Decoration Rule.** Green, coral, amber, and teal carry meaning. Never reach for one because a card needed a color — a green chip that doesn't mean "complete" corrupts the only palette a clinician can scan without reading.
 
 ## Brand Mark
 
-The official BabyBook+ identity consists of two supplied-artwork variants. The compact mark places `BB+` above the shallow open book; the full lockup places stacked `Baby` / `Book+` above the same book. Small surfaces use the compact mark, while splash, Auth, and About use the full lockup so the name stays descriptive without becoming illegible in the launcher.
+The official BabyBook+ logo is the supplied glossy glass open book with the rounded plus at the upper right. Preserve its page geometry, three right-page bars, glass highlights, blue reflections, and proportions; do not redraw it or add lettering. The canonical 1254px source is `front-end/assets/logo-mark-source.png`.
 
-Both variants use indigo artwork on the shared `#F2F5F7` ground. `front-end/assets/logo-mark-source.png` and `logo-wordmark-source.png` are the canonical 500px images and must not be redrawn or re-typeset. Platform exports may change only resolution and required background transparency; their dedicated files remain separate rather than interchangeable crops.
+Launcher and favicon exports retain the original blue gradient. Splash and About use the background-extracted transparent mark; Android has separate safe-area foreground and monochrome exports. The splash is logo-only, centered at 200dp on solid `#287BFA` blue in light and dark mode, matching the `splashBackground` theme token and native configuration. About keeps its existing themed page; Auth keeps its existing illustrations without a logo.
 
-**The Small-Mark Rule.** At 24–48px the two `B` forms, plus, open-book silhouette, centre gutter, and right-page edge must remain distinct. Never force the full `Baby` / `Book+` wordmark into a launcher or favicon, pre-round the launcher square, or reuse a transparent splash export as the iOS launcher icon.
+**The Small-Mark Rule.** At 24–48px the open-book silhouette and plus must remain recognizable. Preserve the full silhouette inside the Android adaptive-icon safe area, keep the launcher opaque without pre-rounded corners, and retain separate platform exports.
 
 ## Typography
 
@@ -272,11 +264,11 @@ Components hard-code their own `fontSize` literals — 311 of them across 36 fil
 
 ## Layout
 
-Single-column and mobile-first throughout. A screen is a vertical `ScrollView` of stacked cards over the palette's tinted background, framed by a fixed header above and a bottom tab bar below.
+Single-column and mobile-first throughout. A screen is a vertical `ScrollView` of stacked cards over the palette's tinted background, beneath a fixed header and a floating bottom tab bar overlay.
 
 Spacing comes from a **four-point scale** — 4 / 8 / 12 / 16 / 24 / 32. Screen gutters and card-internal padding sit at 16px (section cards use 18px, the one deliberate half-step). Cards separate from one another by 16px; rows inside a card separate by 8px. Vertical rhythm inside a card runs 16px below the header, then 8px between entries.
 
-The header is a 42px-tall row of icon buttons flanking the child's name, on the page background rather than a distinct bar — it reads as part of the page, not a chrome band. The bottom tab bar sits on white with a hairline top border, five equal-flex destinations, each a 56×32 pill above an 11px label. The FAB floats 92px from the bottom and 16px from the right, clearing the tab bar.
+The header is a 42px-tall row of icon buttons flanking the child's name, on the page background rather than a distinct bar — it reads as part of the page, not a chrome band. The bottom tab bar overlays the full-height page as one translucent, blurred capsule with five equal-flex destinations. The FAB keeps its 16px right inset and floats 12px above the actual measured tab-bar height, including safe-area and text-size changes.
 
 Content is dense by design. List rows are compact (12px padding, 40px icon, two-to-three text lines) because a parent scrolling a year of vaccinations should see many at once. Long lists cap at 10 entries with a "Show more" control rather than paginating.
 
@@ -300,7 +292,7 @@ The system is **layered and lifted**. Surfaces genuinely float, and the height o
 
 **The Lift Ladder Rule.** The five shadow steps map to five levels of importance, in order: card → soft → raised → accent → green. A surface's shadow states its rank. Two surfaces at the same rank take the same step; never pick a shadow because it "looked better."
 
-**The Colorless Shadow Rule.** Every shadow is Deep Navy Ink at low alpha (`rgba(27,31,59,…)`), never brand-tinted, in every palette. Depth is structural and color is expressive, and they never trade jobs. A pink shadow under a pink button is the single fastest way to make this system look cheap.
+**The Colorless Shadow Rule.** Shared content shadows remain Deep Navy Ink at low alpha (`rgba(27,31,59,…)`) in every palette. The reference-driven glass navbar, glossy FAB and header glass buttons are the deliberate exceptions: their glass surfaces use restrained theme-colored shadows from `colors.navbar`, `colors.fab` and `colors.headerButton`. Depth is structural and color is expressive, and they never trade jobs. A pink shadow under a pink button is the single fastest way to make this system look cheap.
 
 ## Shapes
 
@@ -354,8 +346,8 @@ Buttons, cards, inputs, and chips are **tactile and confident**. Controls answer
 
 ### Navigation
 
-- **Bottom tab bar:** Floating, horizontally inset glass capsule with real backdrop blur where supported, a translucent theme-aware fallback, a fine light rim and the raised neutral shadow. Its five destinations remain equal width with matching 28px filled SVG icons and centered 13px labels; there is no enlarged center tab, active pill, top indicator or decorative dot. Selected icon/label use the active palette primary and a heavier label weight; inactive ones use muted neutral ink. Labels can use two lines at larger font settings. The selected icon makes a small lift/scale within 220ms and reduced motion disables it. Safe-area padding, measured FAB positioning and shared bottom clearance adapt to the bar's actual height.
-- **Header:** 44px icon buttons at either end — search and QR sharing, plus the caregiver's circular avatar on the right. Tapping the avatar opens Profile. The child's name remains the child switcher. Notification counts ride as a coral badge, 18px minimum, ringed 2px in white.
+- **Bottom tab bar:** Floating, horizontally inset frosted-glass capsule following the supplied glossy navbar reference. Five equal-width Home/Health/Growth/Nutrition/Calendar items retain matching 32px glossy PNG icons: azure for Boy/neutral, pink for Girl, and muted blue-gray when inactive. A single persistent glass tile slides behind the selected icon and label with a controlled spring, pale translucent gradients, broad fading upper reflections and soft ambient shading; it has no border or selection outline. Icons crossfade and scale subtly over 220ms, with a 1px lift, while centered 13px semibold Public Sans labels smoothly interpolate color without changing weight or position. Keyboard-only focus-visible styling remains separate from selection. Reduced motion applies the final state immediately. Measured row geometry handles resize and larger text; the 106px minimum overlay height grows with text and safe-area insets, the shell radius remains capped at 44px, and all icons share a top baseline. The absolute capsule has 12px side/bottom margins plus safe-area insets, a translucent themed gradient, delicate rim and soft colored shadow. Its ultra-thin BlurView material uses intensity 80 (16px web backdrop blur), without an opaque surface layer; content scrolls visibly beneath it while icons and labels remain sharp. The transparent outer padding passes interactions through; the glass itself intercepts them. FAB positioning and content clearance continue using actual measured height; other navigation and FAB styling are unchanged.
+- **Header:** Notifications/Search/QR/Profile retain 44px fixed touch targets containing matching 40px circular frosted-glass lenses and centered transparent glossy 3D foreground assets in 28px bell, 26px Search/Profile and 24px QR frames. Boy/neutral use azure gradients and Girl uses pink, matching the navbar/FAB; dark mode uses softly lit smoked glass with the same preloaded dimensional icon assets. Web lenses use an independent 16px backdrop blur with no added saturation and only 3–4% white tint. Native lenses use intensity 30 (Android reduction 2/default tint; iOS ultra-thin material). The inner 65% stays clear; a wide, fading annulus carries variable white/blue refraction. A tapered upper-left crescent with a softly feathered halo, secondary perimeter reflections and minimal lower shading define the convex dome. Material SVGs are positioned above the backdrop so their lighting remains visible, without circular edge strokes. The center remains clear enough for underlying colors to influence it; foreground icons and badges remain sharp. The existing page and scroll-fading header ground form one shared blur target, excluding foreground controls; safe-area placement and header measurements remain unchanged. Independent notification and QR badges remain hidden at zero and cap visually at 9+, using glossy red capsules with curved upper reflections, white counts and no solid ring. Press feedback scales the face to 0.95 and softens reflections; a controlled spring restores it. Web hover adds restrained brightness and a 1px lift, focus outlines are keyboard-only, and reduced motion uses static brightness feedback. Existing spacing, routes, counts and safe-area header geometry remain. Back keeps its styling. The header always uses a glossy user silhouette in the shared glass button to open Profile; saved photos remain on profile screens. A single 4px row gap evenly spaces all visible actions, including when Notifications is absent. The child name remains the child switcher.
 - **Search:** The dedicated mobile Search screen uses the global back/title header and a 56px outlined pill field. With no query it shows recent-search chips, a horizontally scrolling two-row category rail, and record-derived suggestion chips; an active query replaces discovery with one rounded result list. Search history is child-scoped, device-local, capped at six, and visibly erasable.
 - **Profile hub:** A vertically scrolling mobile settings screen with caregiver identity, contact details, baby-profile and member-since highlights, an informational plan card, and grouped Preferences / Account & Privacy / BabyBook+ & Support rows. Sign Out is a separate danger action.
 - **Calendar planner:** Calendar is monthly-only: one raised surface with a centered selected date, a three-month selector, Monday-first weekday row, and a full-width grid. The active month opens a 3×4 current/future month picker; the selected day uses the current child palette. Event categories retain their stable semantic colors as thin rounded bands, with multi-day medication courses visually connected. The legend stays beneath the calendar as six equal centered cells in a 3×2 grid, with each color band above its label. White section cards separate the selected day's plans, upcoming plans, and overdue vaccines/checkups. Selected-day rows end in a 44px synced checkbox while the rest of each row opens details; planner checks are intentionally independent of clinical completion. Calendar creation is a labelled `Add plan` text action, not a second floating `+`; the app-wide FAB keeps its normal action sheet.
@@ -364,14 +356,14 @@ Buttons, cards, inputs, and chips are **tactile and confident**. Controls answer
 
 ### Signature Component: The Log Sheet
 
-The floating action button and its action sheet are the system's most-used path. A 56px circular glass FAB with backdrop blur, translucent active-palette primary/accent fill, light rim and the `accent` shadow floats above the tab bar on the five primary screens. Tapping it opens a bottom sheet: 24px top corners, page-background fill, a centered 16px/800 title, then a scrollable list (capped at 420px) of nine white rows — each 48px tall, 14px radius, hairline-bordered, with a 20px primary-colored icon and a 14px/700 label — over a `rgba(28,25,23,0.45)` scrim. A full-width cancel row closes it.
+The floating action button and its action sheet are the system's most-used path. A reusable 56px glossy glass FAB uses a theme-aware radial lens (azure for Boy/default, pink for Girl), a fading luminous rim, curved upper-left reflections and a centered filled frosted-white plus with rounded ends and gentle dimensional shading. The surface has no border or persistent outline; its low-opacity themed ambient shadow is local to the component. Its fixed touch target contains the slightly compressing surface/shadow: press-in scales to 0.95 over 110ms, and release springs back without delaying the action. Reflections soften during a press. Reduced motion applies brightness feedback without animated scaling, and web keyboard focus remains separately visible. Existing backdrop blur, measured navbar clearance, screen visibility and action-sheet behavior are preserved. Tapping it opens a bottom sheet: 24px top corners, page-background fill, a centered 16px/800 title, then a scrollable list (capped at 420px) of nine white rows — each 48px tall, 14px radius, hairline-bordered, with a 20px primary-colored icon and a 14px/700 label — over a `rgba(28,25,23,0.45)` scrim. A full-width cancel row closes it.
 
 It is the one component that must never grow slower or more decorated. Every millisecond and every tap between the FAB and a saved record is friction on the app's most repeated action.
 
 ## Do's and Don'ts
 
 ### Do:
-- **Do** read every color from `useTheme()`'s `colors` object, and check new work in all three palettes before calling it done.
+- **Do** read every color from `useTheme()`'s `colors` object, and check new work in Girl, Boy, and neutral/default modes in both color schemes before calling it done.
 - **Do** set `borderCurve: "continuous"` on every element that has a `borderRadius`.
 - **Do** keep shadows colorless — `rgba(27,31,59,…)` — and pick the step by importance using the Lift Ladder.
 - **Do** use 16px as the floor for body text and every text input, and 13px as the absolute floor for any text at all.
@@ -384,9 +376,9 @@ It is the one component that must never grow slower or more decorated. Every mil
 
 ### Don't:
 - **Don't** hard-code a brand hex in a component. White is permitted only for text and icons sitting on a filled colored surface.
-- **Don't** tint a shadow with the brand color, in any palette, ever.
+- **Don't** tint shared content shadows with the brand color; keep soft colored-shadow exceptions local to the glass navbar and glossy FAB.
 - **Don't** use a status color decoratively. Green means complete, coral means overdue or destructive, amber means due soon, teal means informational or actively shared.
-- **Don't** design a layout that only reads correctly in one of the three palettes.
+- **Don't** design a layout that only reads correctly in one of the theme modes.
 - **Don't** introduce a custom typeface. The system face is what makes this feel native on both iOS and Android.
 - **Don't** invent a font size between two scale steps, or ship body text below 16px in new work.
 - **Don't** add a control that gives no visual feedback on press.

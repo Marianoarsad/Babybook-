@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { AccessibilityInfo, Animated, Keyboard, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { AccessibilityInfo, Animated, Easing, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import Modal from "./AppModal";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -7,7 +7,7 @@ import { useTheme } from "../../context/ThemeContext";
 import { useLanguage } from "../../context/LanguageContext";
 import { expandedSheetHeight, recordSheetHeight, useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
 import { useScroll } from "../../context/ScrollContext";
-import { MIN_TOUCH, radius, shadow, space, type } from "../../theme";
+import { MIN_TOUCH, motion, radius, shadow, space, type } from "../../theme";
 import { canDeleteRecord, deleteRecordAndClose, headerActionIcon } from "./recordFormActions.cjs";
 import KeyboardAvoider from "./KeyboardAvoider";
 import useBottomSheetMotion from "./useBottomSheetMotion";
@@ -90,6 +90,38 @@ export function DeleteConfirmation({ visible, inline = false, title, message, ca
     const { colors } = useTheme();
     const insets = useSafeAreaInsets();
     const confirmRef = useRef(null);
+    const warp = useRef(new Animated.Value(0)).current;
+    const [reduceMotion, setReduceMotion] = useState(null);
+    useEffect(() => {
+        if (!visible) return undefined;
+        let active = true;
+        AccessibilityInfo.isReduceMotionEnabled?.()
+            .then((enabled) => active && setReduceMotion(!!enabled))
+            .catch(() => active && setReduceMotion(false));
+        const subscription = AccessibilityInfo.addEventListener?.("reduceMotionChanged", setReduceMotion);
+        return () => { active = false; subscription?.remove?.(); };
+    }, [visible]);
+    useEffect(() => {
+        if (!visible) {
+            warp.setValue(0);
+            return undefined;
+        }
+        if (reduceMotion === null) return undefined;
+        warp.stopAnimation();
+        if (reduceMotion) {
+            warp.setValue(1);
+            return undefined;
+        }
+        warp.setValue(0);
+        const animation = Animated.timing(warp, {
+            toValue: 1,
+            duration: motion.entrance.duration,
+            easing: Easing.bezier(...motion.entrance.bezier),
+            useNativeDriver: Platform.OS !== "web",
+        });
+        animation.start();
+        return () => animation.stop();
+    }, [reduceMotion, visible, warp]);
     useEffect(() => {
         if (visible) {
             Keyboard.dismiss();
@@ -98,12 +130,23 @@ export function DeleteConfirmation({ visible, inline = false, title, message, ca
         }
     }, [visible, title, message]);
     if (!visible) return null;
+    const animated = reduceMotion === true ? undefined : {
+        opacity: warp,
+        transform: [
+            { translateY: warp.interpolate({ inputRange: [0, 1], outputRange: [72, 0] }) },
+            { scaleX: warp.interpolate({ inputRange: [0, 0.72, 1], outputRange: [0.72, 1.025, 1] }) },
+            { scaleY: warp.interpolate({ inputRange: [0, 0.72, 1], outputRange: [0.35, 1.035, 1] }) },
+        ],
+    };
     const content = <View style={[StyleSheet.absoluteFill, { justifyContent: "flex-end",
-        padding: space.lg, paddingBottom: Math.max(insets.bottom, space.lg), backgroundColor: colors.text + "66" }]}>
+        padding: space.lg, paddingBottom: Math.max(insets.bottom, space.lg) }]}>
+        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, {
+            backgroundColor: colors.text + "66", opacity: reduceMotion === true ? 1 : warp,
+        }]} />
         <Pressable style={StyleSheet.absoluteFill} onPress={() => !busy && onCancel()} accessibilityRole="button" accessibilityLabel={cancelLabel} />
-        <View accessibilityViewIsModal style={{ backgroundColor: colors.surface, borderRadius: radius.xl,
+        <Animated.View accessibilityViewIsModal style={[{ backgroundColor: colors.surface, borderRadius: radius.xl,
             borderCurve: "continuous", padding: space.xl, gap: space.md, width: "100%", maxWidth: 460,
-            alignSelf: "center", ...shadow.raised }}>
+            alignSelf: "center", ...shadow.raised }, animated]}>
             <Text accessibilityRole="header" style={{ ...type.heading, color: colors.text, textAlign: "center" }}>{title}</Text>
             <Text style={{ ...type.body, color: colors.textSecondary, textAlign: "center" }}>{message}</Text>
             {error ? <Text accessibilityRole="alert" style={{ ...type.caption, color: colors.danger }}>{error}</Text> : null}
@@ -117,9 +160,9 @@ export function DeleteConfirmation({ visible, inline = false, title, message, ca
                 style={{ minHeight: MIN_TOUCH, justifyContent: "center", alignItems: "center" }}>
                 <Text style={{ ...type.label, color: colors.textSecondary }}>{cancelLabel}</Text>
             </Pressable>
-        </View>
+        </Animated.View>
     </View>;
-    return inline ? content : <Modal visible transparent animationType="fade" onRequestClose={() => !busy && onCancel()}>{content}</Modal>;
+    return inline ? content : <Modal visible transparent animationType="none" onRequestClose={() => !busy && onCancel()}>{content}</Modal>;
 }
 
 export default function RecordFormSheet({ visible, title, children, onClose, onSubmit, cancelLabel = "Cancel",

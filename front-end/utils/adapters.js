@@ -38,6 +38,7 @@ export function childToProfile(c) {
         bloodType: c.blood_type || "",
         birthWeight: birthWeight ?? 3.0,
         birthHeight: birthHeight ?? 49.0,
+        birthHeadCircumference: num(c.birth_head_circumference),
         hospital: c.hospital || "",
         obgynName: formatDoctorName(c.obgyne_name),
         obgynContactNumber: digitsOnly(c.obgyne_contact_number),
@@ -51,6 +52,10 @@ export function childToProfile(c) {
             relationship: emergency.relationship || "",
             contactNumber: digitsOnly(emergency.contact_number),
         },
+        hasRecordedAvatar: Boolean(c.avatar_url),
+        hasRecordedSex: Boolean(c.sex),
+        hasRecordedBirthWeight: Number.isFinite(birthWeight) && birthWeight > 0,
+        hasRecordedBirthHeight: Number.isFinite(birthHeight) && birthHeight > 0,
         avatarUrl: c.avatar_url || (isGirl ? GIRL_AVATAR : BOY_AVATAR),
         allergies: Array.isArray(c.allergies) ? c.allergies : [],
         hereditaryConditions: Array.isArray(c.hereditary_conditions) ? c.hereditary_conditions : [],
@@ -77,6 +82,10 @@ export function profileFormToChild(form, { includeBirth = true } = {}) {
     if (includeBirth) {
         if (form.weight) body.birth_weight = num(form.weight);
         if (form.height) body.birth_length = num(form.height);
+    }
+    // Explicit birth field, never a current measurement. Blank clears it.
+    if (form.birthHeadCircumference !== undefined) {
+        body.birth_head_circumference = num(form.birthHeadCircumference);
     }
     if (form.bloodType) body.blood_type = form.bloodType;
     if (form.hospital) body.hospital = form.hospital;
@@ -116,7 +125,7 @@ export function nutritionToApp(n) {
         id: String(n.id),
         entryType: n.entry_type || "milk",
         milkType: n.milk_type || "",
-        feedMethod: n.feed_method || (quantity != null ? "bottle" : ""),
+        feedMethod: n.feed_method || (Number.isFinite(quantity) ? "bottle" : ""),
         formulaBrand: n.formula_brand || "",
         formulaScoops:
             n.formula_scoops != null && n.formula_scoops !== "" ? Number(n.formula_scoops) : null,
@@ -130,6 +139,7 @@ export function nutritionToApp(n) {
         // breast_side is deliberately not surfaced — the form doesn't collect
         // it and nothing renders it. See the column comment in schema.sql.
         foodIntroduced: n.food_introduced || "",
+        foodCategory: n.food_category || "",
         reactionSeverity: n.reaction_severity || "",
         reaction: n.reaction || "",
         date: n.entry_date ? String(n.entry_date).slice(0, 10) : "",
@@ -158,6 +168,7 @@ export function nutritionFormToRecord(form) {
                 ? Number(form.formulaScoops)
                 : null;
         body.food_introduced = null;
+        body.food_category = null;
         body.reaction_severity = null;
         body.reaction = null;
         if (method === "breast") {
@@ -186,9 +197,10 @@ export function nutritionFormToRecord(form) {
         }
     } else {
         body.food_introduced = form.foodIntroduced || null;
+        body.food_category = form.foodCategory || null;
         body.reaction_severity = form.reactionSeverity || null;
         // The description only means anything alongside an actual reaction.
-        body.reaction = form.reactionSeverity && form.reactionSeverity !== "none" ? form.reaction || null : null;
+        body.reaction = form.reactionSeverity !== "none" ? form.reaction || null : null;
         body.milk_type = null;
         body.feed_method = null;
         body.formula_brand = null;
@@ -287,6 +299,7 @@ export function milestoneToApp(m) {
         id: String(m.id),
         title: m.title,
         isCompleted: !!m.is_completed,
+        isFavorite: !!m.is_favorite,
         _pending: !!m._pending,
         date: m.date_recorded ? String(m.date_recorded).slice(0, 10) : "",
         ageAchieved: m.age_achieved || "",
@@ -306,6 +319,7 @@ export function medHistoryToIllness(r) {
     return {
         id: String(r.id),
         category: r.category || "Illness",
+        allergyType: r.allergy_type || "",
         attachmentType: conditionAttachmentType(r.category),
         title: r.title,
         date: r.date_recorded ? String(r.date_recorded).slice(0, 10) : "",
@@ -365,6 +379,7 @@ export function medicationDoseToApp(d) {
 export function memoryToApp(m) {
     return {
         id: String(m.id),
+        isFavorite: !!m.is_favorite,
         title: m.caption || "Memory",
         description: m.notes || "",
         date: m.date_recorded ? String(m.date_recorded).slice(0, 10) : "",
