@@ -1,0 +1,60 @@
+// Run: node utils/immunizationSummary.check.js. No backend or medical-record writes.
+const assert = require("node:assert/strict"), fs = require("node:fs"), path = require("node:path");
+const { transformSync } = require("@babel/core");
+const modules = new Map();
+function load(file) {
+    const filename = path.resolve(__dirname, file);
+    if (filename.endsWith(".cjs")) return require(filename);
+    if (modules.has(filename)) return modules.get(filename).exports;
+    const module = { exports: {} }; modules.set(filename, module);
+    const code = transformSync(fs.readFileSync(filename, "utf8"), { babelrc: false, configFile: false, plugins: ["@babel/plugin-transform-modules-commonjs"] }).code;
+    new Function("require", "module", "exports", code)(name => load(path.resolve(path.dirname(filename), name + (path.extname(name) ? "" : ".js"))), module, module.exports);
+    return module.exports;
+}
+const api = load("immunizationSummary.js"), { vaccinationToApp } = load("adapters.js");
+const { immunizationSummary: summarize, selectImmunizations: select, vaccinationInfo: info } = api;
+const today = "2026-10-15";
+const record = (id, dueDate, completed = false, extra = {}) => ({ id: String(id), vaccineName: "Saved vaccine", visitName: "6 Weeks", dueDate, isCompleted: completed, ...extra });
+const rows = [record(1, "2026-10-14"), record(2, today), record(3, "2026-11-14"), record(4, "2026-11-15"), record(5, ""), record(6, "2026-02-30"), record(7, "2026-10-01", true)];
+const before = JSON.stringify(rows);
+assert.equal(api.DUE_SOON_DAYS, 30); assert.equal(api.IMMUNIZATION_BATCH_SIZE, 10);
+assert.deepEqual(summarize([], today).counts, { all: 0, completed: 0, dueSoon: 0, overdue: 0 });
+const summary = summarize(rows, today);
+assert.deepEqual(summary.counts, { all: 7, completed: 1, dueSoon: 2, overdue: 1 });
+assert.equal(JSON.stringify(rows), before);
+for (const [filter, ids] of [["completed", ["7"]], ["dueSoon", ["2", "3"]], ["overdue", ["1"]]]) assert.deepEqual(select(summary.records, filter).groups.flatMap(([, r]) => r.map(v => v.id)), ids);
+assert.equal(info(rows[6], today).dateLabel, "Administration date not recorded");
+assert.equal(info(record(8, "2026-09-01", true, { completedDate: "2026-09-02" }), today).dateLabel, "Given 02 Sep 2026");
+assert.equal(info(record(8, "2026-09-01"), today).status, "overdue", "A past date never implies administration");
+assert.equal(info(record(8, ""), today).dateLabel, "Due date not recorded");
+assert.equal(summarize([...rows, rows[0]], today).counts.all, rows.length, "One ID is counted once");
+assert.equal(summarize([record(1, today), record(2, today)], today).counts.all, 2, "Same vaccine name is not a duplicate dose");
+const raw = { id: 5, vaccine_name: "BCG", status: "scheduled", date_given: "2026-01-01", due_date: "2026-01-01" };
+assert.equal(info(vaccinationToApp(raw), today).status, "overdue", "Only saved completed status authorizes completion");
+assert.equal(info(vaccinationToApp({ ...raw, status: "completed" }), today).status, "completed");
+const many = Array.from({ length: 27 }, (_, i) => record(i, i < 12 ? today : "2026-10-01", false, { vaccineName: i % 2 ? "BCG" : "PCV", visitName: i < 12 ? "At Birth" : "Birth Dose", notes: i === 0 ? "saved searchable note" : "", doseNumber: 2 }));
+let list = summarize(many, today).records;
+assert.equal(select(list).remaining, 17); assert.equal(select(list, "all", "", 20).remaining, 7); assert.equal(select(list, "all", "", 30).remaining, 0);
+assert.equal(select(list, "dueSoon").remaining, 2); assert.equal(select(list, "overdue").remaining, 5);
+assert.equal(select(list, "dueSoon", "BCG").total, 6); assert.equal(select(list, "overdue", "BCG").total, 7);
+assert.equal(select(list, "dueSoon", "saved searchable note").total, 1); assert.equal(select(list, "all", "dose 2").total, 27);
+assert.deepEqual(select(list, "dueSoon").groups.map(([name]) => name), ["At Birth"]);
+assert.equal(select(list, "overdue", "no match").emptyMessage, "No vaccines match your search.");
+for (const key of Object.keys(api.IMMUNIZATION_EMPTY)) assert.equal(select([], key).emptyMessage, api.IMMUNIZATION_EMPTY[key]);
+const store = require("./recordStore.cjs"); store.reset();
+const read = () => summarize(store.getConfirmed("test-child", "vaccinations").map(vaccinationToApp), today);
+store.confirm("test-child", "vaccinations", raw, raw.id); assert.equal(read().counts.overdue, 1);
+store.confirm("test-child", "vaccinations", { ...raw, status: "completed" }, raw.id); assert.equal(read().counts.completed, 1); assert.equal(read().counts.overdue, 0);
+store.confirm("test-child", "vaccinations", null, raw.id, true); assert.equal(read().counts.all, 0);
+assert.equal(store.getConfirmed("other-child", "vaccinations").length, 0); store.reset();
+const originalTZ = process.env.TZ;
+for (const tz of ["Asia/Manila", "America/New_York", "UTC"]) {
+    process.env.TZ = tz;
+    assert.equal(info(record(1, "2026-11-02"), "2026-10-03").status, "dueSoon", "DST does not shorten the calendar window");
+    assert.equal(info(record(1, "2024-03-01"), "2024-01-31").status, "dueSoon");
+    assert.equal(info(record(1, "2026-11-15"), "2026-10-15").status, "scheduled");
+    assert.equal(info(record(1, "2026-10-15"), "2026-10-16").status, "overdue", "New local day reclassifies a pending dose");
+}
+if (originalTZ === undefined) delete process.env.TZ; else process.env.TZ = originalTZ;
+console.log("Immunization selector checks passed: saved statuses, 30-day boundaries, local dates, counts, distinct doses, search, grouping, pagination and confirmed record changes.");
+module.exports = { load };

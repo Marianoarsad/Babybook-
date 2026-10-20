@@ -1,3 +1,4 @@
+import { recordItemStyle, recordListLayout } from "../theme";
 import React, { useState, useMemo } from "react";
 import {
     View,
@@ -106,7 +107,7 @@ export default function Services() {
             <SectionContainerCard
                 title="NCR Barangay Bulletin Board"
                 subtitle="Latest municipal bulletins for guardians"
-            >
+             style={recordListLayout.section} headerStyle={recordListLayout.header}><View style={recordListLayout.content}>
                 {initialUpdates.map((item, idx) => (
                     <View key={item.id || idx} style={styles.bulletinRow}>
                         <View style={styles.bulletinHeader}>
@@ -127,19 +128,19 @@ export default function Services() {
                                     {item.category}
                                 </Text>
                             </View>
-                            <Text style={styles.bulletinDate}>{item.date}</Text>
                         </View>
                         <Text style={styles.bulletinTitle} numberOfLines={2}>{item.title}</Text>
                         <Text style={styles.bulletinBody} numberOfLines={4}>{item.content}</Text>
+                        <Text style={styles.bulletinDate}>{item.date}</Text>
                     </View>
                 ))}
-            </SectionContainerCard>
+            </View></SectionContainerCard>
 
             {/* Nearby health clinics */}
             <SectionContainerCard
                 title={t("servicesClinicsTitle")}
                 subtitle={t("servicesClinicsSub")}
-            >
+             style={recordListLayout.section} headerStyle={recordListLayout.header}><View style={recordListLayout.content}>
                 {initialClinics.map((clinic, idx) => (
                     <View key={clinic.id || idx} style={styles.clinicRow}>
                         <Image
@@ -164,7 +165,7 @@ export default function Services() {
                         </View>
                     </View>
                 ))}
-            </SectionContainerCard>
+            </View></SectionContainerCard>
         </Animated.ScrollView>
     );
 }
@@ -230,12 +231,11 @@ const makeStyles = (colors) => StyleSheet.create({
         fontWeight: "700",
         textTransform: "uppercase",
     },
-    bulletinRow: {
-        borderBottomWidth: 1,
+    bulletinRow: { ...recordItemStyle(colors),
+
         borderBottomColor: colors.surfaceAlt,
         paddingBottom: 12,
-        marginBottom: 12,
-    },
+         borderRadius: 24, borderWidth: 0, marginBottom: 12, overflow: "visible", paddingHorizontal: 12, borderBottomWidth: 0},
     bulletinHeader: {
         flexDirection: "row",
         alignItems: "center",
@@ -263,6 +263,7 @@ const makeStyles = (colors) => StyleSheet.create({
         ...type.caption,
         color: colors.textMuted,
         fontWeight: "600",
+        marginTop: space.xs,
     },
     bulletinTitle: {
         ...type.caption,
@@ -275,14 +276,13 @@ const makeStyles = (colors) => StyleSheet.create({
         color: colors.textSecondary,
         lineHeight: 18,
     },
-    clinicRow: {
+    clinicRow: { ...recordItemStyle(colors),
         flexDirection: "row",
         alignItems: "center",
-        marginBottom: 12,
-        borderBottomWidth: 1,
+
+
         borderBottomColor: colors.surfaceAlt,
-        paddingBottom: 12,
-    },
+        paddingBottom: 12, borderRadius: 24, borderWidth: 0, marginBottom: 12, overflow: "visible", paddingHorizontal: 12, borderBottomWidth: 0},
     clinicImg: {
         width: 60,
         height: 60,

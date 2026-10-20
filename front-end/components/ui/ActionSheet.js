@@ -1,17 +1,28 @@
+import { IllnessIcon } from "./RecordIcon";
+import HospitalStayIcon from "./HospitalStayIcon";
+import SolidFoodIcon from "./SolidFoodIcon";
+import MilkIcon from "./MilkIcon";
+import VaccineIcon from "./VaccineIcon";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+    Animated,
     View,
     Text,
     StyleSheet,
-    Modal,
     ScrollView,
     TouchableOpacity,
     useWindowDimensions,
 } from "react-native";
+import Modal from "./AppModal";
+import MedicationIcon from "./MedicationIcon";
+import GrowthIcon from "./GrowthIcon";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { expandedSheetHeight, recordSheetHeight } from "../../utils/responsive";
 import { radius, space, shadow, type, MIN_TOUCH } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
 import { storage } from "../../utils/storageAdapter";
+import useBottomSheetMotion from "./useBottomSheetMotion";
 
 // The "+" button's sheet. Lifted out of App.js, which was already very large
 // and does not need this component's own storage-backed state.
@@ -29,14 +40,14 @@ import { storage } from "../../utils/storageAdapter";
 // tabs, an alias switches AND opens a form. Every entry here is an alias,
 // because every entry here is meant to open something.
 const ACTIONS = {
-    milk: { label: "Milk", icon: "water-outline", tint: "recNutrition", view: "nutrition", tab: "milk" },
+    milk: { label: "Milk", tint: "recNutrition", view: "nutrition", tab: "milk" },
     food: { label: "Food", icon: "restaurant-outline", tint: "recNutrition", view: "nutrition", tab: "solid" },
-    growth: { label: "Growth", icon: "resize-outline", tint: "recGrowth", view: "growth", tab: "metrics" },
-    vaccine: { label: "Vaccine", icon: "medkit-outline", tint: "recVaccine", view: "health", tab: "vaccine" },
+    growth: { label: "Growth", tint: "recGrowth", view: "growth", tab: "metrics" },
+    vaccine: { label: "Vaccine", tint: "recVaccine", view: "health", tab: "vaccine" },
     checkup: { label: "Checkup", icon: "calendar-outline", tint: "recCheckup", view: "health", tab: "checkup" },
-    medication: { label: "Medication", icon: "medical-outline", tint: "recMedication", view: "health", tab: "medication" },
-    illness: { label: "Illness", icon: "thermometer-outline", tint: "recIllness", view: "health", tab: "illness" },
-    hospitalization: { label: "Hospital stay", icon: "bed-outline", tint: "recHospitalization", view: "health", tab: "hospitalization" },
+    medication: { label: "Medication", tint: "recMedication", view: "health", tab: "medication" },
+    illness: { label: "Condition", icon: "thermometer-outline", tint: "recIllness", view: "health", tab: "illness" },
+    hospitalization: { label: "Hospital stay", tint: "recHospitalization", view: "health", tab: "hospitalization" },
     // One entry, because it opens one form that saves either kind.
     memory: { label: "Photo or milestone", icon: "image-outline", tint: "recMemory", view: "growth", tab: "memory" },
 };
@@ -58,7 +69,11 @@ const SHORTCUTS = 3;
 
 export default function ActionSheet({ visible, onClose, onSelect }) {
     const { colors } = useTheme();
-    const { height: windowHeight } = useWindowDimensions();
+    const { height: windowHeight, fontScale } = useWindowDimensions();
+    const insets = useSafeAreaInsets();
+    const sheetHeight = recordSheetHeight(windowHeight, fontScale, insets.top, insets.bottom);
+    const expandedHeight = expandedSheetHeight(windowHeight, sheetHeight, insets.top);
+    const motion = useBottomSheetMotion({ visible, collapsedHeight: sheetHeight, expandedHeight, onClose });
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const [usage, setUsage] = useState({});
 
@@ -86,32 +101,41 @@ export default function ActionSheet({ visible, onClose, onSelect }) {
 
     const choose = useCallback(
         (key) => {
-            const next = { ...usage, [key]: (usage[key] || 0) + 1 };
-            setUsage(next);
-            storage.setItem(USAGE_KEY, JSON.stringify(next)).catch(() => {});
-            const a = ACTIONS[key];
-            onSelect(a.view, a.tab);
+            motion.dismiss(() => {
+                const next = { ...usage, [key]: (usage[key] || 0) + 1 };
+                setUsage(next);
+                storage.setItem(USAGE_KEY, JSON.stringify(next)).catch(() => {});
+                const a = ACTIONS[key];
+                onSelect(a.view, a.tab);
+            });
         },
-        [usage, onSelect],
+        [usage, onSelect, motion.dismiss],
     );
 
     return (
-        <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-            <View style={styles.root}>
+        <Modal visible={motion.presented} transparent animationType="none" onShow={motion.startOpening} onRequestClose={() => motion.dismiss()}>
+            <View style={[styles.root, { paddingTop: Math.max(insets.top, space.md) }]}>
+                <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.text + "66", opacity: motion.shade }]} />
                 <TouchableOpacity
                     style={StyleSheet.absoluteFill}
                     activeOpacity={1}
-                    onPress={onClose}
+                    onPress={() => motion.dismiss()}
                     accessibilityRole="button"
                     accessibilityLabel="Close"
                 />
-                <View style={styles.card} accessibilityViewIsModal>
-                    <View style={styles.grabber} />
-                    <Text style={styles.title} accessibilityRole="header">
-                        Add a record
-                    </Text>
+                <Animated.View style={[styles.card, { height: motion.height, paddingBottom: Math.max(space.xl, insets.bottom) }]}
+                    accessibilityViewIsModal onAccessibilityEscape={() => motion.dismiss()}>
+                    <View {...motion.pan.panHandlers} style={{ touchAction: "none" }}>
+                        <View style={styles.grabberStack}>
+                            <View style={styles.grabber} />
+                            <View style={styles.grabber} />
+                        </View>
+                        <Text style={styles.title} accessibilityRole="header">
+                            Add a record
+                        </Text>
+                    </View>
 
-                    <ScrollView style={[styles.scroll, { maxHeight: windowHeight * 0.55 }]} showsVerticalScrollIndicator={false}>
+                    <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
                         <Text style={styles.groupTitle} accessibilityRole="header">
                             Most used
                         </Text>
@@ -127,9 +151,7 @@ export default function ActionSheet({ visible, onClose, onSelect }) {
                                         accessibilityRole="button"
                                         accessibilityLabel={`Add ${a.label}`}
                                     >
-                                        <View style={[styles.shortcutIcon, { backgroundColor: tint.bg }]}>
-                                            <Ionicons name={a.icon} size={22} color={tint.on} />
-                                        </View>
+                                        {key === "illness" ? <IllnessIcon size={44} /> : key === "hospitalization" ? <HospitalStayIcon size={44} /> : key === "vaccine" ? <VaccineIcon size={44} /> : key === "food" ? <SolidFoodIcon size={44} /> : key === "milk" ? <MilkIcon size={44} /> : key === "medication" ? <MedicationIcon size={44} /> : key === "growth" ? <GrowthIcon size={44} /> : <View style={[styles.shortcutIcon, { backgroundColor: tint.bg }]}><Ionicons name={a.icon} size={22} color={tint.on} /></View>}
                                         <Text style={styles.shortcutText} numberOfLines={1}>
                                             {a.label}
                                         </Text>
@@ -154,9 +176,7 @@ export default function ActionSheet({ visible, onClose, onSelect }) {
                                             accessibilityRole="button"
                                             accessibilityLabel={`Add ${a.label}`}
                                         >
-                                            <View style={[styles.itemIcon, { backgroundColor: tint.bg }]}>
-                                                <Ionicons name={a.icon} size={19} color={tint.on} />
-                                            </View>
+                                            {key === "illness" ? <IllnessIcon size={36} /> : key === "hospitalization" ? <HospitalStayIcon size={36} /> : key === "vaccine" ? <VaccineIcon size={36} /> : key === "food" ? <SolidFoodIcon size={36} /> : key === "milk" ? <MilkIcon size={36} /> : key === "medication" ? <MedicationIcon size={36} /> : key === "growth" ? <GrowthIcon size={36} /> : <View style={[styles.itemIcon, { backgroundColor: tint.bg }]}><Ionicons name={a.icon} size={19} color={tint.on} /></View>}
                                             <Text style={styles.itemText}>{a.label}</Text>
                                             <Ionicons
                                                 name="chevron-forward"
@@ -172,13 +192,13 @@ export default function ActionSheet({ visible, onClose, onSelect }) {
 
                     <TouchableOpacity
                         style={styles.cancel}
-                        onPress={onClose}
+                        onPress={() => motion.dismiss()}
                         accessibilityRole="button"
                         accessibilityLabel="Cancel"
                     >
                         <Text style={styles.cancelText}>Cancel</Text>
                     </TouchableOpacity>
-                </View>
+                </Animated.View>
             </View>
         </Modal>
     );
@@ -186,30 +206,32 @@ export default function ActionSheet({ visible, onClose, onSelect }) {
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        root: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(28,25,23,0.45)" },
+        root: { flex: 1, justifyContent: "flex-end" },
         card: {
+            width: "100%",
+            maxHeight: "100%",
+            flexShrink: 1,
+            minHeight: 0,
             backgroundColor: colors.background,
             borderTopLeftRadius: radius.xl,
             borderTopRightRadius: radius.xl,
             borderCurve: "continuous",
+            overflow: "hidden",
             paddingHorizontal: space.lg,
             paddingTop: space.sm,
             paddingBottom: space.xl,
             ...shadow.raised,
         },
+        grabberStack: { alignItems: "center", gap: space.xs, marginBottom: space.md },
         grabber: {
-            width: 36,
+            width: 43.2,
             height: 4,
             borderRadius: radius.pill,
             backgroundColor: colors.border,
-            alignSelf: "center",
-            marginBottom: space.md,
         },
-        title: { ...type.heading, color: colors.text, textAlign: "center", marginBottom: space.sm },
-        // maxHeight is applied inline as a fraction of the window — a fixed
-        // 460 was taller than the room a short phone actually has once the
-        // grabber, title, cancel row and safe-area inset are accounted for.
-        scroll: {},
+        title: { ...type.heading, fontSize: type.heading.fontSize * 1.3, lineHeight: type.heading.lineHeight * 1.3,
+            color: colors.text, textAlign: "center", marginBottom: space.sm },
+        scroll: { flex: 1, minHeight: 0 },
         groupTitle: {
             ...type.subheading,
             color: colors.textMuted,

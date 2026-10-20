@@ -7,6 +7,7 @@ const { upload, extOf } = require("../middleware/upload");
 const { encrypt, decryptRow } = require("../utils/crypto");
 const storage = require("../utils/storage");
 const { createOnce, receiptRecord } = require("../utils/mutationReceipts");
+const { validateMemoryFields } = require("../utils/memoryFields");
 
 const MEM_ENCRYPTED = ["caption", "notes"];
 
@@ -33,15 +34,16 @@ router.post(
     "/:childId/memories",
     upload.single("photo"),
     asyncHandler(async (req, res) => {
+        validateMemoryFields(req.body);
         const photoRef = req.file
             ? await storage.uploadFile(req.file.buffer, req.file.mimetype, extOf(req.file))
             : req.body.photo_url || null;
-        const { caption, notes, date_recorded } = req.body;
-        const record = await createOnce(req, "memories", "memories", { photo_url: photoRef, caption, notes, date_recorded }, async (client) => {
+        const { caption, notes, date_recorded, development_category = null } = req.body;
+        const record = await createOnce(req, "memories", "memories", { photo_url: photoRef, caption, notes, date_recorded, development_category }, async (client) => {
         const { rows } = await client.query(
-            `INSERT INTO memories (child_id, photo_url, caption, notes, date_recorded)
-             VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-            [req.child.id, photoRef, encrypt(caption || null), encrypt(notes || null), date_recorded || null]
+            `INSERT INTO memories (child_id, photo_url, caption, notes, date_recorded, development_category)
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+            [req.child.id, photoRef, encrypt(caption || null), encrypt(notes || null), date_recorded || null, development_category]
         );
         return rows[0];
         });
@@ -73,5 +75,20 @@ router.delete(
         res.status(204).end();
     })
 );
+
+// Metadata-only updates preserve the original storage reference and image bytes.
+router.put("/:childId/memories/:id", asyncHandler(async (req, res) => {
+    const fields = ["caption", "notes", "date_recorded", "is_favorite", "development_category"].filter(key => Object.hasOwn(req.body, key));
+    if (!fields.length) throw new ApiError(400, "No editable fields supplied");
+    validateMemoryFields(req.body);
+    const values = fields.map(key => MEM_ENCRYPTED.includes(key) ? encrypt(req.body[key]) : req.body[key]);
+    const { rows } = await query(
+        `UPDATE memories SET ${fields.map((key, i) => `${key} = $${i + 1}`).join(", ")} WHERE id = $${fields.length + 1} AND child_id = $${fields.length + 2} RETURNING *`,
+        [...values, req.params.id, req.child.id]
+    );
+    if (!rows[0]) throw new ApiError(404, "Memory not found");
+    const [resolved] = await storage.resolveUrlField(rows, "photo_url");
+    res.json(decryptRow(resolved, MEM_ENCRYPTED));
+}));
 
 module.exports = router;

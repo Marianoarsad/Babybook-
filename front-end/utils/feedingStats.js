@@ -10,6 +10,7 @@
 // durationMinutes, foodIntroduced, reactionSeverity, date, time }`.
 // `durationMinutes` is null on plenty of real breastfeeds — it is optional.
 import { minutesBetween, todayLocal } from "./dates";
+import { feedVolumeMl } from "./adapters";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -17,7 +18,88 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 // columns, so anything comparing two feeds has to stitch them back together.
 export const byMoment = (a, b) => (a.date + (a.time || "")).localeCompare(b.date + (b.time || ""));
 
+export const recordedFeedingTime = value => /^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(value || "") ? value.slice(0, 5) : null;
+
+// Local event dates/times stay separate; creation timestamps cannot date an untimed feed.
+export function dailyFeedingSummary(entries, day = todayLocal()) {
+    const rows = (entries || []).filter(e => e && e.date === day && ["milk", "solid"].includes(e.entryType || "milk"))
+        .slice().sort((a, b) => byMoment(b, a));
+    let milkEntries = 0, loggedMilkVolumeMl = null, lastFeedingTime = null;
+    const measured = value => value != null && value !== "" && Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : null;
+    for (const entry of rows) {
+        const time = recordedFeedingTime(entry.time);
+        if (time != null) {
+            if (lastFeedingTime == null || time > lastFeedingTime) lastFeedingTime = time;
+        }
+        if (entry.entryType === "solid") continue;
+        milkEntries++;
+        if (entry.feedMethod === "breast" || !["", "mL", "oz", "L"].includes(entry.unit || "")) continue;
+        const quantity = measured(entry.quantity);
+        const breastmilkQuantity = entry.milkType === "Mixed" ? measured(entry.breastmilkQuantity) : null;
+        if (quantity != null || breastmilkQuantity != null)
+            loggedMilkVolumeMl = (loggedMilkVolumeMl ?? 0) + feedVolumeMl({ ...entry, quantity, breastmilkQuantity });
+    }
+    const totalEntries = rows.length, solidFoodEntries = totalEntries - milkEntries;
+    return { entries: rows, totalEntries, milkEntries, solidFoodEntries, loggedMilkVolumeMl, lastFeedingTime,
+        milkPercentage: totalEntries ? milkEntries / totalEntries * 100 : 0,
+        solidFoodPercentage: totalEntries ? solidFoodEntries / totalEntries * 100 : 0 };
+}
+
+export const feedingPercentage = value => value > 0 && value < 1 ? "<1%" : `${Math.round(value)}%`;
+
 export const foodKey = (name) => String(name || "").trim().toLowerCase();
+
+export function todayNutritionStats(entries, today, currentTime) {
+    const rows = entries || [];
+    const milk = rows.filter((e) => (e.entryType || "milk") === "milk");
+    const todayMilk = milk.filter((e) => e.date === today);
+    const todayRows = rows.filter((e) => e.date === today);
+    const lastFeed = milk.filter((e) => e.time && e.date <= today).sort(byMoment).pop();
+    const sinceLastFeed = lastFeed
+        ? minutesBetween(lastFeed.date, lastFeed.time, today, currentTime)
+        : null;
+    return {
+        count: todayMilk.length,
+        totalCount: todayRows.length,
+        volume: todayMilk.reduce((sum, e) => sum + feedVolumeMl(e), 0),
+        breastMinutes: todayMilk.reduce(
+            (sum, e) => sum + (e.feedMethod === "breast" ? Number(e.durationMinutes) || 0 : 0),
+            0,
+        ),
+        solidCount: todayRows.filter((e) => e.entryType === "solid").length,
+        lastFeedDate: lastFeed?.date || "",
+        lastFeedTime: lastFeed?.time || "",
+        sinceLastFeed: sinceLastFeed != null && sinceLastFeed >= 0 ? sinceLastFeed : null,
+    };
+}
+
+export function feedingMixCategory(entry) {
+    if (entry?.entryType === "solid") return "solid";
+    if ((entry?.entryType || "milk") !== "milk") return null;
+    if (entry.milkType === "Breastmilk" || (!entry.milkType && entry.feedMethod === "breast")) return "breastmilk";
+    if (entry.milkType === "Formula") return "formula";
+    if (entry.milkType === "Mixed") return "mixed";
+    return null;
+}
+
+export function todayFeedingMix(entries, today = todayLocal()) {
+    const counts = { solid: 0, breastmilk: 0, formula: 0, mixed: 0 };
+    for (const entry of entries || []) {
+        if (entry.date !== today) continue;
+        const category = feedingMixCategory(entry);
+        if (category) counts[category]++;
+    }
+    return { ...counts, total: counts.solid + counts.breastmilk + counts.formula + counts.mixed };
+}
+
+const DAY_MS = 86400000;
+const isoLocal = (time) => {
+    const d = new Date(time);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+const explicitSpanDays = (rangeObj) => rangeObj?.from && rangeObj?.to
+    ? Math.max(1, Math.round((new Date(`${rangeObj.to}T00:00:00`) - new Date(`${rangeObj.from}T00:00:00`)) / DAY_MS) + 1)
+    : 0;
 
 function periodStart(d, gran) {
     const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -34,13 +116,30 @@ function bucketLabel(d, gran) {
     return `${s.getMonth() + 1}/${s.getDate()}`;
 }
 
+function nextPeriod(d, gran) {
+    const next = new Date(d);
+    if (gran === "day") next.setDate(next.getDate() + 1);
+    else if (gran === "week") next.setDate(next.getDate() + 7);
+    else next.setMonth(next.getMonth() + 1);
+    return next;
+}
+
+const bucketGranularity = (days) => days <= 14 ? "day" : days <= 120 ? "week" : "month";
+
 // Entries inside a range. `offsetPeriods: 1` returns the window immediately
 // before it, same length — that's how the night-feed comparison gets its
 // "previous 7 days" without a second definition of what a period is.
 // A range with no `days` (All Time) has no previous window, by definition.
 export function inRangeOf(entries, rangeObj, offsetPeriods = 0, now = Date.now()) {
+    const selectedDays = explicitSpanDays(rangeObj);
+    if (selectedDays) {
+        const shift = offsetPeriods * selectedDays * DAY_MS;
+        const from = isoLocal(new Date(`${rangeObj.from}T00:00:00`).getTime() - shift);
+        const to = isoLocal(new Date(`${rangeObj.to}T00:00:00`).getTime() - shift);
+        return entries.filter((e) => e.date >= from && e.date <= to);
+    }
     if (!rangeObj || !rangeObj.days) return offsetPeriods ? [] : entries.slice();
-    const span = rangeObj.days * 86400000;
+    const span = rangeObj.days * DAY_MS;
     const end = now - offsetPeriods * span;
     const start = end - span;
     return entries.filter((e) => {
@@ -53,13 +152,16 @@ export function inRangeOf(entries, rangeObj, offsetPeriods = 0, now = Date.now()
 // millilitres, or minutes at the breast. The measure used to be hardcoded to
 // millilitres, which drew a day of eight breastfeeds as an empty bar.
 export function buildBuckets(entries, rangeObj, valueOf, now = Date.now()) {
-    if (!entries.length) return { bars: [], days: 0, total: 0 };
+    const selectedDays = explicitSpanDays(rangeObj);
+    const knownDays = selectedDays || rangeObj?.days || 0;
+    const knownGranularity = knownDays ? bucketGranularity(knownDays) : null;
+    if (!entries.length) return { bars: [], days: selectedDays, total: 0, granularity: knownGranularity };
     const rows = inRangeOf(entries, rangeObj, 0, now);
-    if (!rows.length) return { bars: [], days: 0, total: 0 };
+    if (!rows.length) return { bars: [], days: selectedDays, total: 0, granularity: knownGranularity };
     const dates = rows.map((e) => new Date(e.date));
     const minD = new Date(Math.min.apply(null, dates));
-    const spanDays = rangeObj.days || Math.max(1, Math.round((now - minD.getTime()) / 86400000) + 1);
-    const gran = spanDays <= 14 ? "day" : spanDays <= 120 ? "week" : "month";
+    const spanDays = selectedDays || rangeObj.days || Math.max(1, Math.round((now - minD.getTime()) / DAY_MS) + 1);
+    const gran = bucketGranularity(spanDays);
     const map = {};
     let total = 0;
     for (const e of rows) {
@@ -70,10 +172,20 @@ export function buildBuckets(entries, rangeObj, valueOf, now = Date.now()) {
         map[key].value += v;
         total += v;
     }
-    const bars = Object.keys(map)
-        .map((k) => map[k])
-        .sort((a, b) => a.sort - b.sort);
-    return { bars, days: spanDays, total };
+    const windowFrom = selectedDays
+        ? new Date(`${rangeObj.from}T00:00:00`)
+        : rangeObj.days
+            ? new Date(new Date(now).setDate(new Date(now).getDate() - rangeObj.days + 1))
+            : minD;
+    const windowTo = selectedDays ? new Date(`${rangeObj.to}T00:00:00`) : new Date(now);
+    const bars = [];
+    for (let cursor = periodStart(windowFrom, gran), end = periodStart(windowTo, gran);
+        cursor <= end;
+        cursor = nextPeriod(cursor, gran)) {
+        const key = cursor.getTime();
+        bars.push(map[key] || { value: 0, sort: key, label: bucketLabel(cursor, gran) });
+    }
+    return { bars, days: spanDays, total, granularity: gran };
 }
 
 function dayDiffInclusive(a, b) {
@@ -83,20 +195,23 @@ function dayDiffInclusive(a, b) {
 // Consecutive same-milk-type runs. Editing an entry's type re-groups the runs,
 // so a previous period ends and a new one begins exactly as specified.
 export function milkDurations(milk, today = todayLocal()) {
-    if (!milk.length) return { periods: [], current: null };
-    const sorted = milk.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    const sorted = milk
+        .filter((e) => e.date && e.date <= today)
+        .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    if (!sorted.length) return { periods: [], current: null };
     const runs = [];
     for (const e of sorted) {
         const last = runs[runs.length - 1];
         const t = e.milkType || "Unspecified";
-        if (last && last.type === t) last.end = e.date;
-        else runs.push({ type: t, start: e.date, end: e.date });
+        if (last && last.type === t) { last.end = e.date; last.sourceIds.push(e.id); }
+        else runs.push({ type: t, start: e.date, end: e.date, sourceIds: [e.id] });
     }
     const periods = runs.map((r) => ({
         type: r.type,
         start: r.start,
         end: r.end,
         days: dayDiffInclusive(r.start, r.end),
+        sourceIds: r.sourceIds,
     }));
     const lastRun = runs[runs.length - 1];
     const current = lastRun
@@ -148,9 +263,9 @@ export function solidFoodStats(solids, monthPrefix) {
     return {
         distinct: firstByFood.size,
         first: firsts.length ? firsts.slice().sort(byMoment)[0] : null,
-        newThisMonth: monthPrefix ? firsts.filter((e) => e.date.slice(0, 7) === monthPrefix).length : 0,
+        newThisMonth: monthPrefix ? firsts.filter((e) => e.date?.slice(0, 7) === monthPrefix).length : 0,
         reactions: solids
-            .filter((e) => e.reactionSeverity === "mild" || e.reactionSeverity === "severe")
+            .filter((e) => e.reactionSeverity === "mild" || e.reactionSeverity === "severe" || (!e.reactionSeverity && !!e.reaction))
             .sort((a, b) => byMoment(b, a)),
     };
 }

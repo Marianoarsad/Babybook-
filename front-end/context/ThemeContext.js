@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useMemo } from "react";
 import { useColorScheme } from "react-native";
-import { paletteFor, PALETTES, space, radius, type, shadow, MIN_TOUCH, motion } from "../theme";
+import { paletteFor, themeKeyFor, PALETTES, space, radius, type, shadow, MIN_TOUCH, motion } from "../theme";
 
 // Centralized runtime theme. The active color palette is derived from the
 // selected child's gender, with an optional manual override from Settings:
@@ -37,14 +37,7 @@ export function ThemeProvider({ gender, override = "auto", schemeOverride = "lig
     const value = useMemo(() => {
         const scheme = schemeOverride === "system" ? (systemScheme === "dark" ? "dark" : "light") : schemeOverride;
         const colors = paletteFor(gender, override === "auto" ? undefined : override, scheme);
-        const mode =
-            override && override !== "auto"
-                ? override
-                : gender === "boy" || gender === "Male"
-                  ? "boy"
-                  : gender === "girl" || gender === "Female"
-                    ? "girl"
-                    : "neutral";
+        const mode = themeKeyFor(gender, override === "auto" ? undefined : override);
         return { colors, mode, scheme, space, radius, type, shadow, MIN_TOUCH, motion };
     }, [gender, override, schemeOverride, systemScheme]);
 

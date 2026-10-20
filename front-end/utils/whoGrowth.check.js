@@ -20,7 +20,7 @@ src = src.replace(
 );
 src = src.replace(/export\s+const\s+/g, "const ").replace(/export\s+function\s+/g, "function ");
 src +=
-    "\nmodule.exports = { WHO_MAX_DAY, normalizeSex, ageInDays, lmsAt, valueAtZ, zScore, percentileFromZ, formatPercentile, referenceCurve, unitFor };";
+    "\nmodule.exports = { WHO_MAX_DAY, normalizeSex, signedAgeInDays, ageInDays, measurementAgeDomain, chartAxisTicks, evenAxisRatio, wholeNumberLabel, latestPointPerDay, integerAxisRange, lmsAt, valueAtZ, zScore, percentileFromZ, percentileRank, formatPercentile, referenceCurve, unitFor };";
 
 const mod = new Module("whoGrowth");
 mod._compile(src, path.join(HERE, "whoGrowth.js"));
@@ -78,6 +78,9 @@ eq("ordinal 3", W.formatPercentile(3), "3rd");
 eq("ordinal 11", W.formatPercentile(11), "11th");
 eq("clamps low", W.formatPercentile(0.4), "<1st");
 eq("clamps high", W.formatPercentile(99.6), ">99th");
+eq("plain rank rounds", W.percentileRank(46.4).count, 46);
+eq("plain rank keeps low open", W.percentileRank(0.4).kind, "under");
+eq("plain rank keeps high open", W.percentileRank(99.6).kind, "over");
 
 // --- the two features that a coarser sampling grid destroyed ---
 // WHO switches from measuring length (lying down) to height (standing) at 2
@@ -98,6 +101,49 @@ eq("zero measurement", W.zScore("weight", "boys", 100, 0), null);
 eq("age in days", W.ageInDays("2024-01-01", "2024-01-31"), 30);
 eq("measured before birth", W.ageInDays("2024-06-01", "2024-01-01"), null);
 eq("missing date of birth", W.ageInDays(null, "2024-01-01"), null);
+eq("signed day before birth", W.signedAgeInDays("2024-06-01", "2024-01-01"), -152);
+eq("signed day at birth", W.signedAgeInDays("2024-06-01", "2024-06-01"), 0);
+eq("signed day after birth", W.signedAgeInDays("2024-06-01", "2024-06-11"), 10);
+
+// --- filtered charts fit the dates that actually contain measurements ---
+const fitted = W.measurementAgeDomain([{ day: 120 }, { day: 180 }, { day: 240 }]);
+eq("measurement domain starts at first point", fitted.from, 120);
+eq("measurement domain ends at last point", fitted.to, 240);
+eq("single measurement gets a centered domain", W.measurementAgeDomain([{ day: 42 }]).from, 41);
+eq("single measurement domain stays centered", W.measurementAgeDomain([{ day: 42 }]).to, 43);
+eq("empty measurement domain", W.measurementAgeDomain([]), null);
+const axisTicks = W.chartAxisTicks(10, 20);
+eq("chart axis has five ticks", axisTicks.length, 5);
+eq("chart axis starts at its lowest value", axisTicks[0], 10);
+eq("chart axis ends at its highest value", axisTicks[4], 20);
+eq("chart axis ticks ascend evenly", axisTicks[2], 15);
+eq("single chart item is centered", W.evenAxisRatio(0, 1), 0.5);
+eq("first chart item reaches the left edge", W.evenAxisRatio(0, 4), 0);
+eq("middle chart items are evenly spaced", W.evenAxisRatio(1, 4), 1 / 3);
+eq("last chart item reaches the right edge", W.evenAxisRatio(3, 4), 1);
+eq("whole labels round down", W.wholeNumberLabel(22.4), "22");
+eq("whole labels round up", W.wholeNumberLabel(22.6), "23");
+eq("whole labels keep missing values blank", W.wholeNumberLabel(null), "");
+eq("whole labels reject junk", W.wholeNumberLabel("not-a-number"), "");
+const dailyPoints = W.latestPointPerDay([
+    { id: 4, day: 2, date: "2026-09-03", value: 7.2 },
+    { id: 2, day: 0, date: "2026-09-01", value: 7.0 },
+    { id: 5, day: 2, date: "2026-09-03", value: 7.3 },
+]);
+eq("daily chart keeps one point per date", dailyPoints.length, 2);
+eq("daily chart keeps the latest same-day record", dailyPoints[1].id, 5);
+eq("daily chart points stay chronological", dailyPoints[0].date, "2026-09-01");
+const narrowIntegerAxis = W.integerAxisRange(7.2, 7.8);
+eq("integer axis centers a narrow decimal range", JSON.stringify(narrowIntegerAxis), '{"min":6,"max":10}');
+eq("integer axis produces five unique whole ticks", JSON.stringify(W.chartAxisTicks(narrowIntegerAxis.min, narrowIntegerAxis.max)), "[6,7,8,9,10]");
+const sevenTickAxis = W.integerAxisRange(7.2, 7.8, 7);
+eq("parent axis produces seven whole ticks", W.chartAxisTicks(sevenTickAxis.min, sevenTickAxis.max, 7).length, 7);
+eq("parent axis ticks stay distinct", new Set(W.chartAxisTicks(sevenTickAxis.min, sevenTickAxis.max, 7)).size, 7);
+const wideIntegerAxis = W.integerAxisRange(10.2, 20.1);
+eq("integer axis contains a wider range", wideIntegerAxis.min <= 10.2 && wideIntegerAxis.max >= 20.1, true);
+const negativeIntegerAxis = W.integerAxisRange(-0.5, 1.5);
+eq("integer axis handles negative ranges", negativeIntegerAxis.min <= -0.5 && negativeIntegerAxis.max >= 1.5, true);
+eq("integer axis rejects invalid input", W.integerAxisRange(5, 5), null);
 
 // --- reference curves ---
 const curve = W.referenceCurve("weight", "boys", 0, 365, 0);

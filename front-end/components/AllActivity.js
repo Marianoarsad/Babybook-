@@ -1,3 +1,8 @@
+import RecordIcon from "./ui/RecordIcon";
+import VaccineIcon from "./ui/VaccineIcon";
+import SolidFoodIcon from "./ui/SolidFoodIcon";
+import MilkIcon from "./ui/MilkIcon";
+import { recordItemStyle, recordListLayout } from "../theme";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,6 +15,7 @@ import { EmptyStateCard } from "./common/Cards";
 import { AppointmentsSkeleton } from "./ui/Skeleton";
 import { useRefreshControl } from "./ui/useRefreshControl";
 import ShowMore from "./ui/ShowMore";
+import AnimatedReveal from "./ui/AnimatedReveal";
 import { feedRowSummary } from "../utils/adapters";
 import { todayLocal } from "../utils/dates";
 
@@ -51,7 +57,7 @@ export default function AllActivity({ profile }) {
                             title: "Vaccination Logged",
                             subtitle: v.vaccine_name || "Vaccine",
                             date: String(v.date_given).slice(0, 10),
-                            icon: "checkmark-circle",
+                            vaccine: true,
                             tone: "primary",
                         }),
                     );
@@ -74,6 +80,8 @@ export default function AllActivity({ profile }) {
                         subtitle: feedRowSummary(n),
                         date: String(n.entry_date).slice(0, 10),
                         icon: "restaurant",
+                        solidFood: n.entry_type === "solid",
+                        milkFeed: (n.entry_type || "milk") === "milk",
                         tone: "success",
                     });
                 });
@@ -85,7 +93,7 @@ export default function AllActivity({ profile }) {
                             title: "Milestone Reached",
                             subtitle: m.title || "Milestone",
                             date: String(m.date_recorded).slice(0, 10),
-                            icon: "trophy",
+                            milestone: true,
                             tone: "info",
                         }),
                     );
@@ -117,6 +125,7 @@ export default function AllActivity({ profile }) {
             keyboardShouldPersistTaps="handled"
             {...scrollProps}
         >
+            <AnimatedReveal contentStyle={recordListLayout.content}>
             {loading && activity.length === 0 ? (
                 <AppointmentsSkeleton />
             ) : !loading && activity.length === 0 ? (
@@ -128,20 +137,20 @@ export default function AllActivity({ profile }) {
                         return (
                             <View
                                 key={a.key}
-                                style={[styles.activityRow, idx < shown.length - 1 && styles.activityRowBorder]}
+                                style={styles.activityRow}
                             >
                                 <View style={styles.activityLeft}>
-                                    <View style={[styles.activityIcon, { backgroundColor: tone + "1A" }]}>
-                                        <Ionicons name={a.icon} size={18} color={tone} />
+                                    <View style={[styles.activityIcon, { backgroundColor: a.milestone || a.solidFood || a.milkFeed || a.vaccine ? "transparent" : tone + "1A" }]}>
+                                        {a.milestone ? <RecordIcon category="milestone" size={36} /> : a.vaccine ? <VaccineIcon size={36} /> : a.solidFood ? <SolidFoodIcon size={36} /> : a.milkFeed ? <MilkIcon size={36} /> : <Ionicons name={a.icon} size={18} color={tone} />}
                                     </View>
                                     <View style={{ flex: 1 }}>
                                         <Text style={styles.activityTitle}>{a.title}</Text>
                                         <Text style={styles.activitySubtitle} numberOfLines={1}>
                                             {a.subtitle}
                                         </Text>
+                                        <Text style={styles.activityDate}>{a.date}</Text>
                                     </View>
                                 </View>
-                                <Text style={styles.activityDate}>{a.date}</Text>
                             </View>
                         );
                     })}
@@ -155,6 +164,7 @@ export default function AllActivity({ profile }) {
                     noun="activity items"
                 />
             )}
+            </AnimatedReveal>
         </Animated.ScrollView>
     );
 }
@@ -164,27 +174,25 @@ const makeStyles = (colors) =>
         // transparent, not colors.background: App.js paints the page gradient.
 
         root: { flex: 1, backgroundColor: "transparent" },
-        content: { padding: space.lg },
+        content: {  padding: 0},
         activityCard: {
-            backgroundColor: colors.surface,
+
             borderRadius: radius.xl,
             borderCurve: "continuous",
-            borderWidth: 1,
+
             borderColor: colors.hairline,
-            overflow: "hidden",
-            ...shadow.card,
-        },
-        activityRow: {
+
+            ...shadow.card , overflow: "visible", backgroundColor: "transparent", borderWidth: 0, boxShadow: "none"},
+        activityRow: { ...recordItemStyle(colors),
             flexDirection: "row",
             alignItems: "center",
             justifyContent: "space-between",
             paddingVertical: space.md,
-            paddingHorizontal: space.md,
-        },
+             borderRadius: 24, borderWidth: 0, marginBottom: 12, overflow: "visible", paddingHorizontal: 12, borderBottomWidth: 0},
         activityRowBorder: { borderBottomWidth: 1, borderBottomColor: colors.hairline },
         activityLeft: { flexDirection: "row", alignItems: "center", gap: space.md, flex: 1 },
         activityIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
         activityTitle: { ...type.label, fontWeight: "700", color: colors.text },
         activitySubtitle: { ...type.caption, fontWeight: "500", color: colors.textMuted, marginTop: 1 },
-        activityDate: { ...type.caption, fontWeight: "600", color: colors.textMuted, marginLeft: space.sm, flexShrink: 0 },
+        activityDate: { ...type.caption, fontWeight: "600", color: colors.textMuted, marginTop: space.xs },
     });

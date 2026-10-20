@@ -26,30 +26,29 @@ export function pdfExportAvailable() {
     return !!Print;
 }
 
-// Fetches every record type for the child and builds the HTML export. Split
+// Fetches only selected record types and builds the HTML export. Split
 // out from exportChildRecordsPdf so a scope-picker UI can call it directly
 // if it ever needs the raw html (e.g. a preview).
-export async function buildChildRecordsHtml(profile, scope) {
-    const [vaccinations, checkups, growth, milestones, nutrition, medHistory] = await Promise.all([
-        api.listRecords(profile.id, "vaccinations").catch(() => []),
-        api.listRecords(profile.id, "checkups").catch(() => []),
-        api.listRecords(profile.id, "growth").catch(() => []),
-        api.listRecords(profile.id, "milestones").catch(() => []),
-        api.listRecords(profile.id, "nutrition").catch(() => []),
-        api.listRecords(profile.id, "medical-history").catch(() => []),
+export async function buildChildRecordsHtml(profile, scope, visitReason = "") {
+    const includes = key => !scope || scope.has(key);
+    const read = (resource, selected) => selected ? api.listRecords(profile.id, resource, { confirmedOnly: true }) : Promise.resolve(undefined);
+    const [vaccinations, checkups, growth, milestones, nutrition, medHistory, milkTypePeriods] = await Promise.all([
+        read("vaccinations", includes("vaccinations")), read("checkups", includes("checkups")),
+        read("growth", includes("growth")), read("milestones", includes("milestones")), read("nutrition", includes("nutrition")),
+        read("medical-history", includes("medicalHistory") || includes("allergies")), read("milk-type-periods", includes("nutrition")),
     ]);
     return buildRecordHtml(
         profile,
-        { vaccinations, checkups, growth, milestones, nutrition, medicalHistory: medHistory },
-        { scope }
+        { vaccinations, checkups, growth, milestones, nutrition, medicalHistory: medHistory, milkTypePeriods },
+        { scope, visitReason }
     );
 }
 
 // Generates the PDF and hands it off: native shares the file, web opens the
 // browser print dialog ("Save as PDF" is available from there).
-export async function exportChildRecordsPdf(profile, { scope } = {}) {
+export async function exportChildRecordsPdf(profile, { scope, visitReason } = {}) {
     if (!Print) throw new Error("PDF export isn't available on this build.");
-    const html = await buildChildRecordsHtml(profile, scope);
+    const html = await buildChildRecordsHtml(profile, scope, visitReason);
 
     if (Platform.OS === "web") {
         await Print.printAsync({ html });
@@ -58,6 +57,6 @@ export async function exportChildRecordsPdf(profile, { scope } = {}) {
 
     const { uri } = await Print.printToFileAsync({ html });
     if (Sharing && (await Sharing.isAvailableAsync())) {
-        await Sharing.shareAsync(uri, { mimeType: "application/pdf", dialogTitle: `${profile.name}'s BabyBook+ records` });
+        await Sharing.shareAsync(uri, { mimeType: "application/pdf", dialogTitle: !scope || scope.has("profile") ? `${profile.name}'s BabyBook+ records` : "BabyBook+ records" });
     }
 }

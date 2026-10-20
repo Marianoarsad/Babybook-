@@ -1,20 +1,26 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, Modal, TextInput, TouchableOpacity, ScrollView } from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { View, Text, StyleSheet, TextInput, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { radius, space, shadow, type, MIN_TOUCH } from "../../theme";
+import { radius, space, type, MIN_TOUCH } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
 import { useLanguage } from "../../context/LanguageContext";
 import { api } from "../../utils/api";
+import { useRecordSave } from "../../utils/useRecords";
 import { medHistoryToIllness } from "../../utils/adapters";
 import { todayLocal } from "../../utils/dates";
 import { suggestedConditions } from "../../utils/commonConditions";
 import { useToast } from "./Toast";
-import Button from "./Button";
+import conditionRecords from "../../utils/conditions.cjs";
+import { FieldShell } from "./Field";
+import OptionSheet from "./OptionSheet";
+
 import { DateField } from "./DateField";
 import PhotoAttach from "./PhotoAttach";
-import KeyboardAvoider from "./KeyboardAvoider";
 
-// One form for the two things that go wrong: an illness, and a hospital stay.
+import RecordFormSheet, { RecordFormGroup, RecordFormRow } from "./RecordFormSheet";
+
+// One medical-history form for illnesses, allergies, hereditary conditions,
+// and hospital stays.
 //
 // They are the same row underneath (medical_history, differing only by
 // `category`), they had the same three bugs, and keeping one implementation is
@@ -38,8 +44,8 @@ import KeyboardAvoider from "./KeyboardAvoider";
 // `onSaved(adapted, kind)` hands back the adapted row so the caller updates its
 // list without refetching.
 
-const COPY = {
-    illness: {
+const CONDITION_COPY = {
+    Illness: {
         modalTitle: "Log an illness",
         editTitle: "Edit illness",
         category: "Illness",
@@ -59,8 +65,49 @@ const COPY = {
         savedToast: "Illness saved",
         failToast: "Could not save the illness",
     },
+    Allergy: {
+        modalTitle: "Log an allergy",
+        editTitle: "Edit allergy",
+        category: "Allergy",
+        attachType: "allergy",
+        titleLabel: "What is the allergy or sensitivity?",
+        titlePlaceholder: "Egg allergy",
+        titleError: "Please name the allergy or sensitivity",
+        startLabel: "When was it first noticed?",
+        statusLabel: "Is it still active?",
+        ongoing: "Still active",
+        ended: "No longer active",
+        endLabel: "When did it stop?",
+        notesLabel: "Notes (optional)",
+        notesPlaceholder: "Reaction, triggers, or what the doctor said",
+        photoLabel: "Photo (optional)",
+        photoHelper: "A reaction photo, test result, or clinic note — if you have one.",
+        savedToast: "Allergy saved",
+        failToast: "Could not save the allergy",
+    },
+    "Hereditary Condition": {
+        modalTitle: "Log a hereditary condition",
+        editTitle: "Edit hereditary condition",
+        category: "Hereditary Condition",
+        attachType: "hereditary",
+        titleLabel: "What is the hereditary condition?",
+        titlePlaceholder: "Asthma (paternal grandfather)",
+        titleError: "Please name the hereditary condition",
+        startLabel: "When was it recorded?",
+        hasStatus: false,
+        notesLabel: "Notes (optional)",
+        notesPlaceholder: "Which relative has it, or what the doctor said",
+        photoLabel: "Photo (optional)",
+        photoHelper: "A family-history note or clinic document — if you have one.",
+        savedToast: "Hereditary condition saved",
+        failToast: "Could not save the hereditary condition",
+    },
+};
+
+const COPY = {
     hospitalization: {
         modalTitle: "Log a hospital stay",
+
         editTitle: "Edit hospital stay",
         category: "Hospitalization",
         attachType: "hospitalization",
@@ -81,6 +128,11 @@ const COPY = {
     },
 };
 
+const CATEGORY_OPTIONS = conditionRecords.CONDITION_CATEGORIES.map((category) => ({
+    category,
+    label: category === "Hereditary Condition" ? "Hereditary" : category,
+}));
+
 // Where the child was cared for. A record of what the family DID, never a
 // severity rating — PRODUCT.md Principle 5. "At home" is not "mild", and the
 // app must never start treating it as one.
@@ -98,14 +150,22 @@ export default function MedicalEventModal({
     previous = [],
     onClose,
     onSaved,
+    onDelete,
 }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const { t } = useLanguage();
     const toast = useToast();
-    const copy = COPY[kind] || COPY.illness;
-    const isIllness = kind === "illness";
+    const [category, setCategory] = useState("Illness");
+    const [allergyType, setAllergyType] = useState("");
+    const [allergyAnchor, setAllergyAnchor] = useState(null);
+    const allergyTrigger = useRef(null);
+    const isCondition = kind === "illness";
+    const copy = isCondition ? CONDITION_COPY[category] || CONDITION_COPY.Illness : COPY.hospitalization;
+    const isIllness = isCondition && category === "Illness";
+    const supportsStatus = copy.hasStatus !== false;
     const editing = !!record;
+    const saveRecord = useRecordSave(visible, profile.id, "medical-history", record?.legacy ? null : record?.id);
 
     const [title, setTitle] = useState("");
     const [facility, setFacility] = useState("");
@@ -116,12 +176,16 @@ export default function MedicalEventModal({
     const [notes, setNotes] = useState("");
     const [photoUri, setPhotoUri] = useState("");
     const [titleError, setTitleError] = useState("");
+    const [allergyTypeError, setAllergyTypeError] = useState("");
     const [saving, setSaving] = useState(false);
 
     // Load the record being edited, or start clean. Keyed on the id rather
     // than the object so a parent re-render mid-typing does not wipe the form.
     useEffect(() => {
-        if (!visible) return;
+        if (!visible) { setAllergyAnchor(null); return; }
+        setCategory(record && CONDITION_COPY[record.category] ? record.category : "Illness");
+        setAllergyType(record?.allergyType || "");
+        setAllergyAnchor(null);
         setTitle(record ? record.title || "" : "");
         setFacility(record ? record.facility || "" : "");
         setStartDate(record && record.date ? record.date : todayLocal());
@@ -131,6 +195,7 @@ export default function MedicalEventModal({
         setNotes(record ? record.desc || "" : "");
         setPhotoUri("");
         setTitleError("");
+        setAllergyTypeError("");
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [visible, record && record.id]);
 
@@ -151,23 +216,26 @@ export default function MedicalEventModal({
             return; // the effect below scrolls the error into view
 
         }
+        if (copy.category === "Allergy" && !["food", "non_food"].includes(allergyType)) {
+            setAllergyTypeError("Choose Food or Non-food");
+            return;
+        }
         setSaving(true);
         try {
             const body = {
                 category: copy.category,
+                allergy_type: copy.category === "Allergy" ? allergyType || null : null,
                 title: name,
                 description: notes.trim() || null,
                 date_recorded: startDate || todayLocal(),
-                resolved: over,
+                resolved: supportsStatus ? over : false,
                 // Clearing the flag has to clear the date with it, or a record
                 // reopened after being marked better keeps a stale end date.
-                resolved_date: over ? endDate || todayLocal() : null,
+                resolved_date: supportsStatus && over ? endDate || todayLocal() : null,
                 care_level: isIllness ? careLevel || null : null,
-                facility: isIllness ? null : facility.trim() || null,
+                facility: kind === "hospitalization" ? facility.trim() || null : null,
             };
-            const saved = editing
-                ? await api.updateRecord(profile.id, "medical-history", record.id, body)
-                : await api.createRecord(profile.id, "medical-history", body);
+            const saved = await saveRecord(body);
             // Optional now. A fever managed at home has no document to
             // photograph, and requiring one made the commonest illness in the
             // app unloggable. Posting replaces any existing image for the
@@ -180,10 +248,10 @@ export default function MedicalEventModal({
                         photoUri,
                     });
                 } catch (e) {
-                    console.log("upload attachment:", e.message);
+                    throw new Error(`Record saved, but its photo could not be saved: ${e.message}. Retry to finish without creating another record.`);
                 }
             }
-            if (onSaved) onSaved(medHistoryToIllness(saved), kind, editing);
+            if (onSaved) await onSaved(medHistoryToIllness(saved), kind, editing && !record?.legacy);
             toast.success(copy.savedToast);
             onClose();
         } catch (e) {
@@ -200,20 +268,45 @@ export default function MedicalEventModal({
     ];
 
     return (
-        <Modal visible={visible} transparent animationType="slide">
-            <KeyboardAvoider>
-                <View style={styles.modalBg}>
-                    <View style={styles.modalCard}>
-                        <Text style={styles.modalTitle}>
-                            {editing ? copy.editTitle : copy.modalTitle}
-                        </Text>
+        <RecordFormSheet visible={visible} title={editing ? copy.editTitle : isCondition ? "Log a condition" : copy.modalTitle}
+            onClose={onClose} onSubmit={handleSave} busy={saving}
+            cancelLabel={t("cancel")} submitLabel={t("save")} error={titleError}
+            record={record} onDelete={kind === "illness" && onDelete ? () => onDelete(record) : undefined} deleteTitle={`Delete ${copy.category.toLowerCase()} record?`} deleteMessage={`Delete "${record?.title || ""}"? This cannot be undone.`}>
+            <RecordFormGroup>
 
-                        <ScrollView
-                            style={styles.scroll}
-                            keyboardShouldPersistTaps="handled"
-                            showsVerticalScrollIndicator={false}
-                        >
-                            <Text style={styles.label}>{copy.titleLabel}</Text>
+                            {isCondition && (
+                                <>
+                                    <Text style={styles.label}>Record type</Text>
+                                    <View style={styles.categoryRow}>
+                                        {CATEGORY_OPTIONS.map((option) => {
+                                            const selected = category === option.category;
+                                            return (
+                                                <TouchableOpacity
+                                                    key={option.category}
+                                                    style={[styles.categoryBtn, selected && styles.optionBtnOn, editing && styles.categoryBtnDisabled]}
+                                                    onPress={() => {
+                                                        if (editing) return;
+                                                        setCategory(option.category);
+                                                        setTitleError("");
+                                                        setAllergyTypeError("");
+                                                    }}
+                                                    disabled={editing}
+                                                    accessibilityRole="button"
+                                                    accessibilityState={{ selected, disabled: editing }}
+                                                    accessibilityLabel={`${option.label} record type`}
+                                                >
+                                                    <Text style={[styles.categoryText, selected && styles.optionTextOn]} numberOfLines={1}>
+                                                        {option.label}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            );
+                                        })}
+                                    </View>
+                                </>
+                            )}
+
+                            <RecordFormRow error={!!titleError} label={<Text style={styles.label}>{copy.titleLabel}</Text>}>
+
                             <TextInput
                                 style={[styles.input, titleError && styles.inputError]}
                                 placeholder={copy.titlePlaceholder}
@@ -225,6 +318,23 @@ export default function MedicalEventModal({
                                 }}
                                 accessibilityLabel={copy.titleLabel}
                             />
+                            </RecordFormRow>
+
+                            {category === "Allergy" && isCondition ? <>
+                                <FieldShell label="Allergy Type" required error={allergyTypeError} focused={!!allergyAnchor}>
+                                    <TouchableOpacity ref={allergyTrigger}
+                                        onPress={() => allergyTrigger.current?.measureInWindow((x, y, width, height) => setAllergyAnchor({ x, y, width, height }))}
+                                        accessibilityRole="button" accessibilityState={{ expanded: !!allergyAnchor }}
+                                        accessibilityLabel={`Allergy Type: ${allergyType === "food" ? "Food" : allergyType === "non_food" ? "Non-food" : "Choose allergy type"}`}
+                                        style={[styles.input, { borderWidth: 0, marginBottom: 0, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }]}>
+                                        <Text style={{ ...type.body, color: colors.text }}>{allergyType === "food" ? "Food" : allergyType === "non_food" ? "Non-food" : "Choose allergy type"}</Text>
+                                        <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
+                                    </TouchableOpacity>
+                                </FieldShell>
+                                <OptionSheet visible={visible && !!allergyAnchor} anchor={allergyAnchor} selectedKey={allergyType}
+                                    options={[{ key: "food", label: "Food" }, { key: "non_food", label: "Non-food" }]}
+                                    onSelect={(value) => { setAllergyType(value); setAllergyTypeError(""); setAllergyAnchor(null); }} onClose={() => setAllergyAnchor(null)} />
+                            </> : null}
 
                             {chips.length > 0 && (
                                 <View style={styles.chips}>
@@ -245,9 +355,10 @@ export default function MedicalEventModal({
                                 </View>
                             )}
 
-                            {!isIllness && (
+                            {kind === "hospitalization" && (
                                 <>
-                                    <Text style={styles.label}>Which hospital? (optional)</Text>
+                                    <RecordFormRow label={<Text style={styles.label}>Which hospital? (optional)</Text>}>
+
                                     <TextInput
                                         style={styles.input}
                                         placeholder="e.g. Cebu Doctors' University Hospital"
@@ -256,6 +367,7 @@ export default function MedicalEventModal({
                                         onChangeText={setFacility}
                                         accessibilityLabel="Hospital name"
                                     />
+                                    </RecordFormRow>
                                 </>
                             )}
 
@@ -269,6 +381,8 @@ export default function MedicalEventModal({
                                 maximumDate={todayLocal()}
                             />
 
+                            {supportsStatus && (
+                            <>
                             <Text style={styles.label}>{copy.statusLabel}</Text>
                             <View style={styles.row}>
                                 {STATUS.map((s) => {
@@ -360,27 +474,13 @@ export default function MedicalEventModal({
                                             );
                                         })}
                                     </View>
-
-                                    {/* Names the other record rather than
-                                        creating it, so the two do not silently
-                                        duplicate. No advice, no warning. */}
-                                    {careLevel === "hospital" && (
-                                        <View style={styles.noteBox}>
-                                            <Ionicons
-                                                name="information-circle-outline"
-                                                size={15}
-                                                color={colors.info}
-                                            />
-                                            <Text style={styles.noteText}>
-                                                You can also record the stay itself under
-                                                Hospitalizations, on the Checkups tab.
-                                            </Text>
-                                        </View>
-                                    )}
                                 </>
                             )}
+                            </>
+                            )}
 
-                            <Text style={styles.label}>{copy.notesLabel}</Text>
+                            <RecordFormRow stacked label={<Text style={styles.label}>{copy.notesLabel}</Text>}>
+
                             <TextInput
                                 style={[styles.input, styles.inputMultiline]}
                                 placeholder={copy.notesPlaceholder}
@@ -392,6 +492,7 @@ export default function MedicalEventModal({
                                 textAlignVertical="top"
                                 accessibilityLabel={copy.notesLabel}
                             />
+                            </RecordFormRow>
 
                             <PhotoAttach
                                 required={false}
@@ -400,71 +501,14 @@ export default function MedicalEventModal({
                                 label={copy.photoLabel}
                                 helper={copy.photoHelper}
                             />
-                        </ScrollView>
 
-                        {/* The message sits with the buttons, outside the
-                            ScrollView, because that is the only part of this
-                            form guaranteed to be on screen. The form is long
-                            enough that a parent filling in the notes box is
-                            nowhere near the first field, and an error rendered
-                            up there is a Save button that appears to do
-                            nothing. The coral border on the field says WHICH,
-                            this says WHAT. */}
-                        {titleError ? (
-                            <View style={styles.errorRow}>
-                                <Ionicons name="alert-circle" size={15} color={colors.danger} />
-                                <Text style={styles.errorText}>{titleError}</Text>
-                            </View>
-                        ) : null}
-
-                        <View style={styles.buttons}>
-                            <Button
-                                title={t("cancel")}
-                                variant="secondary"
-                                fullWidth={false}
-                                disabled={saving}
-                                onPress={onClose}
-                            />
-                            <Button
-                                title={t("save")}
-                                variant="accent"
-                                fullWidth={false}
-                                loading={saving}
-                                onPress={handleSave}
-                            />
-                        </View>
-                    </View>
-                </View>
-            </KeyboardAvoider>
-        </Modal>
+            </RecordFormGroup>
+        </RecordFormSheet>
     );
 }
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        modalBg: {
-            flex: 1,
-            backgroundColor: "rgba(28,25,23,0.55)",
-            justifyContent: "center",
-            alignItems: "center",
-            padding: space.xl,
-        },
-        modalCard: {
-            backgroundColor: colors.background,
-            borderRadius: radius.xl,
-            borderCurve: "continuous",
-            padding: space.xl,
-            width: "100%",
-            // 440, not 360 — the sheet was narrower than every reference
-            // phone width (390, 430), wasting room the fields needed.
-            maxWidth: 440,
-            maxHeight: "88%",
-            borderWidth: 1,
-            borderColor: colors.hairline,
-            ...shadow.raised,
-        },
-        modalTitle: { ...type.title, color: colors.text, marginBottom: space.lg },
-        scroll: { flexGrow: 0 },
 
         // Matches DateField's own label rather than the uppercase
         // `type.subheading` the older modals use: this form contains two
@@ -479,13 +523,14 @@ const makeStyles = (colors) =>
             marginBottom: space.sm,
         },
         input: {
-            backgroundColor: colors.surface,
-            borderWidth: 1,
+            backgroundColor: colors.surfaceAlt,
+            borderWidth: 0,
             borderColor: colors.border,
-            borderRadius: radius.md,
+            borderRadius: radius.lg,
             borderCurve: "continuous",
             paddingHorizontal: space.md,
-            height: 48,
+            minHeight: 52,
+            paddingVertical: space.sm,
             fontSize: type.body.fontSize,
             fontFamily: type.body.fontFamily,
             color: colors.text,
@@ -496,14 +541,7 @@ const makeStyles = (colors) =>
             paddingTop: space.md,
             paddingBottom: space.md,
         },
-        inputError: { borderColor: colors.danger },
-        errorRow: {
-            flexDirection: "row",
-            alignItems: "center",
-            gap: space.sm,
-            marginTop: space.md,
-        },
-        errorText: { ...type.caption, color: colors.danger, flex: 1 },
+        inputError: { borderWidth: 1, borderColor: colors.danger },
 
         chips: {
             flexDirection: "row",
@@ -526,6 +564,22 @@ const makeStyles = (colors) =>
         chipText: { ...type.caption, color: colors.textSecondary },
 
         row: { flexDirection: "row", gap: space.sm, marginBottom: space.lg },
+        categoryRow: { flexDirection: "row", gap: space.sm, marginBottom: space.lg },
+        categoryBtn: {
+            flex: 1,
+            minWidth: 0,
+            minHeight: MIN_TOUCH,
+            alignItems: "center",
+            justifyContent: "center",
+            paddingHorizontal: space.xs,
+            borderRadius: radius.pill,
+            borderCurve: "continuous",
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: colors.surface,
+        },
+        categoryBtnDisabled: { opacity: 0.78 },
+        categoryText: { ...type.caption, fontWeight: "600", color: colors.textSecondary },
         stack: { gap: space.sm, marginBottom: space.lg },
         optionBtn: {
             flex: 1,
@@ -547,23 +601,4 @@ const makeStyles = (colors) =>
         optionText: { ...type.label, color: colors.textSecondary, flexShrink: 1 },
         optionTextOn: { color: colors.onPrimary },
 
-        noteBox: {
-            flexDirection: "row",
-            alignItems: "flex-start",
-            gap: space.sm,
-            padding: space.md,
-            borderRadius: radius.md,
-            borderCurve: "continuous",
-            backgroundColor: colors.infoBg,
-            marginBottom: space.lg,
-            marginTop: -space.sm,
-        },
-        noteText: { ...type.caption, color: colors.text, flex: 1 },
-
-        buttons: {
-            flexDirection: "row",
-            justifyContent: "flex-end",
-            gap: space.md,
-            marginTop: space.lg,
-        },
     });

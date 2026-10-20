@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Animated } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Animated } from "react-native";
 import { SectionContainerCard } from "../common/Cards";
 import { api } from "../../utils/api";
 import { useToast } from "../ui/Toast";
@@ -11,10 +11,13 @@ import { useScreenPadBottom, useScreenPadTop } from "../../utils/responsive";
 import { useScroll } from "../../context/ScrollContext";
 import { RELATIONSHIPS, relationshipLabel } from "../../utils/relationship";
 import { space, radius, type, MIN_TOUCH } from "../../theme";
+import numericInput from "../../utils/numericInput.cjs";
+import Field from "../ui/Field";
+
+const { digitsOnly } = numericInput;
 
 // Guardian account fields (name, contact, relationship, city, avatar).
-// Language/theme moved to their own menu destinations; logout lives in the side
-// menu.
+// Language/theme and logout live in the Profile hub.
 //
 // Two things this screen used to get wrong, both fixed here:
 //
@@ -50,6 +53,8 @@ export default function EditProfile({
 
     const [email, setEmail] = useState("");
     const [phone, setPhone] = useState("");
+    const [nameDraft, setNameDraft] = useState(parentName || "");
+    const [relationshipDraft, setRelationshipDraft] = useState(parentRelationship || "");
     const [city, setCity] = useState("");
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -67,7 +72,7 @@ export default function EditProfile({
                 const { user } = await api.me();
                 if (user) {
                     setEmail(user.email || "");
-                    setPhone(user.phoneNumber || "");
+                    setPhone(digitsOnly(user.phoneNumber));
                     setCity(user.city || "");
                 }
             } catch (e) {
@@ -79,7 +84,8 @@ export default function EditProfile({
     }, []);
 
     const handleSaveInfo = async () => {
-        if (!parentName.trim()) {
+        if (saving) return;
+        if (!nameDraft.trim()) {
             toast.error("Name cannot be empty.");
             return;
         }
@@ -89,16 +95,17 @@ export default function EditProfile({
             // version also passed a city that went nowhere and an email the
             // endpoint ignored, then reported success for both.
             const { user } = await api.updateMe({
-                fullName: parentName,
-                phoneNumber: phone,
-                relationship: parentRelationship || "",
+                fullName: nameDraft.trim(),
+                phoneNumber: digitsOnly(phone),
+                relationship: relationshipDraft,
                 city,
             });
             // Read the saved row back instead of trusting local state, so a
             // field the server rejected or normalised shows what was actually
             // stored.
             if (user) {
-                setPhone(user.phoneNumber || "");
+                onUpdateParentName?.(user.fullName || nameDraft.trim());
+                setPhone(digitsOnly(user.phoneNumber));
                 setCity(user.city || "");
                 if (onUpdateParentRelationship) onUpdateParentRelationship(user.relationship || "");
             }
@@ -160,17 +167,13 @@ export default function EditProfile({
                     </>
                 ) : (
                     <>
-                        <View style={styles.formGroup}>
-                            <Text style={styles.label}>Full Name</Text>
-                            <TextInput
-                                style={styles.input}
-                                value={parentName}
-                                onChangeText={onUpdateParentName}
-                                accessibilityLabel="Full Name"
+                        <Field
+                                label="Full Name"
+                                value={nameDraft}
+                                onChangeText={setNameDraft}
                                 autoComplete="name"
                                 textContentType="name"
                             />
-                        </View>
 
                         {/* The same five chips the Create an Account form uses,
                             from the same list, so the two screens cannot offer
@@ -179,12 +182,12 @@ export default function EditProfile({
                             <Text style={styles.label}>I am the child's…</Text>
                             <View style={styles.chipWrap}>
                                 {RELATIONSHIPS.map((opt) => {
-                                    const on = parentRelationship === opt.key;
+                                    const on = relationshipDraft === opt.key;
                                     return (
                                         <TouchableOpacity
                                             key={opt.key}
                                             onPress={() =>
-                                                onUpdateParentRelationship && onUpdateParentRelationship(opt.key)
+                                                setRelationshipDraft(opt.key)
                                             }
                                             accessibilityRole="button"
                                             accessibilityState={{ selected: on }}
@@ -198,33 +201,24 @@ export default function EditProfile({
                             </View>
                         </View>
 
-                        <View style={styles.formGroup}>
-                            <Text style={styles.label}>Phone Number</Text>
-                            <TextInput
-                                style={styles.input}
+                        <Field
+                                label="Phone Number"
                                 keyboardType="phone-pad"
+                                numericMode="digits"
                                 value={phone}
                                 onChangeText={setPhone}
-                                accessibilityLabel="Phone Number"
                                 placeholder="09XX XXX XXXX"
-                                placeholderTextColor={colors.placeholder}
                                 autoComplete="tel"
                                 textContentType="telephoneNumber"
                             />
-                        </View>
-                        <View style={styles.formGroup}>
-                            <Text style={styles.label}>City / Municipality</Text>
-                            <TextInput
-                                style={styles.input}
+                        <Field
+                                label="City / Municipality"
                                 value={city}
                                 onChangeText={setCity}
-                                accessibilityLabel="City / Municipality"
                                 placeholder="Where you live"
-                                placeholderTextColor={colors.placeholder}
                                 autoComplete="postal-address-locality"
                                 textContentType="addressCity"
                             />
-                        </View>
                         <TouchableOpacity
                             onPress={handleSaveInfo}
                             disabled={saving}
@@ -233,7 +227,7 @@ export default function EditProfile({
                             accessibilityState={{ disabled: saving }}
                             accessibilityLabel="Save Changes"
                         >
-                            <Text style={styles.saveBtnText}>{saving ? "Saving…" : "Save Changes"}</Text>
+                            {(<Text style={styles.saveBtnText}>Save Changes</Text>)}
                         </TouchableOpacity>
                     </>
                 )}
@@ -253,10 +247,8 @@ export default function EditProfile({
                                 {email || "Not recorded"}
                             </Text>
                         </View>
-                        <View style={styles.formGroup}>
-                            <Text style={styles.label}>New Email Address</Text>
-                            <TextInput
-                                style={[styles.input, emailError && styles.inputError]}
+                        <Field
+                                label="New Email Address"
                                 keyboardType="email-address"
                                 autoCapitalize="none"
                                 value={newEmail}
@@ -265,16 +257,12 @@ export default function EditProfile({
                                     if (emailError) setEmailError("");
                                 }}
                                 placeholder="Enter the new address"
-                                accessibilityLabel="New Email Address"
-                                placeholderTextColor={colors.placeholder}
                                 autoComplete="email"
                                 textContentType="username"
+                                error={!!emailError}
                             />
-                        </View>
-                        <View style={styles.formGroup}>
-                            <Text style={styles.label}>Current Password</Text>
-                            <TextInput
-                                style={[styles.input, emailError && styles.inputError]}
+                        <Field
+                                label="Current Password"
                                 secureTextEntry
                                 value={emailPassword}
                                 onChangeText={(t) => {
@@ -282,17 +270,10 @@ export default function EditProfile({
                                     if (emailError) setEmailError("");
                                 }}
                                 placeholder="Confirm it's you"
-                                accessibilityLabel="Current Password"
-                                placeholderTextColor={colors.placeholder}
                                 autoComplete="current-password"
                                 textContentType="password"
+                                error={emailError}
                             />
-                        </View>
-                        {emailError ? (
-                            <Text selectable style={styles.errorText}>
-                                {emailError}
-                            </Text>
-                        ) : null}
                         <TouchableOpacity
                             onPress={handleChangeEmail}
                             disabled={emailSaving}
@@ -301,9 +282,7 @@ export default function EditProfile({
                             accessibilityState={{ disabled: emailSaving }}
                             accessibilityLabel="Change sign-in email"
                         >
-                            <Text style={styles.secondaryBtnText}>
-                                {emailSaving ? "Changing…" : "Change Email"}
-                            </Text>
+                            {(<Text style={styles.secondaryBtnText}>Change Email</Text>)}
                         </TouchableOpacity>
                     </>
                 )}

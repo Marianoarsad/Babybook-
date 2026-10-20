@@ -4,16 +4,19 @@ import { Ionicons } from "@expo/vector-icons";
 import { radius, space, type, MIN_TOUCH } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
 
+import { HistoryShowMore } from "./GrowthHistoryVisuals";
+
 // Shared "show 10 more" button for every capped record list in the app
 // (Health's five lists, Growth's memories, All Activity/All Memories, Share
 // Records' history + log, Nutrition). Lifted out of NutritionTracker.js,
 // which had its own copy of this exact button before other lists needed it
 // too. Renders nothing once everything is already visible.
-export default function ShowMore({ total, visible, onPress, noun = "items" }) {
+export default function ShowMore({ total, visible, onPress, noun = "items", appearance }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     if (total <= visible) return null;
     const remaining = total - visible;
+    if (appearance === "measurementHistory") return <HistoryShowMore remaining={remaining} onPress={onPress} noun={noun} />;
     return (
         <TouchableOpacity
             style={styles.loadMoreBtn}

@@ -8,7 +8,7 @@ import { useTheme } from "../../context/ThemeContext";
 // This replaced PREDEFINED_AVATARS in EditProfile.js: four Unsplash photographs
 // of strangers, offered as the only way to have a picture at all. The default
 // was one of them, so a parent who never opened Edit Profile was represented
-// across the app — side menu, profile, header — by a photograph of somebody
+// across the app — profile, header — by a photograph of somebody
 // else. That is the same fabrication the project removed from the Care Team
 // card ("Dr. Sarah Chen") and the milestone checklist's stock baby photos: an
 // invented fact presented in the place a real one belongs.
@@ -69,7 +69,7 @@ export default function Avatar({ uri, name, size = 64, borderWidth = 0, style })
                 style={{
                     ...type.bodyStrong,
                     // Scales with the circle so one component serves the 32px
-                    // side-menu avatar and the 104px one on Edit Profile.
+                    // header avatar and the 104px one on Edit Profile.
                     fontSize: Math.round(size * 0.38),
                     lineHeight: Math.round(size * 0.46),
                     color: colors.primary,

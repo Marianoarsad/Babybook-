@@ -3,6 +3,7 @@ const { ApiError } = require("../middleware/error");
 const { requireAuth, requireChildOwnership } = require("../middleware/auth");
 const { createResourceRouter } = require("../utils/resource");
 const { isNumberWithin } = require("../utils/numericValidation");
+const { validateMemoryFields } = require("../utils/memoryFields");
 
 const router = express.Router();
 
@@ -30,6 +31,32 @@ function checkEnum(value, allowed, message) {
     if (!blank(value) && !allowed.includes(value)) throw new ApiError(400, message);
 }
 
+function validateVaccination(data, { existing }) {
+    if (Object.hasOwn(data, "status") && !["scheduled", "completed"].includes(data.status)) {
+        throw new ApiError(400, "Invalid vaccination status");
+    }
+    const status = data.status ?? existing?.status ?? "scheduled";
+    const due = Object.hasOwn(data, "due_date") ? data.due_date : existing?.due_date;
+    if (status === "scheduled" && !validISODate(due)) {
+        throw new ApiError(400, "A valid due date is required for a scheduled vaccination");
+    }
+    if (data.due_date != null && !validISODate(data.due_date)) {
+        throw new ApiError(400, "Due date must be a valid YYYY-MM-DD date");
+    }
+}
+
+function validateMilkTypePeriod(data, { isCreate }) {
+    if ((isCreate || Object.hasOwn(data, "milk_type")) && !VALID_MILK.includes(data.milk_type)) {
+        throw new ApiError(400, "Choose Breastmilk, Formula or Mixed");
+    }
+    if ((isCreate || Object.hasOwn(data, "start_date")) && !validISODate(data.start_date)) {
+        throw new ApiError(400, "A valid start date is required");
+    }
+    if (data.end_date != null && !validISODate(data.end_date)) throw new ApiError(400, "Invalid end date");
+    if (data.end_date && data.start_date && data.end_date < data.start_date) throw new ApiError(400, "End date must be on or after start date");
+    if (data.notes != null && typeof data.notes !== "string") throw new ApiError(400, "Notes must be text");
+}
+
 function validateDecimal(value, label, max) {
     if (!blank(value) && !isNumberWithin(value, { min: 0.01, max, maxDecimals: 2 })) {
         throw new ApiError(400, `${label} must be a positive number with no more than 2 decimal places`);
@@ -49,6 +76,8 @@ function validateNutrition(data, { isCreate }) {
     checkEnum(data.feed_method, VALID_METHODS, "Feed method must be 'breast' or 'bottle'");
     checkEnum(data.breast_side, VALID_SIDES, "Breast side must be 'left', 'right' or 'both'");
     checkEnum(data.reaction_severity, VALID_SEVERITY, "Reaction must be 'none', 'mild' or 'severe'");
+    checkEnum(data.food_category, ["fruits", "vegetables", "grains", "proteins", "dairy", "other"], "Invalid food category");
+    if (data.food_category === "") throw new ApiError(400, "Use null for an unrecorded food category");
 
     if (!blank(data.duration_minutes)) {
         if (!isNumberWithin(data.duration_minutes, { min: 1, max: 240, integer: true })) {
@@ -152,6 +181,7 @@ const RESOURCES = [
     {
         path: "vaccinations",
         table: "vaccinations",
+        validate: validateVaccination,
         // dose_number and reaction_severity stay OUT of `encrypted`: an integer
         // and a fixed vocabulary gain no privacy from encryption and would lose
         // the ability to be counted or filtered in SQL. `reaction` is free text
@@ -237,7 +267,8 @@ const RESOURCES = [
     {
         path: "milestones",
         table: "milestones",
-        columns: ["title", "age_achieved", "description", "date_recorded", "is_completed", "photo_url"],
+        columns: ["title", "age_achieved", "description", "date_recorded", "is_completed", "photo_url", "is_favorite", "development_category"],
+        validate: data => validateMemoryFields(data, true),
         orderBy: "date_recorded DESC NULLS LAST, id DESC",
         encrypted: ["title", "age_achieved", "description"],
         // A milestone can carry the parent's own photo, so its stored ref has
@@ -256,11 +287,19 @@ const RESOURCES = [
             "entry_type", "milk_type", "feed_method", "formula_brand", "formula_scoops",
             "quantity", "breastmilk_quantity", "unit",
             "duration_minutes", "breast_side",
-            "food_introduced", "reaction_severity", "reaction", "entry_date", "entry_time", "notes",
+            "food_introduced", "food_category", "reaction_severity", "reaction", "entry_date", "entry_time", "notes",
         ],
         orderBy: "entry_date DESC NULLS LAST, entry_time DESC NULLS LAST, id DESC",
         validate: validateNutrition,
         encrypted: ["formula_brand", "food_introduced", "reaction", "notes"],
+    },
+    {
+        path: "milk-type-periods",
+        table: "milk_type_periods",
+        columns: ["milk_type", "start_date", "end_date", "notes"],
+        orderBy: "start_date DESC, id DESC",
+        encrypted: ["notes"],
+        validate: validateMilkTypePeriod,
     },
     {
         path: "reminders",

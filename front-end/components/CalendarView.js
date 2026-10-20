@@ -1,42 +1,69 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
-import { Animated, View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, TextInput } from "react-native";
+import HospitalStayIcon from "./ui/HospitalStayIcon";
+import VaccineIcon from "./ui/VaccineIcon";
+import { recordItemStyle } from "../theme";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, useWindowDimensions } from "react-native";
+import Modal from "./ui/AppModal";
 import { Ionicons } from "@expo/vector-icons";
-import { Calendar, CalendarProvider, WeekCalendar } from "react-native-calendars";
+import { Calendar } from "react-native-calendars";
 import { useTheme } from "../context/ThemeContext";
 import { space, radius, shadow, type, MIN_TOUCH } from "../theme";
 import { useScreenPadBottom, useScreenPadTop } from "../utils/responsive";
-import { useScroll } from "../context/ScrollContext";
 import { api } from "../utils/api";
-import { EmptyStateCard } from "./common/Cards";
+import { useRecords, useScreenRefresh, useRecordSave } from "../utils/useRecords";
+import { buildCalendarEvents } from "../utils/calendarEvents";
 import { AppointmentsSkeleton } from "./ui/Skeleton";
-import { useRefreshControl } from "./ui/useRefreshControl";
+import ShowMore from "./ui/ShowMore";
+import PlansDashboardCard, { PlanAddButton, PlansEmptyState } from "./ui/PlansDashboardCard";
+import Gradient from "./ui/Gradient";
+import PullToRefreshScrollView from "./ui/PullToRefreshScrollView";
 import { DateField, TimeField } from "./ui/DateField";
 import { useToast } from "./ui/Toast";
 import { scheduleReminder } from "../utils/notifications";
 import { storage } from "../utils/storageAdapter";
 import { LEAD_TIME_KEY, LEAD_TIME_OPTIONS } from "./settings/GeneralSettings";
-import TipStrip from "./ui/TipStrip";
-import KeyboardAvoider from "./ui/KeyboardAvoider";
-import { todayLocal, toLocalISO } from "../utils/dates";
-import { plannedEnd } from "../utils/medication";
 
-// Category -> theme-derived dot/accent color. Kept to semantic status tones
+import RecordFormSheet, { DeleteConfirmation, RecordFormGroup, RecordFormRow } from "./ui/RecordFormSheet";
+import PlanDetail from "./ui/PlanDetail";
+import SwipeActionRow from "./ui/SwipeActionRow";
+import { shortDate, shortTime, shiftMonthClamped, todayLocal } from "../utils/dates";
+import MedicationIcon from "./ui/MedicationIcon";
+import { plannedEnd } from "../utils/medication";
+import { CalendarArtwork, CalendarControl, CalendarDateCell, CalendarMonthTransition, CalendarSurface } from "./ui/CalendarVisuals";
+
+// Category -> theme-derived marker/accent color. Kept to semantic status tones
 // (not brand hex) so it stays consistent across the girl/boy palette switch.
 const CATEGORY_META = {
-    vaccination: { label: "Vaccination", icon: "medkit-outline" },
-    checkup: { label: "Checkup", icon: "calendar-outline" },
-    illness: { label: "Illness", icon: "thermometer-outline" },
-    medication: { label: "Medication", icon: "medical-outline" },
-    hospitalization: { label: "Hospitalization", icon: "bed-outline" },
-    custom: { label: "Custom Event", icon: "bookmark-outline" },
+    vaccination: { label: "Vaccination" },
+    checkup: { label: "Checkup" },
+    illness: { label: "Illness" },
+    medication: { label: "Medication" },
+    hospitalization: { label: "Hospitalization" },
+    custom: { label: "Custom Event" },
 };
+
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"];
+const LIST_PAGE = 3;
+const EmptyCalendarHeader = () => null;
+const PLAN_RESOURCES = {
+    vaccination: "vaccinations",
+    checkup: "checkups",
+    "medical-history": "medical-history",
+    "calendar-event": "calendar-events",
+};
+
+function monthText(value, short = false) {
+    const date = new Date(`${String(value || "").slice(0, 10)}T00:00:00`);
+    return isNaN(date.getTime()) ? "" : date.toLocaleDateString(undefined, { month: short ? "short" : "long" });
+}
 
 // One fixed colour per category, from theme.js's eventCategory token.
 //
 // This used to switch on colors.primary (checkup) and colors.accent (custom),
 // both of which come from the GENDER palette — so those two were always the
 // same hue family as each other, and the legend's meaning changed with the
-// child: a checkup dot was pink for a girl and blue for a boy. Measured, the
+// child: a checkup marker was pink for a girl and blue for a boy. Measured, the
 // old set had three confusable pairs and "custom" scored 3.1-3.3:1 against
 // white, under the 4.5:1 minimum. See the note on eventCategory in theme.js.
 function categoryColor(colors, category) {
@@ -47,26 +74,39 @@ function todayISO() {
     return todayLocal();
 }
 
-// Calendar tab: Month/Week/Day views over aggregated records (vaccinations,
+// Calendar tab: monthly view over aggregated records (vaccinations,
 // checkups, medical history) — see CLAUDE.md §9. Reminders aren't fetched
 // separately: today's schema ties every reminder 1:1 to a vaccination or
 // checkup, so showing both would just duplicate the same event twice.
-export default function CalendarView({ profile }) {
+export default function CalendarView({ profile, onNavigate }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
+    const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+    const legendWidth = Math.min(300, screenWidth - space.lg * 2);
     const padBottom = useScreenPadBottom();
     const padTop = useScreenPadTop();
-    const { scrollProps } = useScroll();
     const toast = useToast();
+    const legendButtonRef = useRef(null);
 
-    const [viewMode, setViewMode] = useState("month"); // month | week | day
     const [selectedDate, setSelectedDate] = useState(todayISO());
-    const [eventsByDate, setEventsByDate] = useState({});
-    const [loading, setLoading] = useState(true);
+    const [activePlanTab, setActivePlanTab] = useState("today");
+    const [savingEvent, setSavingEvent] = useState(false);
+    const [deletingEventId, setDeletingEventId] = useState(null);
     const [detailEvent, setDetailEvent] = useState(null);
+    const [upcomingVisible, setUpcomingVisible] = useState(LIST_PAGE);
+    const [overdueVisible, setOverdueVisible] = useState(LIST_PAGE);
+    const [completedVisible, setCompletedVisible] = useState(LIST_PAGE);
+    const [showMonthPicker, setShowMonthPicker] = useState(false);
+    const [monthPickerYear, setMonthPickerYear] = useState(new Date().getFullYear());
+    const [showLegend, setShowLegend] = useState(false);
+    const [legendAnchor, setLegendAnchor] = useState({ top: 0, right: space.lg });
+    const [savingPlanKey, setSavingPlanKey] = useState(null);
+    const [openSwipeId, setOpenSwipeId] = useState(null);
+    const [deleteCandidate, setDeleteCandidate] = useState(null);
 
     const [showEventModal, setShowEventModal] = useState(false);
     const [editingEventId, setEditingEventId] = useState(null);
+    const [editingEvent, setEditingEvent] = useState(null);
     const [formTitle, setFormTitle] = useState("");
     const [formDescription, setFormDescription] = useState("");
     const [formDate, setFormDate] = useState(todayISO());
@@ -74,105 +114,23 @@ export default function CalendarView({ profile }) {
     const [formLead, setFormLead] = useState("1");
 
     const childId = profile?.id;
+    const vaccinations = useRecords(childId, "vaccinations");
+    const checkups = useRecords(childId, "checkups");
+    const medHistory = useRecords(childId, "medical-history");
+    const customEvents = useRecords(childId, "calendar-events");
+    const planStatuses = useRecords(childId, "calendar-plan-statuses");
+    const eventsByDate = useMemo(() => buildCalendarEvents(vaccinations, checkups, medHistory, customEvents, planStatuses),
+        [vaccinations, checkups, medHistory, customEvents, planStatuses]);
+    const saveEvent = useRecordSave(showEventModal, childId, "calendar-events", editingEventId);
 
-    const loadEvents = useCallback(async () => {
-        if (!childId) return;
-        setLoading(true);
-        try {
-            const [vaccinations, checkups, medHistory, customEvents] = await Promise.all([
-                api.listRecords(childId, "vaccinations").catch(() => []),
-                api.listRecords(childId, "checkups").catch(() => []),
-                api.listRecords(childId, "medical-history").catch(() => []),
-                api.listRecords(childId, "calendar-events").catch(() => []),
-            ]);
-
-            const byDate = {};
-            const add = (dateStr, event) => {
-                if (!dateStr) return;
-                const key = String(dateStr).slice(0, 10);
-                if (!byDate[key]) byDate[key] = [];
-                byDate[key].push(event);
-            };
-
-            (vaccinations || []).forEach((v) =>
-                add(v.due_date, {
-                    id: `vax-${v.id}`,
-                    category: "vaccination",
-                    title: v.vaccine_name,
-                    subtitle: v.visit_name || "",
-                    notes: v.notes || "",
-                    completed: v.status === "completed",
-                }),
-            );
-            (checkups || []).forEach((c) =>
-                add(c.checkup_date, {
-                    id: `chk-${c.id}`,
-                    category: "checkup",
-                    title: c.title || "Checkup",
-                    subtitle: c.doctor_name || c.clinic || "",
-                    notes: c.notes || "",
-                    completed: c.status === "completed",
-                }),
-            );
-            (medHistory || []).forEach((m) => {
-                const category =
-                    m.category === "Medication"
-                        ? "medication"
-                        : m.category === "Hospitalization"
-                          ? "hospitalization"
-                          : "illness";
-                const entry = {
-                    id: `med-${m.id}`,
-                    category,
-                    title: m.title,
-                    subtitle: m.category,
-                    notes: m.description || m.notes || "",
-                    completed: !!m.resolved,
-                };
-                add(m.date_recorded, entry);
-                // A course runs for days, and marking only its first day made a
-                // week of antibiotics look like a one-off event. Fill in every
-                // day up to the end — the actual finish date if the parent
-                // recorded one, otherwise the planned one. Capped so a
-                // mistyped course length cannot paint a year of the calendar.
-                if (m.category === "Medication" && m.date_recorded) {
-                    const last = m.resolved_date || plannedEnd(m.date_recorded, m.course_days);
-                    if (last && last > String(m.date_recorded).slice(0, 10)) {
-                        const cursor = new Date(`${String(m.date_recorded).slice(0, 10)}T00:00:00`);
-                        for (let i = 0; i < 120; i++) {
-                            cursor.setDate(cursor.getDate() + 1);
-                            const iso = toLocalISO(cursor);
-                            if (!iso || iso > last) break;
-                            add(iso, { ...entry, id: `med-${m.id}-${iso}` });
-                        }
-                    }
-                }
-            });
-            (customEvents || []).forEach((e) =>
-                add(e.event_date, {
-                    id: `cal-${e.id}`,
-                    rawId: e.id,
-                    category: "custom",
-                    title: e.title,
-                    subtitle: e.event_time ? String(e.event_time).slice(0, 5) : "",
-                    notes: e.description || "",
-                    reminderSettings: e.reminder_settings || null,
-                }),
-            );
-
-            setEventsByDate(byDate);
-        } catch (e) {
-            console.log("calendar load:", e.message);
-        } finally {
-            setLoading(false);
-        }
+    const fetchEvents = useCallback(async () => {
+        if (!childId) return [];
+        const resources = ["vaccinations", "checkups", "medical-history", "calendar-events", "calendar-plan-statuses"];
+        const results = await Promise.allSettled(resources.map((resource) =>
+            api.listRecords(childId, resource, { loading: "nonblocking" })));
+        return resources.filter((_, index) => results[index].status === "rejected");
     }, [childId]);
-
-    useEffect(() => {
-        loadEvents();
-    }, [loadEvents]);
-
-    const refreshControl = useRefreshControl(loading, loadEvents);
+    const { refreshing: loading, failures: refreshFailures, refresh: loadEvents } = useScreenRefresh(childId, fetchEvents);
 
     useEffect(() => {
         (async () => {
@@ -181,27 +139,48 @@ export default function CalendarView({ profile }) {
         })();
     }, []);
 
+    useLayoutEffect(() => {
+        setUpcomingVisible(LIST_PAGE);
+        setOverdueVisible(LIST_PAGE);
+        setActivePlanTab("today");
+        setOpenSwipeId(null);
+    }, [selectedDate, childId]);
+
+    useLayoutEffect(() => setCompletedVisible(LIST_PAGE), [childId]);
+
     const markedDates = useMemo(() => {
         const marks = {};
         Object.entries(eventsByDate).forEach(([date, events]) => {
+            const seen = new Set();
+            const dayOfWeek = new Date(`${date}T00:00:00`).getDay();
             marks[date] = {
-                // A dot is the only mark a day carries, so it has to be
-                // readable at a glance — the library's default is tiny. Size
-                // comes from calendarTheme.dotStyle below.
-                dots: events.slice(0, 4).map((e) => ({ key: e.id, color: categoryColor(colors, e.category) })),
+                // Keep one compact band per category. Multiple records still
+                // remain available in the selected-day list.
+                periods: events
+                    .filter((event) => {
+                        if (seen.has(event.category)) return false;
+                        seen.add(event.category);
+                        return true;
+                    })
+                    .slice(0, 3)
+                    .map((event) => ({
+                        color: categoryColor(colors, event.category),
+                        startingDay: !event.rangeStart || date === event.rangeStart || dayOfWeek === 1,
+                        endingDay: !event.rangeEnd || date === event.rangeEnd || dayOfWeek === 0,
+                    })),
             };
         });
         marks[selectedDate] = {
             ...(marks[selectedDate] || {}),
             selected: true,
-            selectedColor: colors.primary,
+            selectedColor: colors.calendarSurface.active[1],
         };
         return marks;
     }, [eventsByDate, selectedDate, colors]);
 
     const calendarTheme = useMemo(
         () => ({
-            calendarBackground: colors.surface,
+            calendarBackground: "transparent",
             textSectionTitleColor: colors.textMuted,
             selectedDayBackgroundColor: colors.primary,
             selectedDayTextColor: colors.onPrimary,
@@ -209,55 +188,116 @@ export default function CalendarView({ profile }) {
             dayTextColor: colors.text,
             textDisabledColor: colors.border,
             dotColor: colors.primary,
-            // The library's default dot is 5x5 with 1pt gaps — six categories
-            // at that size is more than colour alone can carry. 8pt with a
-            // hairline ring in the surface colour: the ring does nothing on a
-            // plain day cell, and on the SELECTED day (filled with
-            // colors.primary) it keeps a dot of a similar hue from dissolving
-            // into the fill.
-            dotStyle: {
-                width: 8,
-                height: 8,
-                borderRadius: 4,
-                marginTop: 2,
-                marginHorizontal: 1.5,
-                borderWidth: 1,
-                borderColor: colors.surface,
-            },
             arrowColor: colors.primary,
             monthTextColor: colors.text,
-            textMonthFontWeight: "800",
-            textDayFontWeight: "600",
+            textMonthFontFamily: type.heading.fontFamily,
+            textMonthFontWeight: type.heading.fontWeight,
+            textDayFontFamily: type.caption.fontFamily,
+            textDayFontWeight: type.caption.fontWeight,
+            textDayHeaderFontFamily: type.caption.fontFamily,
             textDayHeaderFontWeight: "700",
-            // react-native-calendars draws its day cells at 32pt, which is the
-            // whole tap target for picking a date — the most-tapped control on
-            // this screen. `stylesheet.day.basic` is the library's own
-            // documented override hook; only the box grows, the type and the
-            // dot markers are untouched.
-            "stylesheet.day.basic": {
-                base: {
-                    width: MIN_TOUCH,
-                    height: MIN_TOUCH,
-                    alignItems: "center",
-                    justifyContent: "center",
-                },
+            // Keep the built-in header mounted for its imperative swipe handlers.
+            "stylesheet.calendar.header": {
+                header: { height: 0, marginTop: 0, paddingHorizontal: 0 },
+                headerContainer: { height: 0 },
+            },
+            "stylesheet.calendar.main": {
+                container: { paddingLeft: 0, paddingRight: 0, backgroundColor: "transparent", overflow: "visible" },
+                week: { marginVertical: 4, flexDirection: "row", justifyContent: "space-around" },
+                dayContainer: { flex: 1, alignItems: "center", overflow: "visible" },
             },
         }),
         [colors],
     );
 
-    const dayEvents = eventsByDate[selectedDate] || [];
+    const byTime = (a, b) =>
+        (a.time || "99:99").localeCompare(b.time || "99:99") || (a.title || "").localeCompare(b.title || "");
+    const dayEvents = useMemo(() => [...(eventsByDate[selectedDate] || [])].sort(byTime), [eventsByDate, selectedDate]);
+    const incompleteDayEvents = dayEvents.filter((event) => !event.completed);
+    const flatEvents = useMemo(() => Object.values(eventsByDate).flat(), [eventsByDate]);
+    const today = todayISO();
+    const completedEvents = useMemo(
+        () =>
+            flatEvents
+                .filter((event) => event.completed && !event.courseOccurrence)
+                .sort((a, b) => {
+                    if (a.date === today && b.date !== today) return -1;
+                    if (a.date !== today && b.date === today) return 1;
+                    return b.date.localeCompare(a.date) || byTime(a, b);
+                }),
+        [flatEvents, today],
+    );
+    const visibleCompletedEvents = completedEvents.slice(0, completedVisible);
+    const visibleTodayCompleted = visibleCompletedEvents.filter((event) => event.date === today);
+    const visibleOtherCompleted = visibleCompletedEvents.filter((event) => event.date !== today);
+    const upcomingFrom = selectedDate > today ? selectedDate : today;
+    const upcomingEvents = useMemo(
+        () =>
+            flatEvents
+                .filter(
+                    (event) =>
+                        event.date > upcomingFrom &&
+                        !event.completed &&
+                        !event.courseOccurrence &&
+                        ["vaccination", "checkup", "medication", "custom"].includes(event.category),
+                )
+                .sort((a, b) => a.date.localeCompare(b.date) || byTime(a, b)),
+        [flatEvents, upcomingFrom],
+    );
+    const overdueEvents = useMemo(
+        () =>
+            flatEvents
+                .filter(
+                    (event) =>
+                        event.date < today &&
+                        !event.completed &&
+                        !event.courseOccurrence &&
+                        ["vaccination", "checkup"].includes(event.category),
+                )
+                .sort((a, b) => a.date.localeCompare(b.date) || byTime(a, b)),
+        [flatEvents, today],
+    );
 
-    const shiftDay = (deltaDays) => {
-        const d = new Date(`${selectedDate}T00:00:00`);
-        d.setDate(d.getDate() + deltaDays);
-        // toISOString() here converted local midnight to UTC, so stepping a
-        // day in UTC+8 landed on the previous date.
-        setSelectedDate(toLocalISO(d));
+    const monthOptions = [-1, 0, 1].map((offset) => ({ offset, date: shiftMonthClamped(selectedDate, offset) }));
+
+    const changeMonth = (offset) => {
+        const next = shiftMonthClamped(selectedDate, offset);
+        if (next) setSelectedDate(next);
+    };
+
+    const openMonthPicker = () => {
+        const selectedYear = Number(selectedDate.slice(0, 4));
+        setMonthPickerYear(selectedYear);
+        setShowMonthPicker(true);
+    };
+
+    const openLegend = () => {
+        legendButtonRef.current?.measureInWindow((x, y, width, height) => {
+            setLegendAnchor({
+                top: Math.max(space.lg, Math.min(y + height + space.xs, screenHeight - 140)),
+                right: Math.min(Math.max(space.lg, screenWidth - x - width), screenWidth - legendWidth - space.lg),
+            });
+            setShowLegend(true);
+        });
+    };
+
+    const selectMonth = (monthIndex) => {
+        const offset = (monthPickerYear - Number(selectedDate.slice(0, 4))) * 12
+            + monthIndex - (Number(selectedDate.slice(5, 7)) - 1);
+        setSelectedDate(shiftMonthClamped(selectedDate, offset));
+        setShowMonthPicker(false);
+    };
+
+    const handleMonthChange = (month) => {
+        const current = new Date(`${selectedDate}T00:00:00`);
+        const target = new Date(`${month.dateString}T00:00:00`);
+        const offset = (target.getFullYear() - current.getFullYear()) * 12 + target.getMonth() - current.getMonth();
+        if (offset) changeMonth(offset);
     };
 
     const openCreateModal = () => {
         setEditingEventId(null);
+        setEditingEvent(null);
         setFormTitle("");
         setFormDescription("");
         setFormDate(selectedDate);
@@ -267,10 +307,11 @@ export default function CalendarView({ profile }) {
 
     const openEditModal = (ev) => {
         setEditingEventId(ev.rawId);
+        setEditingEvent(ev);
         setFormTitle(ev.title);
         setFormDescription(ev.notes || "");
-        setFormDate(selectedDate);
-        setFormTime(ev.subtitle || "");
+        setFormDate(ev.date || selectedDate);
+        setFormTime(ev.time || "");
         setFormLead(ev.reminderSettings?.leadDays != null ? String(ev.reminderSettings.leadDays) : formLead);
         setDetailEvent(null);
         setShowEventModal(true);
@@ -294,6 +335,8 @@ export default function CalendarView({ profile }) {
             toast.error("Please choose a date");
             return;
         }
+        if (savingEvent) return;
+        setSavingEvent(true);
         const body = {
             title: formTitle.trim(),
             description: formDescription || null,
@@ -303,44 +346,68 @@ export default function CalendarView({ profile }) {
             reminder_settings: { leadDays: Number(formLead) || 0 },
         };
         try {
-            if (editingEventId) {
-                await api.updateRecord(childId, "calendar-events", editingEventId, body);
-            } else {
-                await api.createRecord(childId, "calendar-events", body);
-            }
+            await saveEvent(body);
             await scheduleEventReminder(formTitle.trim(), formDate, formLead);
             setShowEventModal(false);
-            await loadEvents();
             toast.success(editingEventId ? "Event updated" : "Event added");
         } catch (e) {
             toast.error(e.message || "Could not save event");
+        } finally {
+            setSavingEvent(false);
         }
     };
 
     const handleDeleteEvent = async (ev) => {
+        if (!ev || deletingEventId === ev.id) return false;
+        const resource = PLAN_RESOURCES[ev.sourceType];
+        if (!resource) {
+            toast.error("This plan cannot be deleted here");
+            return false;
+        }
+        setDeletingEventId(ev.id);
         try {
-            await api.deleteRecord(childId, "calendar-events", ev.rawId);
-            setDetailEvent(null);
-            await loadEvents();
-            toast.success("Event deleted");
+            if (resource === "calendar-events") {
+                setDetailEvent(null); setDeleteCandidate(null); setOpenSwipeId(null);
+                await api.optimisticRecord(childId, resource, "delete", ev.sourceId, {}, { label: ev.title });
+            } else {
+                await api.deleteRecord(childId, resource, ev.sourceId);
+                setDetailEvent(null); setDeleteCandidate(null); setOpenSwipeId(null);
+                await loadEvents();
+            }
+            toast.success("Plan deleted");
+            return true;
         } catch (e) {
             toast.error(e.message || "Could not delete event");
+            return false;
+        } finally {
+            setDeletingEventId((current) => current === ev.id ? null : current);
         }
     };
 
-    const renderEventRow = (ev) => {
-        const meta = CATEGORY_META[ev.category] || { label: ev.category, icon: "ellipse-outline" };
+    const togglePlan = async (event) => {
+        if (event.pending || !event.planKey) return;
+        const completed = !event.completed;
+        setSavingPlanKey(event.planKey);
+        try {
+            await api.optimisticRecord(childId, "calendar-plan-statuses", event.planStatusId ? "update" : "create", event.planStatusId,
+                event.planStatusId ? { completed } : {
+                    source_type: event.sourceType, source_id: event.sourceId, occurrence_date: event.date, completed,
+                }, { entity: event.planKey, label: event.title });
+        } catch (error) { toast.error(error.message || "Could not update plan"); }
+        finally { setSavingPlanKey((current) => current === event.planKey ? null : current); }
+    };
+
+    const renderEventContent = (ev, showDate, checklist, tone, neutral = false) => {
+        const meta = CATEGORY_META[ev.category] || { label: ev.category };
+        const when = showDate ? shortDate(ev.date) : ev.time ? shortTime(ev.time) : "All day";
         return (
-            <TouchableOpacity
-                key={ev.id}
-                style={styles.eventRow}
-                onPress={() => setDetailEvent(ev)}
-                accessibilityRole="button"
-                accessibilityLabel={`${meta.label}: ${ev.title}`}
-            >
-                <View style={[styles.eventIconWrap, { backgroundColor: categoryColor(colors, ev.category) + "22" }]}>
-                    <Ionicons name={meta.icon} size={18} color={categoryColor(colors, ev.category)} />
-                </View>
+            <>
+                {!showDate ? <View style={styles.eventWhen}>
+                    <Text style={[styles.eventWhenText, { color: tone }]} numberOfLines={2}>
+                        {when}
+                    </Text>
+                </View> : null}
+                {ev.category === "hospitalization" ? <HospitalStayIcon size={32} /> : ev.category === "vaccination" ? <VaccineIcon size={32} /> : ev.category === "medication" ? <MedicationIcon record={ev.sourceRecord} size={32} /> : null}
                 <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={styles.eventTitle} numberOfLines={2} ellipsizeMode="tail">
                         {ev.title}
@@ -349,178 +416,390 @@ export default function CalendarView({ profile }) {
                         {meta.label}
                         {ev.subtitle ? ` · ${ev.subtitle}` : ""}
                     </Text>
+                    {showDate ? <Text style={[styles.eventSubtitle, { marginTop: space.xs }]}>
+                        {when}{ev.time ? ` · ${shortTime(ev.time)}` : ""}
+                    </Text> : null}
                 </View>
-                {ev.completed ? <Ionicons name="checkmark-circle" size={18} color={colors.success} /> : null}
+                {checklist ? (
+                    <TouchableOpacity
+                        style={styles.checkButton}
+                        onPress={(pressEvent) => {
+                            pressEvent.stopPropagation?.();
+                            togglePlan(ev);
+                        }}
+                        disabled={ev.pending || savingPlanKey === ev.planKey}
+                        accessibilityRole="checkbox"
+                        accessibilityLabel={`${ev.completed ? "Uncheck" : "Complete"} ${ev.title}`}
+                        accessibilityState={{ checked: ev.completed, disabled: ev.pending || savingPlanKey === ev.planKey, busy: ev.pending || savingPlanKey === ev.planKey }}
+                    >
+                        {(<Ionicons
+                            name={ev.completed ? "checkmark-circle" : "ellipse-outline"}
+                            size={24}
+                            color={neutral ? colors.textSecondary : ev.completed ? colors.success : colors.textMuted}
+                        />)}
+                    </TouchableOpacity>
+                ) : ev.completed ? (
+                    <Ionicons
+                        name="checkmark-circle"
+                        size={18}
+                        color={neutral ? colors.textSecondary : colors.success}
+                        style={styles.eventComplete}
+                    />
+                ) : null}
+            </>
+        );
+    };
+
+    const renderEventRow = (ev, showDate = false, checklist = false) => {
+        const meta = CATEGORY_META[ev.category] || { label: ev.category };
+        const tone = colors.textSecondary;
+        return (
+            <TouchableOpacity
+                key={ev.id}
+                style={styles.eventRow}
+                onPress={() => setDetailEvent(ev)}
+                accessibilityRole="button"
+                accessibilityLabel={`${meta.label}: ${ev.title}`}
+            >
+                <Gradient accessible={false} pointerEvents="none" colors={colors.recordItem.surface}
+                    style={[StyleSheet.absoluteFillObject, { borderRadius: 24 }]} />
+                {renderEventContent(ev, showDate, checklist, tone, true)}
             </TouchableOpacity>
         );
     };
 
+    const updateHealthPlan = (ev) => {
+        const tab = {
+            vaccination: "immunizations",
+            checkup: "appointments",
+            medication: "medications",
+            illness: "illnesses",
+            hospitalization: "appointments",
+        }[ev.category];
+        setOpenSwipeId(null);
+        if (tab) onNavigate?.("health", tab, { sourceType: ev.sourceType, record: ev.sourceRecord });
+    };
+
+    const renderSwipeableRow = (ev, showDate = false, checklist = false, onPress = null, neutral = false) => {
+        const custom = ev.category === "custom";
+        const meta = CATEGORY_META[ev.category] || { label: ev.category };
+        const tone = custom ? categoryColor(colors, ev.category) : colors.success;
+        const actions = custom
+            ? [
+                  { key: "update", label: "Update", icon: "create-outline", color: colors.primaryDark, onPress: () => { setOpenSwipeId(null); openEditModal(ev); } },
+                  { key: "delete", label: "Delete", icon: "trash-outline", color: colors.onAccent, kind: "delete", onPress: () => { setOpenSwipeId(null); setDeleteCandidate(ev); } },
+              ]
+            : [
+                  { key: "update", label: "Update", icon: "create-outline", color: colors.primaryDark, onPress: () => updateHealthPlan(ev) },
+                  { key: "delete", label: "Delete", icon: "trash-outline", color: colors.onAccent, kind: "delete", onPress: () => { setOpenSwipeId(null); setDeleteCandidate(ev); } },
+              ];
+
+        return (
+            <SwipeActionRow
+                key={ev.id}
+                open={openSwipeId === ev.id}
+                onOpen={() => setOpenSwipeId(ev.id)}
+                onClose={() => setOpenSwipeId(null)}
+                onPress={onPress}
+                actions={actions}
+                label={`${meta.label}: ${ev.title}`}
+            >
+                <View
+                    style={[
+                        styles.eventRow,
+                        styles.swipeEventRow,
+                        { backgroundColor: colors.recordItem.surface[0] },
+                    ]}
+                >
+                    <Gradient accessible={false} pointerEvents="none" colors={colors.recordItem.surface}
+                        style={[StyleSheet.absoluteFillObject, { borderRadius: 24 }]} />
+                    {renderEventContent(ev, showDate, checklist, neutral ? colors.textSecondary : tone, neutral)}
+                </View>
+            </SwipeActionRow>
+        );
+    };
+
+    const detailPlan = detailEvent ? (() => {
+        const record = detailEvent.sourceRecord || {};
+        const details = [];
+        if (detailEvent.category === "vaccination") {
+            if (record.dose_number) details.push({ label: "Dose", value: String(record.dose_number) });
+            if (record.visit_name) details.push({ label: "Visit", value: record.visit_name });
+            if (record.date_given) details.push({ label: "Given", value: shortDate(record.date_given) });
+        } else if (detailEvent.category === "checkup") {
+            if (record.doctor_name) details.push({ label: "Provider", value: record.doctor_name });
+            if (record.clinic) details.push({ label: "Clinic", value: record.clinic });
+        } else if (detailEvent.category === "medication") {
+            if (record.dose_amount) details.push({ label: "Dose", value: record.dose_amount });
+            if (record.prescribed_by) details.push({ label: "Prescribed by", value: record.prescribed_by });
+            if (detailEvent.rangeEnd && detailEvent.rangeEnd !== detailEvent.rangeStart) {
+                details.push({ label: "Course ends", value: shortDate(detailEvent.rangeEnd) });
+            }
+        } else if (detailEvent.category === "illness" || detailEvent.category === "hospitalization") {
+            if (record.facility) details.push({ label: "Facility", value: record.facility });
+            if (record.care_level) details.push({ label: "Care", value: record.care_level });
+        }
+        const lead = detailEvent.reminderSettings?.leadDays;
+        const reminderLabel = lead == null ? null : Number(lead) === 0 ? "Same day" : `${lead} day${Number(lead) === 1 ? "" : "s"} before`;
+        return {
+            ...detailEvent,
+            categoryLabel: (CATEGORY_META[detailEvent.category] || {}).label || detailEvent.category,
+            color: categoryColor(colors, detailEvent.category),
+            status: detailEvent.completed ? "Done" : detailEvent.date < today ? "Overdue" : "Scheduled",
+            details,
+            reminderLabel,
+            showReminder: detailEvent.category === "custom",
+            deleteLabel: detailEvent.category === "custom" ? "Delete event" : "Delete health record",
+        };
+    })() : null;
+
     return (
         <View style={styles.container}>
-            <Animated.ScrollView
+            <PullToRefreshScrollView scope={childId} refreshing={loading} onRefresh={loadEvents}
+                error={refreshFailures.length ? "Some records could not be refreshed. Please retry." : ""}
                 contentContainerStyle={[styles.scrollContent, { paddingTop: padTop, paddingBottom: padBottom }]}
-                refreshControl={refreshControl}
-                {...scrollProps}
                 keyboardShouldPersistTaps="handled"
             >
-                {/* Inside the scroll view, not above it — same as Health's and
-                    Growth's tab switchers. As a sibling it got no padTop (that
-                    reaches contentContainerStyle only), so it rendered underneath
-                    the floating app header, which covered "Monthly" entirely. */}
-                <View style={styles.switcherRow}>
-                    {["month", "week", "day"].map((mode) => (
-                        <TouchableOpacity
-                            key={mode}
-                            onPress={() => setViewMode(mode)}
-                            style={[styles.switcherBtn, viewMode === mode && styles.switcherBtnActive]}
+                <View style={styles.monthCard} testID="calendar-card">
+                    <CalendarSurface />
+                    <View style={styles.calendarHeader}>
+                        <CalendarControl
+                            onPress={openMonthPicker}
+                            style={styles.headerIconButton}
+                            kind="icon"
+                            circular
                             accessibilityRole="button"
-                            accessibilityLabel={`${mode} view`}
+                            accessibilityLabel="Choose month and year"
+                            accessibilityState={{ expanded: showMonthPicker }}
                         >
-                            <Text
-                                numberOfLines={1}
-                                style={[styles.switcherText, viewMode === mode && styles.switcherTextActive]}
+                            <CalendarArtwork />
+                        </CalendarControl>
+                        <CalendarControl
+                            ref={legendButtonRef}
+                            onPress={openLegend}
+                            style={styles.headerIconButton}
+                            kind="icon"
+                            circular
+                            accessibilityRole="button"
+                            accessibilityLabel="Show calendar legend"
+                            accessibilityState={{ expanded: showLegend }}
+                        >
+                            <CalendarArtwork information />
+                        </CalendarControl>
+                    </View>
+                    <View style={styles.monthStrip}>
+                        {monthOptions.map(({ offset, date }) => offset === 0 ? (
+                            <View
+                                key={offset}
+                                style={[styles.monthOption, styles.monthOptionActive]}
+                                accessible
+                                accessibilityLabel={`${monthText(date)} ${date.slice(0, 4)}`}
+                                testID="calendar-active-month"
                             >
-                                {mode === "month" ? "Monthly" : mode === "week" ? "Weekly" : "Daily"}
-                            </Text>
-                        </TouchableOpacity>
-                    ))}
-                    <TouchableOpacity
-                        onPress={openCreateModal}
-                        style={styles.addEventBtn}
-                        accessibilityRole="button"
-                        accessibilityLabel="Add custom event"
-                    >
-                        <Ionicons name="add" size={20} color={colors.onAccent} />
-                    </TouchableOpacity>
-                </View>
-
-                <TipStrip tipKey="tip_calendar">
-                    Appointments and vaccine due dates appear here automatically. Tap any date to add your own
-                    event.
-                </TipStrip>
-
-                {viewMode === "month" && (
-                    <Calendar
-                        current={selectedDate}
-                        markingType="multi-dot"
-                        markedDates={markedDates}
-                        onDayPress={(day) => setSelectedDate(day.dateString)}
-                        theme={calendarTheme}
-                        style={styles.calendarCard}
-                    />
-                )}
-
-                {viewMode === "week" && (
-                    // The marginBottom in calendarCard never reaches the outer box here:
-                    // WeekCalendar renders inside its own container, so the style lands on
-                    // an inner node and the next block ends up flush against the week
-                    // strip. Harmless while the legend sat above the calendar; visible the
-                    // moment anything sits below it. The spacing goes on a wrapper this
-                    // file owns rather than fighting the library.
-                    <View style={styles.weekWrap}>
-                        <CalendarProvider date={selectedDate} onDateChanged={setSelectedDate}>
-                            <WeekCalendar firstDay={1} markedDates={markedDates} theme={calendarTheme} style={styles.calendarCard} />
-                        </CalendarProvider>
-                    </View>
-                )}
-
-                {viewMode === "day" && (
-                    <View style={styles.dayNav}>
-                        <TouchableOpacity onPress={() => shiftDay(-1)} accessibilityRole="button" accessibilityLabel="Previous day">
-                            <Ionicons name="chevron-back" size={22} color={colors.primary} />
-                        </TouchableOpacity>
-                        <Text style={styles.dayNavLabel}>
-                            {new Date(`${selectedDate}T00:00:00`).toLocaleDateString(undefined, {
-                                weekday: "long",
-                                month: "long",
-                                day: "numeric",
-                            })}
-                        </Text>
-                        <TouchableOpacity onPress={() => shiftDay(1)} accessibilityRole="button" accessibilityLabel="Next day">
-                            <Ionicons name="chevron-forward" size={22} color={colors.primary} />
-                        </TouchableOpacity>
-                    </View>
-                )}
-
-                <View style={styles.legendRow}>
-                    {Object.entries(CATEGORY_META).map(([key, meta]) => (
-                        <View key={key} style={styles.legendItem}>
-                            <View style={[styles.legendDot, { backgroundColor: categoryColor(colors, key) }]} />
-                            <Text style={styles.legendText}>{meta.label}</Text>
-                        </View>
-                    ))}
-                </View>
-
-                <View style={styles.eventsSection}>
-                    <Text style={styles.eventsSectionTitle}>
-                        {selectedDate === todayISO() ? "Today" : selectedDate}
-                    </Text>
-                    {loading && !dayEvents.length ? (
-                        <AppointmentsSkeleton />
-                    ) : dayEvents.length ? (
-                        dayEvents.map(renderEventRow)
-                    ) : (
-                        <EmptyStateCard message="No appointments or events on this day." icon="calendar-outline" />
-                    )}
-                </View>
-            </Animated.ScrollView>
-
-            <Modal visible={!!detailEvent} transparent animationType="fade" onRequestClose={() => setDetailEvent(null)}>
-                <View style={styles.modalBg}>
-                    <View style={styles.modalCard}>
-                        {detailEvent ? (
-                            <>
-                                <Text style={styles.modalTitle}>{detailEvent.title}</Text>
-                                <Text style={styles.modalSubtitle}>
-                                    {(CATEGORY_META[detailEvent.category] || {}).label} · {selectedDate}
+                                <CalendarSurface kind="active" radius={999} />
+                                <Text style={[styles.monthOptionText, styles.monthOptionTextActive]} numberOfLines={1}>
+                                    {monthText(date)}
                                 </Text>
-                                {detailEvent.subtitle ? <Text style={styles.modalNotes}>{detailEvent.subtitle}</Text> : null}
-                                {detailEvent.notes ? <Text style={styles.modalNotes}>{detailEvent.notes}</Text> : null}
-                                {detailEvent.category === "custom" ? (
-                                    <View style={{ flexDirection: "row", gap: space.sm, marginTop: space.sm }}>
-                                        <TouchableOpacity
-                                            onPress={() => openEditModal(detailEvent)}
-                                            style={[styles.modalCloseBtn, { flex: 1, backgroundColor: colors.surfaceAlt }]}
-                                            accessibilityRole="button"
-                                            accessibilityLabel="Edit event"
-                                        >
-                                            <Text style={[styles.modalCloseText, { color: colors.text }]}>Edit</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            onPress={() => handleDeleteEvent(detailEvent)}
-                                            style={[styles.modalCloseBtn, { flex: 1, backgroundColor: colors.danger }]}
-                                            accessibilityRole="button"
-                                            accessibilityLabel="Delete event"
-                                        >
-                                            <Text style={styles.modalCloseText}>Delete</Text>
-                                        </TouchableOpacity>
-                                    </View>
-                                ) : null}
-                                <TouchableOpacity
-                                    onPress={() => setDetailEvent(null)}
-                                    style={styles.modalCloseBtn}
-                                    accessibilityRole="button"
-                                    accessibilityLabel="Close"
-                                >
-                                    <Text style={styles.modalCloseText}>Close</Text>
-                                </TouchableOpacity>
-                            </>
-                        ) : null}
+                            </View>
+                        ) : (
+                            <CalendarControl
+                                key={offset}
+                                onPress={() => changeMonth(offset)}
+                                style={styles.monthOption}
+                                accessibilityRole="button"
+                                accessibilityLabel={`${monthText(date)} ${date.slice(0, 4)}`}
+                            >
+                                <Text style={styles.monthOptionText} numberOfLines={1}>
+                                    {monthText(date, true)}
+                                </Text>
+                            </CalendarControl>
+                        ))}
                     </View>
+                    <View style={styles.weekdayRow}>
+                        {WEEKDAYS.map((day) => (
+                            <Text key={day} style={styles.weekdayText}>
+                                {day}
+                            </Text>
+                        ))}
+                    </View>
+                    <CalendarMonthTransition month={selectedDate.slice(0, 7)} width={screenWidth}>
+                        <Calendar
+                            initialDate={`${selectedDate.slice(0, 7)}-01`}
+                            firstDay={1}
+                            enableSwipeMonths
+                            disableMonthChange
+                            hideArrows
+                            hideDayNames
+                            renderHeader={EmptyCalendarHeader}
+                            headerStyle={styles.hiddenCalendarHeader}
+                            dayComponent={CalendarDateCell}
+                            markingType="multi-period"
+                            markedDates={markedDates}
+                            onDayPress={(day) => setSelectedDate(day.dateString)}
+                            onMonthChange={handleMonthChange}
+                            theme={calendarTheme}
+                            style={styles.monthCalendar}
+                        />
+                    </CalendarMonthTransition>
                 </View>
+
+                <PlansDashboardCard
+                    value={activePlanTab}
+                    onChange={(value) => { setOpenSwipeId(null); setActivePlanTab(value); }}
+                    counts={{ today: incompleteDayEvents.length, upcoming: upcomingEvents.length,
+                        overdue: overdueEvents.length, completed: completedEvents.length }}
+                    title={{ today: selectedDate === today ? "Today's Plan" : `Plan for ${shortDate(selectedDate)}`,
+                        upcoming: "Upcoming Plans", overdue: "Overdue", completed: "Completed" }[activePlanTab]}
+                    action={activePlanTab === "today" && incompleteDayEvents.length > 0 ?
+                        <PlanAddButton onPress={openCreateModal} accessibilityLabel={`Add a plan for ${shortDate(selectedDate)}`} /> : null}
+                >
+                    {activePlanTab === "today" ? loading && !dayEvents.length ? (
+                        <AppointmentsSkeleton />
+                    ) : incompleteDayEvents.length ? (
+                        incompleteDayEvents.map((event) => renderSwipeableRow(event, false, true, () => setDetailEvent(event), true))
+                    ) : (
+                        <PlansEmptyState message={dayEvents.length ? "No unfinished plans for this day." : "No plans recorded for this day."}
+                            onAddPlan={openCreateModal} addPlanLabel={`Add a plan for ${shortDate(selectedDate)}`} />
+                    ) : activePlanTab === "upcoming" ? upcomingEvents.length ? (
+                        <>
+                            {upcomingEvents.slice(0, upcomingVisible).map((event) => renderSwipeableRow(event, true, false, () => setDetailEvent(event)))}
+                            <ShowMore
+                                appearance="measurementHistory"
+                                total={upcomingEvents.length}
+                                visible={upcomingVisible}
+                                noun="plans"
+                                onPress={() => setUpcomingVisible((value) => Math.min(value + 10, upcomingEvents.length))}
+                            />
+                        </>
+                    ) : (
+                        <PlansEmptyState message="No upcoming plans." />
+                    ) : activePlanTab === "overdue" ? overdueEvents.length ? (
+                        <>
+                            {overdueEvents.slice(0, overdueVisible).map((event) => renderEventRow(event, true))}
+                            <ShowMore
+                                appearance="measurementHistory"
+                                total={overdueEvents.length}
+                                visible={overdueVisible}
+                                noun="overdue plans"
+                                onPress={() => setOverdueVisible((value) => Math.min(value + 10, overdueEvents.length))}
+                            />
+                        </>
+                    ) : (
+                        <PlansEmptyState message="No overdue vaccines or checkups." />
+                    ) : completedEvents.length ? (
+                        <>
+                            {visibleTodayCompleted.length ? (
+                                <>
+                                    <Text style={styles.completedGroupTitle}>Today</Text>
+                                    {visibleTodayCompleted.map((event) => renderSwipeableRow(event, true, true, () => setDetailEvent(event), true))}
+                                </>
+                            ) : null}
+                            {visibleOtherCompleted.map((event) => renderSwipeableRow(event, true, true, () => setDetailEvent(event), true))}
+                            <ShowMore
+                                appearance="measurementHistory"
+                                total={completedEvents.length}
+                                visible={completedVisible}
+                                noun="completed plans"
+                                onPress={() => setCompletedVisible((value) => Math.min(value + 10, completedEvents.length))}
+                            />
+                        </>
+                    ) : (
+                        <PlansEmptyState message="No completed plans." />
+                    )}
+                </PlansDashboardCard>
+            </PullToRefreshScrollView>
+
+            <Modal visible={showLegend} transparent animationType="fade" onRequestClose={() => setShowLegend(false)}>
+                <TouchableOpacity activeOpacity={1} style={styles.legendBackdrop} onPress={() => setShowLegend(false)}>
+                    <TouchableOpacity
+                        activeOpacity={1}
+                        style={[styles.legendPopover, { top: legendAnchor.top, right: legendAnchor.right, width: legendWidth }]}
+                        onPress={() => {}}
+                        accessibilityViewIsModal
+                    >
+                        <View style={styles.legendRow}>
+                            {Object.entries(CATEGORY_META).map(([key, meta]) => (
+                                <View key={key} style={styles.legendItem}>
+                                    <View style={[styles.legendBand, { backgroundColor: categoryColor(colors, key) }]} />
+                                    <Text style={styles.legendText} numberOfLines={1}>{meta.label}</Text>
+                                </View>
+                            ))}
+                        </View>
+                    </TouchableOpacity>
+                </TouchableOpacity>
             </Modal>
 
-            <Modal visible={showEventModal} transparent animationType="slide" onRequestClose={() => setShowEventModal(false)}>
-                <KeyboardAvoider>
-                <View style={styles.modalBg}>
-                    <ScrollView
-                        contentContainerStyle={{ width: "100%", alignItems: "center" }}
-                        keyboardShouldPersistTaps="handled"
-                    >
-                        <View style={styles.modalCard}>
-                            <Text style={styles.modalTitle}>{editingEventId ? "Edit Event" : "Add Custom Event"}</Text>
+            <Modal visible={showMonthPicker} transparent animationType="fade" onRequestClose={() => setShowMonthPicker(false)}>
+                <TouchableOpacity activeOpacity={1} style={styles.modalBg} onPress={() => setShowMonthPicker(false)}>
+                    <TouchableOpacity activeOpacity={1} style={styles.monthPickerCard} onPress={() => {}}>
+                        <View style={styles.monthPickerHeading}>
+                            <View style={styles.yearNavigation}>
+                                <CalendarControl circular kind="icon" style={styles.yearButton} onPress={() => setMonthPickerYear(year => year - 1)}
+                                    accessibilityRole="button" accessibilityLabel="Previous year">
+                                    <Ionicons name="chevron-back" size={20} color={colors.calendarSurface.text} />
+                                </CalendarControl>
+                                <Text style={styles.monthPickerTitle} accessibilityLiveRegion="polite">{monthPickerYear}</Text>
+                                <CalendarControl circular kind="icon" style={styles.yearButton} onPress={() => setMonthPickerYear(year => year + 1)}
+                                    accessibilityRole="button" accessibilityLabel="Next year">
+                                    <Ionicons name="chevron-forward" size={20} color={colors.calendarSurface.text} />
+                                </CalendarControl>
+                            </View>
+                            <Text style={styles.monthPickerHint}>Choose a month and year</Text>
+                        </View>
+                        <View style={styles.monthGrid}>
+                            {MONTHS.map((label, index) => {
+                                const selected = Number(selectedDate.slice(0, 4)) === monthPickerYear && Number(selectedDate.slice(5, 7)) === index + 1;
+                                return (
+                                    <TouchableOpacity
+                                        key={label}
+                                        style={[styles.monthCell, selected && styles.monthCellSelected]}
+                                        onPress={() => selectMonth(index)}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={`${label} ${monthPickerYear}`}
+                                        accessibilityState={{ selected }}
+                                    >
+                                        <Text style={[styles.monthCellText, selected && styles.monthCellTextSelected]}>{label}</Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+                        <TouchableOpacity style={styles.monthPickerBack} onPress={() => setShowMonthPicker(false)} accessibilityRole="button">
+                            <Text style={styles.monthPickerBackText}>Back</Text>
+                        </TouchableOpacity>
+                    </TouchableOpacity>
+                </TouchableOpacity>
+            </Modal>
 
-                            <Text style={styles.formLabel}>Title</Text>
+            <PlanDetail
+                visible={!!detailEvent}
+                plan={detailPlan}
+                heroContent={detailEvent?.category === "hospitalization" ? <HospitalStayIcon size={48} /> : detailEvent?.category === "vaccination" ? <VaccineIcon size={48} /> : detailEvent?.category === "medication" ? <MedicationIcon record={detailEvent.sourceRecord} size={48} /> : undefined}
+                onClose={() => setDetailEvent(null)}
+                onEdit={() => {
+                    if (detailEvent?.category === "custom") {
+                        const event = detailEvent;
+                        setDetailEvent(null);
+                        openEditModal(event);
+                    } else {
+                        updateHealthPlan(detailEvent);
+                    }
+                }}
+                onDelete={() => setDeleteCandidate(detailEvent)}
+                deleting={deletingEventId === detailEvent?.id}
+            />
+
+            <DeleteConfirmation visible={!!deleteCandidate} title={"Delete plan?"}
+ message={deleteCandidate ? `Delete "${deleteCandidate.title}"? This cannot be undone.` : ""} busy={!!deletingEventId}
+ onCancel={() => setDeleteCandidate(null)} onConfirm={() => handleDeleteEvent(deleteCandidate)} />
+
+            <RecordFormSheet visible={showEventModal} title={editingEventId ? "Edit Event" : "Add Custom Event"}
+                onClose={() => setShowEventModal(false)} onSubmit={handleSaveEvent} busy={savingEvent}
+                cancelLabel={"Cancel"} submitLabel={editingEventId ? "Save" : "Add"}
+                record={editingEventId != null ? { id: editingEventId } : null} onDelete={editingEventId != null ? () => handleDeleteEvent(editingEvent) : undefined} deleteTitle={"Delete plan?"} deleteMessage={`Delete "${editingEvent?.title || ""}"? This cannot be undone.`}>
+                <RecordFormGroup>
+
+                            <RecordFormRow label={<Text style={styles.formLabel}>Title</Text>}>
+
                             <TextInput
                                 style={styles.formInput}
                                 value={formTitle}
@@ -528,15 +807,22 @@ export default function CalendarView({ profile }) {
                                 placeholder="e.g. Grandma's visit"
                                 placeholderTextColor={colors.placeholder}
                             />
+                            </RecordFormRow>
 
-                            <Text style={styles.formLabel}>Description (optional)</Text>
+                            <RecordFormRow label={<Text style={styles.formLabel}>Description (optional)</Text>}>
+
                             <TextInput style={styles.formInput} value={formDescription} onChangeText={setFormDescription} />
+                            </RecordFormRow>
 
-                            <Text style={styles.formLabel}>Date</Text>
+                            <RecordFormRow label={<Text style={styles.formLabel}>Date</Text>}>
+
                             <DateField value={formDate} onChange={setFormDate} />
+                            </RecordFormRow>
 
-                            <Text style={styles.formLabel}>Time (optional)</Text>
+                            <RecordFormRow label={<Text style={styles.formLabel}>Time (optional)</Text>}>
+
                             <TimeField value={formTime} onChange={setFormTime} />
+                            </RecordFormRow>
 
                             <Text style={styles.formLabel}>Remind me</Text>
                             <View style={styles.leadRow}>
@@ -555,29 +841,8 @@ export default function CalendarView({ profile }) {
                                 ))}
                             </View>
 
-                            <View style={styles.modalButtons}>
-                                <TouchableOpacity
-                                    onPress={() => setShowEventModal(false)}
-                                    style={styles.modalCancelBtn}
-                                    accessibilityRole="button"
-                                    accessibilityLabel="Cancel"
-                                >
-                                    <Text style={styles.modalCancelText}>Cancel</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    onPress={handleSaveEvent}
-                                    style={styles.modalSaveBtn}
-                                    accessibilityRole="button"
-                                    accessibilityLabel="Save event"
-                                >
-                                    <Text style={styles.modalSaveText}>{editingEventId ? "Save" : "Add"}</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    </ScrollView>
-                </View>
-                </KeyboardAvoider>
-            </Modal>
+                </RecordFormGroup>
+            </RecordFormSheet>
         </View>
     );
 }
@@ -590,71 +855,83 @@ const makeStyles = (colors) =>
         // paddingBottom applied inline — space.xxl (32) left the last event
         // underneath the tab bar and the floating button.
         scrollContent: { padding: space.lg },
-        // Wraps. Three mode buttons + Today + the add button came to ~310pt of
-        // the 328pt available at 360pt with no wrap and no scroll, so a 320pt
-        // screen — or a raised font scale on any screen — pushed the add button
-        // clean off the edge with no way to reach it.
-        // No padding of its own any more: it lives inside the scroll view now,
-        // and scrollContent already applies space.lg on every side.
-        switcherRow: {
-            flexDirection: "row",
-            alignItems: "center",
-            flexWrap: "wrap",
-            marginBottom: space.sm,
-            gap: space.xs,
+        monthCard: {
+            backgroundColor: colors.calendarSurface.panel[1],
+            borderRadius: 28,
+            borderCurve: "continuous",
+            paddingHorizontal: space.md,
+            paddingTop: space.md,
+            paddingBottom: space.md,
+            marginBottom: space.md,
+            overflow: "visible",
+            boxShadow: colors.calendarSurface.panelShadow,
         },
-        // Text only. The fill and the pill corner are gone; the selection is
-        // carried by colour plus a rule under the label.
-        //
-        // EVERY button holds the 2px rule, transparent when inactive. Putting
-        // the border only on the active one moves the whole row 2px each time
-        // the selection changes, which reads as the layout twitching.
-        //
-        // The row sits on the page gradient, not on a card. Measured against
-        // the gradient's top stop in all three palettes and both schemes, the
-        // worst case is textMuted at 5.07:1 and primaryDark at 5.14:1 -- both
-        // clear of 4.5:1, so the tokens carry over unchanged. Worth re-checking
-        // before swapping either of them: accentStrong measures 3.77:1 here,
-        // which is why todayBtnText used primaryDark before it was removed.
-        switcherBtn: {
-            minHeight: MIN_TOUCH,
-            justifyContent: "center",
-            paddingTop: 8,
-            paddingBottom: 6,
-            paddingHorizontal: space.sm,
-            borderBottomWidth: 2,
-            borderBottomColor: "transparent",
-        },
-        switcherBtnActive: { borderBottomColor: colors.primaryDark },
-        // Both states stay 13px at weight 700 -- DESIGN.md's Weight Ladder
-        // Rule. Health.js records that growing the active label is what
-        // overflowed a tab box; with no box left it would instead shove the
-        // neighbouring labels sideways on every switch.
-        switcherText: { ...type.caption, fontWeight: "700", color: colors.textMuted },
-        switcherTextActive: { color: colors.primaryDark },
-        addEventBtn: {
-            // Was on todayBtn, which used to sit between the filters and this
-            // button and pushed everything after it to the right edge.
-            marginLeft: "auto",
+        calendarHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+        headerIconButton: {
             width: MIN_TOUCH,
             height: MIN_TOUCH,
-            borderRadius: radius.pill,
-            backgroundColor: colors.accentStrong,
+        },
+        monthStrip: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: space.md },
+        monthOption: {
+            flex: 1,
+            minWidth: 0,
+            minHeight: MIN_TOUCH,
+            flexDirection: "row",
+            gap: 4,
             alignItems: "center",
             justifyContent: "center",
+            paddingHorizontal: space.xs,
         },
-        // A fixed 3 x 2 grid: six categories, three per row, each taking an
-        // equal third. It used to be a plain wrap with a gap, so rows broke
-        // wherever the labels happened to end — ragged, and it re-flowed as
-        // soon as a label changed length.
-        //
-        // rowGap only; the columns get their spacing from the thirds
-        // themselves, which is what keeps the two rows aligned with each other.
+        monthOptionActive: { flex: 1.3, borderRadius: 999, boxShadow: colors.calendarSurface.activeShadow },
+        monthOptionText: { ...type.label, fontSize: 13, flexShrink: 1, color: colors.calendarSurface.secondary },
+        monthOptionTextActive: { color: colors.calendarSurface.onActive, fontWeight: "700" },
+        monthPickerCard: {
+            width: "100%",
+            maxWidth: 360,
+            padding: space.md,
+            borderRadius: radius.xl,
+            borderCurve: "continuous",
+            backgroundColor: colors.surface,
+            ...shadow.raised,
+        },
+        monthPickerHeading: { alignItems: "center", padding: space.sm, gap: 2 },
+        yearNavigation: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%", marginBottom: space.sm },
+        yearButton: { width: MIN_TOUCH, height: MIN_TOUCH },
+        monthPickerTitle: { ...type.heading, color: colors.text },
+        monthPickerHint: { ...type.caption, color: colors.textMuted },
+        monthGrid: { flexDirection: "row", flexWrap: "wrap", paddingVertical: space.md },
+        monthCell: { width: "33.333%", minHeight: 52, alignItems: "center", justifyContent: "center", borderRadius: radius.md, borderCurve: "continuous" },
+        monthCellSelected: { backgroundColor: colors.calendarSurface.active[2] },
+        monthCellText: { ...type.label, color: colors.textSecondary },
+        monthCellTextSelected: { color: colors.calendarSurface.onActive },
+        monthPickerBack: { minHeight: MIN_TOUCH, alignSelf: "flex-end", justifyContent: "center", paddingHorizontal: space.sm },
+        monthPickerBackText: { ...type.label, color: colors.textSecondary },
+        weekdayRow: { flexDirection: "row", marginBottom: space.xs },
+        weekdayText: {
+            ...type.caption,
+            flex: 1,
+            color: colors.textMuted,
+            fontWeight: "700",
+            textAlign: "center",
+        },
+        monthCalendar: { backgroundColor: "transparent", overflow: "visible" },
+        hiddenCalendarHeader: { display: "none" },
+        legendBackdrop: { flex: 1 },
+        legendPopover: {
+            position: "absolute",
+            padding: space.md,
+            borderWidth: 1,
+            borderColor: colors.hairline,
+            borderRadius: radius.lg,
+            borderCurve: "continuous",
+            backgroundColor: colors.surface,
+            ...shadow.raised,
+        },
+        // Six equal, centered cells keep the popover compact and scannable.
         legendRow: {
             flexDirection: "row",
             flexWrap: "wrap",
             rowGap: space.md,
-            marginBottom: space.md,
         },
         legendItem: {
             // Explicit longhand, never `flex: 0` — react-native-web passes
@@ -664,79 +941,44 @@ const makeStyles = (colors) =>
             flexGrow: 0,
             flexShrink: 0,
             flexBasis: "33.33%",
-            flexDirection: "row",
             alignItems: "center",
-            gap: 6,
-            paddingRight: space.xs,
+            justifyContent: "center",
+            gap: space.xs,
         },
-        // Matches the dot size on the day cells, so the legend is a true key
-        // to what the calendar draws rather than a smaller approximation.
-        legendDot: {
-            width: 8,
-            height: 8,
-            borderRadius: 4,
+        // Same rounded-band shape used under dates in the month grid.
+        legendBand: {
+            width: 16,
+            height: 4,
+            borderRadius: radius.pill,
+            borderCurve: "continuous",
             flexShrink: 0,
         },
-        // 12px -- one under the 13px floor theme.js sets ("caption is the 13px
-        // floor -- no text anywhere goes smaller"). A deliberate exception,
-        // chosen with the user: six labels each get a third of the row, and at
-        // 320pt "Hospitalization" measured 92.6px inside a 96px column, so it
-        // ran 10.6px PAST its column into the next one. The same exception the
-        // status pills in ShareRecords.js already take.
-        //
-        // Spreading type.caption also fixes the pairing theme.js warns about:
-        // the old style asked for weight 700 with no fontFamily, so the
-        // platform synthesised a bold that was both heavier and wider than the
-        // real 500 face. A key does not need to shout anyway.
-        legendText: { ...type.caption, fontSize: 12, color: colors.textSecondary },
-        weekWrap: { marginBottom: space.lg },
-        calendarCard: {
-            borderRadius: radius.lg,
-            borderCurve: "continuous",
-            borderWidth: 1,
-            borderColor: colors.hairline,
-            ...shadow.card,
-            marginBottom: space.lg,
-        },
-        dayNav: {
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            backgroundColor: colors.surface,
-            borderWidth: 1,
-            borderColor: colors.hairline,
-            borderRadius: radius.lg,
-            borderCurve: "continuous",
-            paddingVertical: space.md,
-            paddingHorizontal: space.lg,
-            marginBottom: space.lg,
-            ...shadow.card,
-        },
-        dayNavLabel: { fontSize: 14, fontWeight: "800", color: colors.text },
-        eventsSection: { marginTop: space.xs },
-        eventsSectionTitle: { fontSize: 13, fontWeight: "800", color: colors.textMuted, marginBottom: space.sm },
-        eventRow: {
+        // The band sits above the text so the longest label fits its third at 320pt.
+        legendText: { ...type.caption, fontSize: 12, color: colors.textSecondary, textAlign: "center", width: "100%" },
+        completedGroupTitle: { ...type.label, color: colors.textSecondary, marginBottom: space.sm },
+        eventRow: { ...recordItemStyle(colors),
             flexDirection: "row",
             alignItems: "center",
             padding: space.md,
-            backgroundColor: colors.surface,
-            borderWidth: 1,
-            borderColor: colors.hairline,
-            borderRadius: radius.lg,
+
+
             borderCurve: "continuous",
-            marginBottom: space.sm,
-        },
-        eventIconWrap: {
-            width: 38,
-            height: 38,
-            borderRadius: radius.md,
-            borderCurve: "continuous",
-            alignItems: "center",
+             borderRadius: 24, borderWidth: 0, marginBottom: 12, overflow: "visible", paddingHorizontal: 12},
+        swipeEventRow: { marginBottom: 0, minHeight: 72  , boxShadow: "none"},
+        eventWhen: {
+            width: 76,
+            alignSelf: "stretch",
             justifyContent: "center",
+            paddingRight: space.sm,
+            borderRightWidth: 1,
+            borderRightColor: colors.hairline,
             marginRight: space.md,
         },
-        eventTitle: { fontSize: 14, fontWeight: "700", color: colors.text },
-        eventSubtitle: { fontSize: type.caption.fontSize, color: colors.textMuted, marginTop: 2 },
+        eventWhenText: { ...type.caption, fontWeight: "700", fontVariant: ["tabular-nums"] },
+        eventComplete: { marginLeft: space.sm, flexShrink: 0 },
+        checkButton: { width: MIN_TOUCH, height: MIN_TOUCH, marginLeft: space.xs, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+        eventTitle: { ...type.label, color: colors.text },
+        eventSubtitle: { ...type.caption, color: colors.textMuted, marginTop: 2 },
         modalBg: {
             flex: 1,
             backgroundColor: "rgba(28,25,23,0.55)",
@@ -744,20 +986,10 @@ const makeStyles = (colors) =>
             alignItems: "center",
             padding: space.xl,
         },
-        modalCard: {
-            backgroundColor: colors.background,
-            borderRadius: radius.xl,
-            borderCurve: "continuous",
-            padding: space.xl,
-            width: "100%",
-            maxWidth: 360,
-            borderWidth: 1,
-            borderColor: colors.hairline,
-            ...shadow.raised,
-        },
-        modalTitle: { fontSize: 18, fontWeight: "800", color: colors.text, marginBottom: 4 },
+
         modalSubtitle: { fontSize: type.caption.fontSize, fontWeight: "700", color: colors.textMuted, marginBottom: space.md },
         modalNotes: { fontSize: 13, color: colors.textSecondary, lineHeight: 18, marginBottom: space.sm },
+        deleteConfirmText: { ...type.body, color: colors.textSecondary, marginTop: space.sm },
         modalCloseBtn: {
             height: 44,
             borderRadius: radius.md,
@@ -778,9 +1010,9 @@ const makeStyles = (colors) =>
         },
         formInput: {
             backgroundColor: colors.surfaceAlt,
-            borderWidth: 1,
+            borderWidth: 0,
             borderColor: colors.border,
-            borderRadius: radius.md,
+            borderRadius: radius.lg,
             borderCurve: "continuous",
             paddingHorizontal: space.md,
             height: 44,
@@ -801,22 +1033,16 @@ const makeStyles = (colors) =>
         leadOptionActive: { borderColor: colors.primary, backgroundColor: colors.softGreen },
         leadOptionText: { fontSize: type.caption.fontSize, fontWeight: "700", color: colors.textMuted },
         leadOptionTextActive: { color: colors.primaryDark },
-        modalButtons: { flexDirection: "row", justifyContent: "flex-end", gap: space.md, marginTop: space.lg },
-        modalCancelBtn: {
-            paddingVertical: 12,
+
+        modalDeleteBtn: {
+            minWidth: 92,
+            minHeight: MIN_TOUCH,
             paddingHorizontal: space.lg,
             borderRadius: radius.pill,
             borderCurve: "continuous",
-            backgroundColor: colors.surfaceAlt,
+            backgroundColor: colors.danger,
+            alignItems: "center",
+            justifyContent: "center",
         },
-        modalCancelText: { fontSize: 14, fontWeight: "700", color: colors.textSecondary },
-        modalSaveBtn: {
-            paddingVertical: 12,
-            paddingHorizontal: space.lg,
-            borderRadius: radius.pill,
-            borderCurve: "continuous",
-            backgroundColor: colors.accentStrong,
-            ...shadow.accent,
-        },
-        modalSaveText: { fontSize: 14, fontWeight: "800", color: colors.onAccent },
+        modalDeleteText: { ...type.label, color: colors.onAccent },
     });

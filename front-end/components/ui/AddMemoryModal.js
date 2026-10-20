@@ -1,18 +1,22 @@
-import React, { useMemo, useState } from "react";
-import { View, Text, StyleSheet, Modal, TextInput, TouchableOpacity, ScrollView } from "react-native";
+import RecordIcon from "./RecordIcon";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { View, Text, StyleSheet, TextInput, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { radius, space, shadow, type } from "../../theme";
+import { radius, space, type } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
 import { useLanguage } from "../../context/LanguageContext";
 import { api } from "../../utils/api";
+import { useRecordSave } from "../../utils/useRecords";
 import { memoryToApp, milestoneToApp } from "../../utils/adapters";
 import { pickImage, pickerAvailable } from "../../utils/imagePicker";
 import { todayLocal, ageAtDate, monthsBetween } from "../../utils/dates";
-import { suggestedTitles } from "../../utils/milestoneChecklist";
+import { DOMAINS, milestoneDomain, resolveDevelopmentCategory, suggestedTitles } from "../../utils/milestoneChecklist";
+import OptionSheet from "./OptionSheet";
 import { useToast } from "./Toast";
-import Button from "./Button";
+
 import { DateField } from "./DateField";
-import KeyboardAvoider from "./KeyboardAvoider";
+
+import RecordFormSheet, { RecordFormGroup, RecordFormRow } from "./RecordFormSheet";
 
 // Add one entry to the Gallery — either a photo memory or a developmental
 // milestone. One form, because from the parent's side they are the same act:
@@ -31,7 +35,7 @@ import KeyboardAvoider from "./KeyboardAvoider";
 //
 // `onSaved(record, kind)` receives the already-adapted record so the caller
 // prepends to the right list without refetching.
-export default function AddMemoryModal({ visible, profile, milestones = [], onClose, onSaved }) {
+export default function AddMemoryModal({ visible, profile, milestones = [], editMemory = null, recordKind = "memory", onClose, onSaved }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const { t } = useLanguage();
@@ -44,8 +48,36 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
     const [date, setDate] = useState(todayLocal());
     const [photoUri, setPhotoUri] = useState("");
     const [saving, setSaving] = useState(false);
+    const [category, setCategory] = useState("");
+    const [categoryChosen, setCategoryChosen] = useState(false);
+    const [categoryError, setCategoryError] = useState("");
+    const [categoryAnchor, setCategoryAnchor] = useState(null);
+    const categoryTrigger = useRef(null);
 
-    const isMilestone = kind === "milestone";
+    const editing = !!editMemory;
+    const isMilestone = (editing ? recordKind : kind) === "milestone";
+    const saveRecord = useRecordSave(visible, profile.id, isMilestone ? "milestones" : "memories", editMemory?.id);
+    const active = useRef(false), pending = useRef(false);
+    useEffect(() => {
+        active.current = visible;
+        setCategoryAnchor(null);
+        setCategoryError("");
+        if (visible) {
+            setCategory(editMemory ? resolveDevelopmentCategory(editMemory, recordKind) : "");
+            setCategoryChosen(!!editMemory?.developmentCategory);
+        }
+        if (visible && editMemory) {
+            setCaption(editMemory.title || ""); setTitle(editMemory.title || "");
+            setNotes(editMemory.description || ""); setDate(editMemory.date || "");
+        }
+        return () => { active.current = false; };
+    }, [visible, profile.id, editMemory?.id, recordKind]);
+
+    const changeTitle = value => {
+        setTitle(value);
+        if (!categoryChosen) setCategory(milestoneDomain(value));
+        setCategoryError("");
+    };
 
     // Checklist items this child has not recorded yet, drawn from their own
     // age band. Tapping one fills the exact title the Development Checklist
@@ -69,24 +101,41 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
         setNotes("");
         setPhotoUri("");
         setDate(todayLocal());
+        setCategory(""); setCategoryChosen(false); setCategoryError(""); setCategoryAnchor(null);
         // `kind` deliberately survives — a parent adding two milestones in a
         // row should not have to re-pick the type each time.
     };
 
     const handleSave = async () => {
+        if (pending.current) return;
         const name = (isMilestone ? title : caption).trim();
         if (!name) {
             toast.error(isMilestone ? "Please enter a milestone" : "Please enter a caption");
             return;
         }
+        if (isMilestone && !editing && !category) {
+            setCategoryError("Choose a category for this milestone.");
+            return;
+        }
+        pending.current = true;
         setSaving(true);
         try {
-            if (isMilestone) {
+            if (editing) {
+                const fields = isMilestone
+                    ? { title: name, description: notes || null, date_recorded: date || null,
+                        ...(date !== editMemory.date ? { age_achieved: ageAtDate(profile.dateOfBirth, date) || null } : {}) }
+                    : { caption: name, notes: notes || null, date_recorded: date || null };
+                const saved = await saveRecord({ ...fields, development_category: category || null });
+                if (!active.current) return;
+                onSaved?.((isMilestone ? milestoneToApp : memoryToApp)(saved), recordKind);
+                toast.success(isMilestone ? "Milestone saved" : "Memory saved");
+            } else if (isMilestone) {
                 const fields = {
                     title: name,
                     description: notes.trim() || null,
                     date_recorded: date || todayLocal(),
                     is_completed: true,
+                    development_category: category,
                     // Derived, never typed. This is the field the QR snapshot
                     // ships to the healthcare professional, and it was blank
                     // for every record the app itself created.
@@ -94,48 +143,48 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
                 };
                 const saved = photoUri
                     ? await api.createMilestoneWithPhoto(profile.id, fields, photoUri)
-                    : await api.createRecord(profile.id, "milestones", { ...fields, photo_url: null });
+                    : await saveRecord({ ...fields, photo_url: null });
                 if (onSaved) onSaved(milestoneToApp(saved), "milestone");
                 toast.success("Milestone saved");
             } else {
                 const date_recorded = date || todayLocal();
                 const saved = photoUri
-                    ? await api.uploadMemory(profile.id, { photoUri, caption: name, notes, date_recorded })
-                    : await api.createRecord(profile.id, "memories", {
+                    ? await api.uploadMemory(profile.id, { photoUri, caption: name, notes, date_recorded, development_category: category || null })
+                    : await saveRecord({
                           caption: name,
                           notes: notes || null,
                           photo_url: null,
                           date_recorded,
+                          development_category: category || null,
                       });
                 if (onSaved) onSaved(memoryToApp(saved), "memory");
                 toast.success("Memory saved");
             }
             // Only clear on success — on failure everything typed stays put
             // instead of vanishing.
-            reset();
-            onClose();
+            if (active.current) { reset(); onClose(); }
         } catch (e) {
-            toast.error(e.message || (isMilestone ? "Could not save milestone" : "Could not save memory"));
+            if (active.current) toast.error(e.message || (isMilestone ? "Could not save milestone" : "Could not save memory"));
         } finally {
+            pending.current = false;
             setSaving(false);
         }
     };
 
     const KINDS = [
         { key: "memory", label: "Photo", icon: "image-outline" },
-        { key: "milestone", label: "Milestone", icon: "trophy-outline" },
+        { key: "milestone", label: "Milestone" },
     ];
 
     return (
-        <Modal visible={visible} transparent animationType="slide">
-            <KeyboardAvoider>
-                <View style={styles.modalBg}>
-                    <View style={styles.modalCard}>
-                        <Text style={styles.modalTitle}>Add to Gallery</Text>
+        <RecordFormSheet visible={visible} title={editing ? `Edit ${isMilestone ? "Milestone" : "Memory"}` : "Add to Gallery"}
+            onClose={onClose} onSubmit={handleSave} busy={saving}
+            cancelLabel={t("cancel")} submitLabel={t("save")}>
+            <RecordFormGroup>
 
                         {/* Which kind of entry — the only choice that changes
                             where this record goes. */}
-                        <View style={styles.segment}>
+                        {!editing && <View style={styles.segment}>
                             {KINDS.map((k) => {
                                 const on = kind === k.key;
                                 return (
@@ -147,11 +196,8 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
                                         accessibilityState={{ selected: on }}
                                         accessibilityLabel={`Add a ${k.label.toLowerCase()}`}
                                     >
-                                        <Ionicons
-                                            name={k.icon}
-                                            size={16}
-                                            color={on ? colors.onPrimary : colors.textSecondary}
-                                        />
+                                        {k.key === "milestone" ? <RecordIcon category="milestone" size={24} />
+                                            : <Ionicons name={k.icon} size={16} color={on ? colors.onPrimary : colors.textSecondary} />}
                                         <Text
                                             style={[styles.segmentText, on && styles.segmentTextOn]}
                                         >
@@ -160,25 +206,22 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
                                     </TouchableOpacity>
                                 );
                             })}
-                        </View>
+                        </View>}
 
-                        <ScrollView
-                            style={styles.scroll}
-                            keyboardShouldPersistTaps="handled"
-                            showsVerticalScrollIndicator={false}
-                        >
                             {isMilestone ? (
                                 <>
-                                    <Text style={styles.modalLabel}>Milestone</Text>
+                                    <RecordFormRow label={<Text style={styles.modalLabel}>Milestone</Text>}>
+
                                     <TextInput
                                         style={styles.modalInput}
                                         placeholder="First steps"
                                         placeholderTextColor={colors.placeholder}
                                         value={title}
-                                        onChangeText={setTitle}
+                                        onChangeText={changeTitle}
                                     />
+                                    </RecordFormRow>
 
-                                    {chips.length > 0 && (
+                                    {!editing && chips.length > 0 && (
                                         <>
                                             <Text style={styles.chipsLabel}>
                                                 From the Development Checklist
@@ -188,7 +231,7 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
                                                     <TouchableOpacity
                                                         key={c}
                                                         style={styles.chip}
-                                                        onPress={() => setTitle(c)}
+                                                        onPress={() => changeTitle(c)}
                                                         accessibilityRole="button"
                                                     >
                                                         <Text style={styles.chipText}>{c}</Text>
@@ -200,7 +243,8 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
                                 </>
                             ) : (
                                 <>
-                                    <Text style={styles.modalLabel}>Caption</Text>
+                                    <RecordFormRow label={<Text style={styles.modalLabel}>Caption</Text>}>
+
                                     <TextInput
                                         style={styles.modalInput}
                                         placeholder="First steps!"
@@ -208,17 +252,37 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
                                         value={caption}
                                         onChangeText={setCaption}
                                     />
+                                    </RecordFormRow>
                                 </>
                             )}
 
-                            <Text style={styles.modalLabel}>
+                            <RecordFormRow label={isMilestone && !editing ? "Category (required)" : "Category (optional)"} error={categoryError || undefined}>
+                                <TouchableOpacity ref={categoryTrigger} accessibilityRole="button"
+                                    accessibilityLabel="Choose development category" accessibilityState={{ expanded: !!categoryAnchor }}
+                                    style={{ minHeight: 52, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: space.lg }}
+                                    onPress={() => categoryTrigger.current?.measureInWindow((x, y, width, height) => setCategoryAnchor({ x, y, width, height }))}>
+                                    <Text style={{ ...type.body, color: colors.text, flex: 1, minWidth: 0 }}>
+                                        {DOMAINS.find(domain => domain.key === category)?.label || "Not categorized"}
+                                    </Text>
+                                    <Ionicons name="chevron-down" size={18} color={colors.primary} />
+                                </TouchableOpacity>
+                            </RecordFormRow>
+                            <OptionSheet visible={visible && !!categoryAnchor} anchor={categoryAnchor} selectedKey={category}
+                                options={isMilestone ? DOMAINS : [{ key: "", label: "Not categorized" }, ...DOMAINS]}
+                                onClose={() => setCategoryAnchor(null)} onSelect={key => {
+                                    setCategory(key); setCategoryChosen(true); setCategoryError(""); setCategoryAnchor(null);
+                                }} />
+
+                            <RecordFormRow label={<Text style={styles.modalLabel}>
                                 {isMilestone ? "What happened (optional)" : "Notes (optional)"}
-                            </Text>
+                            </Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 value={notes}
                                 onChangeText={setNotes}
                             />
+                            </RecordFormRow>
 
                             {/* A milestone is usually logged after the fact, and
                                 its date is what the stored age is derived from. */}
@@ -226,10 +290,10 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
                                 label={isMilestone ? "Date it happened" : "Date"}
                                 value={date}
                                 onChange={setDate}
-                                maximumDate={todayLocal()}
+                                maximumDate={editing && editMemory.date > todayLocal() ? editMemory.date : todayLocal()}
                             />
 
-                            {pickerAvailable() && (
+                            {!editing && pickerAvailable() && (
                                 <TouchableOpacity
                                     style={styles.choosePhotoBtn}
                                     onPress={async () => {
@@ -261,56 +325,14 @@ export default function AddMemoryModal({ visible, profile, milestones = [], onCl
                                     </Text>
                                 </View>
                             )}
-                        </ScrollView>
 
-                        <View style={styles.modalButtons}>
-                            <Button
-                                title={t("cancel")}
-                                variant="secondary"
-                                fullWidth={false}
-                                disabled={saving}
-                                onPress={onClose}
-                            />
-                            <Button
-                                title={t("save")}
-                                variant="accent"
-                                fullWidth={false}
-                                loading={saving}
-                                onPress={handleSave}
-                            />
-                        </View>
-                    </View>
-                </View>
-            </KeyboardAvoider>
-        </Modal>
+            </RecordFormGroup>
+        </RecordFormSheet>
     );
 }
 
 const makeStyles = (colors) =>
     StyleSheet.create({
-        modalBg: {
-            flex: 1,
-            backgroundColor: "rgba(28,25,23,0.55)",
-            justifyContent: "center",
-            alignItems: "center",
-            padding: space.xl,
-        },
-        modalCard: {
-            backgroundColor: colors.background,
-            borderRadius: radius.xl,
-            borderCurve: "continuous",
-            padding: space.xl,
-            width: "100%",
-            // 440, not 360 — the sheet was narrower than every reference
-            // phone width (390, 430), wasting room the fields needed.
-            maxWidth: 440,
-            maxHeight: "88%",
-            borderWidth: 1,
-            borderColor: colors.hairline,
-            ...shadow.raised,
-        },
-        modalTitle: { ...type.title, color: colors.text, marginBottom: space.lg },
-        scroll: { flexGrow: 0 },
 
         segment: {
             flexDirection: "row",
@@ -337,13 +359,14 @@ const makeStyles = (colors) =>
 
         modalLabel: { ...type.subheading, color: colors.textMuted, marginBottom: space.sm },
         modalInput: {
-            backgroundColor: colors.surface,
-            borderWidth: 1,
+            backgroundColor: colors.surfaceAlt,
+            borderWidth: 0,
             borderColor: colors.border,
-            borderRadius: radius.md,
+            borderRadius: radius.lg,
             borderCurve: "continuous",
             paddingHorizontal: space.md,
-            height: 48,
+            minHeight: 52,
+            paddingVertical: space.sm,
             fontSize: type.body.fontSize,
             fontFamily: type.body.fontFamily,
             color: colors.text,
@@ -386,10 +409,4 @@ const makeStyles = (colors) =>
         },
         noteText: { ...type.caption, color: colors.text, flex: 1 },
 
-        modalButtons: {
-            flexDirection: "row",
-            justifyContent: "flex-end",
-            gap: space.md,
-            marginTop: space.lg,
-        },
     });

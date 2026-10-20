@@ -14,6 +14,7 @@ new Function("require", "module", "exports", read("routes/records.routes.js")
     if (name === "express") return express;
     if (name === "../middleware/error") return require("../src/middleware/error");
     if (name === "../utils/numericValidation") return numeric;
+    if (name === "../utils/memoryFields") return require("../src/utils/memoryFields");
     if (name === "../middleware/auth") return { requireAuth() {}, requireChildOwnership() {} };
     if (name === "../utils/resource") return { createResourceRouter: (resource) => {
         resources.push(resource); return express.Router();

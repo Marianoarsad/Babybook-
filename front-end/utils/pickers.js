@@ -1,0 +1,84 @@
+const pad = (value) => String(value).padStart(2, "0");
+
+export function timeParts(value) {
+    const match = /^(\d{1,2}):(\d{2})/.exec(String(value || ""));
+    const hour24 = match && Number(match[1]) < 24 ? Number(match[1]) : 9;
+    const minute = match && Number(match[2]) < 60 ? Number(match[2]) : 0;
+    return {
+        period: hour24 >= 12 ? "PM" : "AM",
+        hour: hour24 % 12 || 12,
+        minute,
+    };
+}
+
+export function timeValue({ period, hour, minute }) {
+    const hour24 = (Number(hour) % 12) + (period === "PM" ? 12 : 0);
+    return `${pad(hour24)}:${pad(Number(minute))}`;
+}
+
+export function durationValue({ hour, minute }) {
+    const total = Math.trunc(Number(hour)) * 60 + Math.trunc(Number(minute));
+    return Math.max(1, Math.min(1440, Number.isFinite(total) ? total : 60));
+}
+
+export function durationParts(value) {
+    const total = Math.max(1, Math.min(1440, Number.isFinite(Number(value)) ? Math.trunc(Number(value)) : 60));
+    return { hour: Math.floor(total / 60), minute: total % 60 };
+}
+
+export function pickerDateParts(value, fallback) {
+    const source = /^\d{4}-\d{2}-\d{2}$/.test(String(value || "")) ? value : fallback;
+    const [year, month, day] = String(source).split("-").map(Number);
+    return { year, month, day };
+}
+
+export function pickerDateValue(parts, minimumDate, maximumDate) {
+    const year = Math.trunc(Number(parts.year));
+    const month = Math.max(1, Math.min(12, Math.trunc(Number(parts.month))));
+    const lastDay = new Date(year, month, 0).getDate();
+    const day = Math.max(1, Math.min(lastDay, Math.trunc(Number(parts.day))));
+    const candidate = `${year}-${pad(month)}-${pad(day)}`;
+    if (minimumDate && candidate < minimumDate) return minimumDate;
+    if (maximumDate && candidate > maximumDate) return maximumDate;
+    return candidate;
+}
+
+export function pickerYears(value, minimumDate, maximumDate, currentYear = new Date().getFullYear()) {
+    const selectedYear = Number(String(value || "").slice(0, 4)) || currentYear;
+    const first = minimumDate
+        ? Number(minimumDate.slice(0, 4))
+        : Math.min(selectedYear, currentYear - 120);
+    const last = maximumDate
+        ? Number(maximumDate.slice(0, 4))
+        : Math.max(selectedYear, currentYear + 20);
+    return Array.from({ length: Math.max(1, last - first + 1) }, (_, index) => first + index);
+}
+
+export function availablePickerDates(values, minimumDate, maximumDate) {
+    return [...new Set((values || [])
+        .map((value) => String(value || "").slice(0, 10))
+        .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value))
+        .filter((value) => (!minimumDate || value >= minimumDate) && (!maximumDate || value <= maximumDate)))]
+        .sort();
+}
+
+export function closestAvailableDate(values, target) {
+    if (!values?.length) return "";
+    if (values.includes(target)) return target;
+    const timestamp = (value) => {
+        const [year, month, day] = value.split("-").map(Number);
+        return Date.UTC(year, month - 1, day);
+    };
+    const targetTime = timestamp(target);
+    return values.reduce((closest, value) => (
+        Math.abs(timestamp(value) - targetTime) < Math.abs(timestamp(closest) - targetTime)
+            ? value
+            : closest
+    ));
+}
+
+export function selectableMonths(year, now = new Date()) {
+    if (year > now.getFullYear()) return Array.from({ length: 12 }, (_, index) => index);
+    if (year < now.getFullYear()) return [];
+    return Array.from({ length: 12 - now.getMonth() }, (_, index) => now.getMonth() + index);
+}

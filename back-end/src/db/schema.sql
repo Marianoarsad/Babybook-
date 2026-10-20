@@ -16,6 +16,7 @@ DROP TABLE IF EXISTS calendar_events CASCADE;
 DROP TABLE IF EXISTS reminders CASCADE;
 DROP TABLE IF EXISTS record_attachments CASCADE;
 DROP TABLE IF EXISTS memories CASCADE;
+DROP TABLE IF EXISTS milk_type_periods CASCADE;
 DROP TABLE IF EXISTS nutrition_records CASCADE;
 DROP TABLE IF EXISTS milestones CASCADE;
 DROP TABLE IF EXISTS growth_records CASCADE;
@@ -279,6 +280,8 @@ CREATE TABLE milestones (
     description   TEXT,
     date_recorded DATE,
     is_completed  BOOLEAN NOT NULL DEFAULT TRUE,
+    is_favorite   BOOLEAN NOT NULL DEFAULT FALSE,
+    development_category TEXT CHECK (development_category IN ('social', 'language', 'cognitive', 'motor')),
     photo_url     TEXT,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -336,6 +339,8 @@ CREATE TABLE nutrition_records (
     breast_side     VARCHAR(5) CHECK (breast_side IN ('left', 'right', 'both')),
     -- solid fields
     food_introduced TEXT,          -- encrypted at rest
+    food_category TEXT CONSTRAINT nutrition_food_category_check
+        CHECK (food_category IN ('fruits', 'vegetables', 'grains', 'proteins', 'dairy', 'other')),
     -- Whether there WAS a reaction, so it can be counted and filtered.
     -- `reaction` below is the free-text description of one.
     reaction_severity VARCHAR(10) CHECK (reaction_severity IN ('none', 'mild', 'severe')),
@@ -359,6 +364,8 @@ CREATE TABLE memories (
     id            SERIAL PRIMARY KEY,
     child_id      INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
     photo_url     TEXT,
+    is_favorite   BOOLEAN NOT NULL DEFAULT FALSE,
+    development_category TEXT CHECK (development_category IN ('social', 'language', 'cognitive', 'motor')),
     caption       TEXT,              -- encrypted at rest
     notes         TEXT,
     date_recorded DATE,
@@ -558,4 +565,29 @@ DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
         REVOKE ALL ON mutation_receipts FROM authenticated;
     END IF;
+END $$;
+
+-- Explicit periods are independent of feeding events; never backfill inferred history.
+CREATE TABLE milk_type_periods (
+    id SERIAL PRIMARY KEY,
+    child_id INTEGER NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+    milk_type TEXT NOT NULL CHECK (milk_type IN ('Breastmilk', 'Formula', 'Mixed')),
+    start_date DATE NOT NULL,
+    end_date DATE,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (end_date IS NULL OR end_date >= start_date)
+);
+CREATE INDEX idx_milk_type_periods_child_start ON milk_type_periods(child_id, start_date DESC, id DESC);
+CREATE TRIGGER trg_milk_type_periods_updated BEFORE UPDATE ON milk_type_periods
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+ALTER TABLE milk_type_periods ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE milk_type_periods FROM PUBLIC;
+REVOKE ALL ON SEQUENCE milk_type_periods_id_seq FROM PUBLIC;
+DO $$ DECLARE client_role TEXT; BEGIN
+    FOR client_role IN SELECT rolname FROM pg_roles WHERE rolname IN ('anon', 'authenticated') LOOP
+        EXECUTE format('REVOKE ALL ON TABLE milk_type_periods FROM %I', client_role);
+        EXECUTE format('REVOKE ALL ON SEQUENCE milk_type_periods_id_seq FROM %I', client_role);
+    END LOOP;
 END $$;

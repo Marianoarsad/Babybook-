@@ -1,33 +1,53 @@
-import React, { useState, useMemo, useRef } from "react";
+import RecordIcon, { AllergyIcon, HereditaryIcon, IllnessIcon } from "./ui/RecordIcon";
+import { hospitalStayInfo } from "../utils/hospitalStays";
+import HospitalStayIcon from "./ui/HospitalStayIcon";
+import ViewerImmunizationStatusCard from "./ui/ViewerImmunizationStatusCard";
+import SolidFoodIcon from "./ui/SolidFoodIcon";
+import MilkIcon from "./ui/MilkIcon";
+import { MetricArtwork } from "./ui/FeedingTodayCard";
+import { DashboardSurface as ClinicalSurface } from "./ui/ConsultationsAppointmentsCard";
+import Svg, { Defs, LinearGradient, Path, Stop } from "react-native-svg";
+import { milkPeriodInfo } from "../utils/milkTypeHistory";
+import React, { useEffect, useId, useState, useMemo, useRef } from "react";
 import {
     View,
     Text,
+    Image,
     StyleSheet,
-    TextInput,
     TouchableOpacity,
     ScrollView,
-    ActivityIndicator,
+    Platform,
+    AppState,
+    useWindowDimensions,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Field from "./ui/Field";
+import Button from "./ui/Button";
+import Gradient from "./ui/Gradient";
+import KeyboardAvoider from "./ui/KeyboardAvoider";
+import { SectionContainerCard, ListEntryCard } from "./common/Cards";
+import professionalAccess from "../utils/professionalAccess.cjs";
+import consultationLinks from "../utils/consultationLinks.cjs";
+import consultationSession from "../utils/consultationSession.cjs";
 import { Ionicons } from "@expo/vector-icons";
 import { RECORD_LABELS } from "../utils/shareStore";
 import { api } from "../utils/api";
 import { useTheme } from "../context/ThemeContext";
-import { space, type, MIN_TOUCH } from "../theme";
+import { useLanguage } from "../context/LanguageContext";
+import { LatestMeasurementsSummary, SolidFoodsSummary, growthMeasurements } from "./common/RecordSummaries";
+import { radius, space, type, shadow, MIN_TOUCH, paletteFor, cardHeaderIconStyle } from "../theme";
 import { fitsColumns } from "../utils/responsive";
 import QrScanner, { scannerAvailable } from "./QrScanner";
 import GrowthChart from "./GrowthChart";
-import { shortDate, shortTime, overdueBy, spanText, todayLocal } from "../utils/dates";
-import { courseDayText, isActiveOn } from "../utils/medication";
-import { feedRowSummary } from "../utils/adapters";
+import AnimatedReveal from "./ui/AnimatedReveal";
+import { shortDate, overdueBy, todayLocal, toLocalISO, numericDate, ageLabel, recentDateRange } from "../utils/dates";
+import MedicationIcon from "./ui/MedicationIcon";
+import GrowthIcon from "./ui/GrowthIcon";
+import { isActiveOn, courseDayText } from "../utils/medication";
+import { nutritionToApp, feedVolumeMl } from "../utils/adapters";
+import { byMoment, solidFoodStats } from "../utils/feedingStats";
 import { ageText } from "./Dashboard";
-import {
-    WHO_MAX_DAY,
-    ageInDays,
-    formatPercentile,
-    normalizeSex,
-    percentileFromZ,
-    zScore,
-} from "../utils/whoGrowth";
+import { medicationStatus, medicalHistoryRows, conditionDuration } from "../utils/viewerRecords";
 
 // How many rows of any one record type show before "Show more". The clinician
 // this screen serves has, per PRODUCT.md, "a patient in front of them and very
@@ -35,6 +55,54 @@ import {
 // which previously rendered in full and pushed Medical History off the bottom.
 // Matches DESIGN.md's app-wide rule (cap at 10, reveal the rest on request).
 const PAGE = 10;
+const { formatConsultationInput, protectConsultation } = professionalAccess;
+const { scannedCredentials, clearBrowserConsultation } = consultationLinks;
+const { remainingLifetime, watchConsultation } = consultationSession;
+// An older custom native build may not include the new module yet. Keep the
+// parent app usable, but fail closed when opening protected shared records.
+let ScreenCapture = null;
+try { ScreenCapture = require("expo-screen-capture"); } catch { /* viewer shows Retry/Exit */ }
+
+function abbreviateAge(value) {
+    return String(value ?? "").replace(/\b(months?|years?)\b/gi,
+        (unit) => ({ month: "mo", months: "mos", year: "yr", years: "yrs" })[unit.toLowerCase()]);
+}
+
+function ProtectedRecordsView(props) {
+    const { colors } = useTheme();
+    const insets = useSafeAreaInsets();
+    const id = useId();
+    const [attempt, setAttempt] = useState(0);
+    const [status, setStatus] = useState(Platform.OS === "web" ? "ready" : "loading");
+    useEffect(() => {
+        if (Platform.OS === "web") return undefined;
+        let active = true;
+        setStatus("loading");
+        const protection = protectConsultation(ScreenCapture || { isAvailableAsync: async () => false },
+            Platform.OS, `consultation:${id}:${attempt}`);
+        protection.ready.then((ready) => { if (active && ready) setStatus("ready"); },
+            () => { if (active) setStatus("error"); });
+        return () => {
+            active = false;
+            protection.dispose().catch(() => console.warn("Could not release consultation capture protection"));
+        };
+    }, [id, attempt]);
+
+    return <Gradient colors={colors.pageGradient} style={{ flex: 1 }}>
+        {status === "ready" ? <RecordsView {...props} /> : (
+            <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: space.xl,
+                paddingTop: space.xl + insets.top, paddingBottom: space.xl + insets.bottom }}>
+                <SectionContainerCard title={status === "error" ? "Records Are Protected" : "Protecting Records"}
+                    subtitle={status === "error"
+                        ? "Screenshot protection could not start. Please retry, update the app, or leave this view."
+                        : "Setting up screenshot protection before showing the baby's information."}>
+                    {status === "error" ? <Button title="Retry" icon="refresh-outline" onPress={() => setAttempt((v) => v + 1)} /> : null}
+                    <Button title="Exit" variant="ghost" onPress={props.onEnd} style={{ marginTop: space.md }} />
+                </SectionContainerCard>
+            </ScrollView>
+        )}
+    </Gradient>;
+}
 
 // Where the child was cared for, as recorded by the parent. Stated as a fact
 // about what the family did — the app assigns no severity and must not start.
@@ -63,102 +131,110 @@ const medFromSnapshot = (m) => ({
 // invite the two copies to disagree.
 const SECTION_ORDER = [
     "vaccinations",
-    "growth",
+    "nutrition",
+    "medications",
     "medicalHistory",
     "checkups",
     "milestones",
-    "nutrition",
-    "profile",
+    "growth",
 ];
 
-// growth_records.measured_at (migration 007). Reading only: never rank or
-// discount a measurement by where it was taken.
-const GROWTH_PLACE = {
-    home: "at home",
-    health_center: "health centre",
-    clinic: "clinic",
-    hospital: "hospital",
-};
+
 
 // Short labels for the jump bar. RECORD_LABELS is written for the parent
 // choosing what to share ("Allergies & Hereditary Conditions") and is too
 // long to sit in a chip.
 const SECTION_SHORT = {
-    vaccinations: "Immunisation",
+    vaccinations: "Immunization",
     growth: "Growth",
     medicalHistory: "History",
+    medications: "Medications",
     checkups: "Care",
     milestones: "Development",
-    nutrition: "Feeding",
-    profile: "Profile",
+    nutrition: "Nutrition",
 };
 
 // Secondary actor: healthcare professional. View-only access via a parent's
 // consultation code, resolved against the backend (works across devices).
-export default function ProfessionalView({ onExit }) {
+export default function ProfessionalView({ onExit, initialShare }) {
     const { colors } = useTheme();
+    const insets = useSafeAreaInsets();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const [name, setName] = useState("");
-    const [code, setCode] = useState("");
+    const [code, setCode] = useState(initialShare?.code || "");
+    const [codeSelection, setCodeSelection] = useState({ start: 0, end: 0 });
+    const selectionRef = useRef(codeSelection);
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState("");
+    const [error, setError] = useState(initialShare?.invalid ? "This sharing link is invalid. Ask the parent for a new QR code." : "");
     const [session, setSession] = useState(null);
     const [scanning, setScanning] = useState(false);
+    const [verified, setVerified] = useState(false);
+    const tokenRef = useRef(initialShare?.shareToken);
+    const requestRef = useRef(null);
+    const generation = useRef(0);
+    const cancel = () => { generation.current++; requestRef.current?.abort(); requestRef.current = null; };
+    useEffect(() => () => cancel(), []);
+    useEffect(() => {
+        cancel(); setSession(null); setVerified(false); setLoading(false);
+        setCode(initialShare?.code || ""); tokenRef.current = initialShare?.shareToken;
+        setError(initialShare?.invalid ? "This sharing link is invalid. Ask the parent for a new QR code." : "");
+    }, [initialShare]);
+    useEffect(() => {
+        if (!session) return undefined;
+        return watchConsultation({ session, credentials: session.credentials, api, appState: Platform.OS === "web" ? null : AppState,
+            onHidden: () => setVerified(false), onReady: () => setVerified(true),
+            onEnd: (message) => { setSession(null); setVerified(false); setError(message); } });
+    }, [session]);
 
     const handleView = async (overrideCode) => {
-        // overrideCode is only used by the QR-scan path (a real scanned
-        // string). Guard with typeof, not just != null — wiring this
-        // function directly to an onPress/onClick prop elsewhere would
-        // otherwise pass the press event itself here, which is a truthy
-        // object that silently stringifies to "[object Object]".
+        if (loading) return;
         const raw = (typeof overrideCode === "string" ? overrideCode : code).trim();
-        if (!raw) {
-            setError("Enter the consultation code shown in the parent's app.");
-            return;
-        }
-        setLoading(true);
-        setError("");
+        const credentials = scannedCredentials(raw);
+        if (!credentials) { setError("Enter the consultation code shown in the parent's app."); return; }
+        if (!name.trim() || name.trim().length > 100) { setError("Enter your name before viewing the records."); return; }
+        if (tokenRef.current) credentials.shareToken = tokenRef.current;
+        cancel();
+        const stamp = generation.current, controller = new AbortController();
+        requestRef.current = controller;
+        const started = performance.now(), timeout = setTimeout(() => controller.abort(), 90000);
+        setLoading(true); setError("");
         try {
-            const r = await api.resolveConsult({
-                code: raw,
-                professionalName: name.trim(),
-            });
-            setSession({
-                childName: r.childName,
-                recordKeys: r.recordKeys || [],
-                payload: r.payload || {},
-                code: raw.toUpperCase(),
-                capturedAt: r.capturedAt,
-            });
+            const r = await api.resolveConsult({ ...credentials, professionalName: name.trim() }, { signal: controller.signal });
+            if (stamp !== generation.current) return;
+            const remainingMs = remainingLifetime(r, performance.now() - started);
+            if (!remainingMs || r.status !== "ok") throw new Error("This code has expired or its access could not be verified.");
+            setVerified(typeof document === "undefined" ? AppState.currentState === "active" : document.visibilityState === "visible");
+            setSession({ childName: r.childName, recordKeys: r.recordKeys || [], payload: r.payload || {},
+                code: credentials.code, credentials, remainingMs, professionalName: name.trim(), capturedAt: r.capturedAt });
         } catch (e) {
-            const s = e.data && e.data.status;
+            if (stamp !== generation.current) return;
+            const s = e.data?.status;
             if (s === "expired") setError("This code has expired. Ask the parent to generate a new one.");
             else if (s === "revoked") setError("This code was revoked by the parent.");
-            // The snapshot could not be opened — purged with the code, or
-            // sealed under a key the server no longer has. Refusing is the only
-            // safe answer: an empty record set would read as a child with no
-            // allergies and no history.
-            else if (s === "unavailable")
-                setError("These shared records are no longer available. Ask the parent to generate a new code.");
+            else if (s === "unavailable" || s === "unreadable")
+                setError("These records cannot be opened safely. Ask the parent for a new code.");
             else if (s === "notfound") setError("Code not found. Please re-check with the parent.");
-            else if (s === "invalid") setError("Unrecognized code. Check and try again.");
-            else setError(e.message || "Could not resolve the code.");
+            else if (s === "invalid") setError("Check your name and consultation code, then try again.");
+            else if (e.status === 0) setError("The sharing server may be starting or your connection is unavailable. Wait a minute, then try again.");
+            else setError(e.message || "Could not open the records.");
         } finally {
-            setLoading(false);
+            clearTimeout(timeout);
+            if (stamp === generation.current) { requestRef.current = null; setLoading(false); }
         }
     };
 
     const endSession = () => {
-        setSession(null);
-        setCode("");
-        setName("");
-        setError("");
+        cancel(); setSession(null); setVerified(false); setLoading(false);
+        setCode(""); tokenRef.current = undefined;
+        selectionRef.current = { start: 0, end: 0 }; setCodeSelection(selectionRef.current);
+        setName(""); setError(""); clearBrowserConsultation();
     };
 
     const handleScanned = (data) => {
-        setScanning(false);
-        setCode(String(data || ""));
-        handleView(data);
+        cancel(); setLoading(false); setScanning(false);
+        const credentials = scannedCredentials(data);
+        setCode(credentials?.code || ""); tokenRef.current = credentials?.shareToken;
+        setError(credentials ? "" : "This QR code is not a valid BabyBook+ sharing link.");
     };
 
     if (scanning) {
@@ -166,48 +242,58 @@ export default function ProfessionalView({ onExit }) {
     }
 
     if (session) {
-        return <RecordsView session={session} onEnd={endSession} onExit={onExit} />;
+        return verified ? <ProtectedRecordsView session={session} onEnd={endSession} onExit={onExit} />
+            : <Gradient colors={colors.pageGradient} style={styles.root}>
+                <View style={{ padding: space.xl + insets.top }}>
+                    <SectionContainerCard title="Checking Access" subtitle="Records stay hidden until your access is confirmed.">
+                        <Button title="Exit" onPress={endSession} />
+                    </SectionContainerCard>
+                </View>
+            </Gradient>;
     }
 
     return (
-        <ScrollView contentContainerStyle={styles.entryScroll} keyboardShouldPersistTaps="handled">
+        <Gradient colors={colors.pageGradient} style={styles.root}>
+        <KeyboardAvoider>
+        <ScrollView contentContainerStyle={[styles.entryScroll, { paddingTop: space.xl + insets.top,
+            paddingBottom: space.xl + insets.bottom }]} keyboardShouldPersistTaps="handled">
             <View style={styles.entryCard}>
+                <SectionContainerCard title="Healthcare Professional" subtitle="Read-only access to records shared by the parent for this consultation.">
                 <View style={styles.logoCircle}>
                     <Ionicons name="medkit" size={26} color={colors.primary} />
                 </View>
-                <Text style={styles.title}>Healthcare Professional</Text>
-                <Text style={styles.subtitle}>
-                    View-only access to a child's records, authorized by the parent for this consultation.
-                </Text>
-
-                <View style={styles.field}>
-                    <Text style={styles.label}>Your Name (for the access log)</Text>
-                    <View style={styles.inputWrap}>
-                        <Ionicons name="person-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
-                        <TextInput
-                            style={styles.input}
+                <Field
+                            label="Your Name (for the access log)"
+                            leading={<Ionicons name="person-outline" size={16} color={colors.textMuted} />}
                             placeholder="e.g. Dr. Sarah Chen"
-                            placeholderTextColor={colors.placeholder}
+                            maxLength={100}
                             value={name}
-                            onChangeText={setName}
+                            onChangeText={(next) => { cancel(); setLoading(false); setName(next); }}
                         />
-                    </View>
-                </View>
 
-                <View style={styles.field}>
-                    <Text style={styles.label}>Consultation Code</Text>
-                    <View style={styles.inputWrap}>
-                        <Ionicons name="qr-code-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
-                        <TextInput
-                            style={[styles.input, { letterSpacing: 2, fontWeight: "700" }]}
+                <Field
+                            label="Consultation Code"
+                            leading={<Ionicons name="qr-code-outline" size={16} color={colors.textMuted} />}
+                            inputStyle={{ ...type.bodyStrong, letterSpacing: 2 }}
                             placeholder="ABCD-1234"
-                            placeholderTextColor={colors.placeholder}
                             autoCapitalize="characters"
+                            autoCorrect={false}
+                            helper="Capital letters and the dash are added automatically."
                             value={code}
-                            onChangeText={setCode}
+                            selection={codeSelection}
+                            onSelectionChange={(event) => {
+                                selectionRef.current = event.nativeEvent.selection;
+                                setCodeSelection(event.nativeEvent.selection);
+                            }}
+                            onChangeText={(next) => {
+                                cancel(); setLoading(false); tokenRef.current = undefined;
+                                const formatted = formatConsultationInput(next, code, selectionRef.current);
+                                setCode(formatted.value);
+                                selectionRef.current = formatted.selection;
+                                setCodeSelection(formatted.selection);
+                            }}
+                            error={!!error}
                         />
-                    </View>
-                </View>
 
                 {error ? (
                     <View style={styles.errorBox}>
@@ -220,41 +306,16 @@ export default function ProfessionalView({ onExit }) {
                     Your name, device, and network address will be recorded in the parent's access log.
                 </Text>
 
-                <TouchableOpacity style={styles.viewBtn} onPress={() => handleView()} disabled={loading}>
-                    {loading ? (
-                        <ActivityIndicator color={colors.onPrimary} />
-                    ) : (
-                        <>
-                            <Ionicons name="eye-outline" size={18} color={colors.onPrimary} />
-                            <Text style={styles.viewBtnText}>View Records</Text>
-                        </>
-                    )}
-                </TouchableOpacity>
+                <Button title="View Records" icon="eye-outline" onPress={() => handleView()} loading={loading} loadingIndicator={false} />
+                {loading ? <Text style={styles.accessNotice}>Opening records. If the server is waking up, this can take about a minute.</Text> : null}
 
                 {scannerAvailable() ? (
-                    <TouchableOpacity
-                        style={{
-                            flexDirection: "row",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            gap: 8,
-                            height: 46,
-                            borderRadius: 23,
-                            borderWidth: 1,
-                            borderColor: colors.border,
-                            backgroundColor: colors.softGreen,
-                            marginTop: 12,
-                        }}
+                    <Button title="Scan QR Code" icon="scan-outline" variant="secondary" style={{ marginTop: space.md }}
                         onPress={() => {
                             setError("");
                             setScanning(true);
                         }}
-                    >
-                        <Ionicons name="scan-outline" size={18} color={colors.primary} />
-                        <Text style={{ color: colors.primary, fontWeight: "800", fontSize: 14 }}>
-                            Scan QR Code
-                        </Text>
-                    </TouchableOpacity>
+                    />
                 ) : (
                     <View style={styles.scanHint}>
                         <Ionicons name="camera-outline" size={14} color={colors.textMuted} />
@@ -264,12 +325,15 @@ export default function ProfessionalView({ onExit }) {
                     </View>
                 )}
 
-                <TouchableOpacity style={styles.exitLink} onPress={onExit}>
+                <TouchableOpacity style={styles.exitLink} onPress={onExit} accessibilityRole="button" accessibilityLabel="Back to parent sign-in">
                     <Ionicons name="arrow-back" size={14} color={colors.primary} />
                     <Text style={styles.exitText}>Back to parent sign-in</Text>
                 </TouchableOpacity>
+                </SectionContainerCard>
             </View>
         </ScrollView>
+        </KeyboardAvoider>
+        </Gradient>
     );
 }
 
@@ -283,7 +347,8 @@ function formatCapturedAt(iso) {
 }
 
 function SnapshotTimestamp({ capturedAt }) {
-    const { colors } = useTheme();
+    const { colors, scheme } = useTheme();
+    const brand = paletteFor(undefined, "neutral", scheme);
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const formatted = formatCapturedAt(capturedAt);
     if (!formatted) return null;
@@ -293,22 +358,22 @@ function SnapshotTimestamp({ capturedAt }) {
     const stale = ageHours >= 24;
 
     return (
-        <View style={[styles.snapshotBanner, stale && styles.snapshotBannerStale]}>
-            <Ionicons
-                name={stale ? "warning-outline" : "time-outline"}
-                size={14}
-                color={stale ? colors.warning : colors.textMuted}
-            />
-            <View style={{ flex: 1 }}>
-                <Text style={[styles.snapshotText, stale && styles.snapshotTextStale]}>
+        <View style={styles.snapshotContainer}>
+            <View style={[styles.snapshotBanner, { backgroundColor: brand.primarySoft }]}>
+                <Ionicons
+                    name={stale ? "warning-outline" : "time-outline"}
+                    size={14}
+                    color={brand.primaryDark}
+                />
+                <Text style={[styles.snapshotText, { color: brand.primaryDark }]}>
                     Records as of {formatted}
                 </Text>
-                {stale && (
-                    <Text style={styles.snapshotWarningText}>
-                        This snapshot is {Math.floor(ageHours / 24)} day{Math.floor(ageHours / 24) === 1 ? "" : "s"} old. Records may have changed since. Ask the parent for a new code.
-                    </Text>
-                )}
             </View>
+            {stale && (
+                <Text style={styles.snapshotWarningText}>
+                    This snapshot is {Math.floor(ageHours / 24)} day{Math.floor(ageHours / 24) === 1 ? "" : "s"} old. Records may have changed since. Ask the parent for a new code.
+                </Text>
+            )}
         </View>
     );
 }
@@ -332,63 +397,114 @@ function Row({ label, value }) {
     );
 }
 
-function Section({ icon, title, count, children }) {
+function ProfileRow({ label, value }) {
+    const { colors } = useTheme(), material = colors.clinicalSummary;
+    const styles = useMemo(() => makeStyles(colors), [colors]);
+    const { fontScale } = useWindowDimensions();
+    const [width, setWidth] = useState(0);
+    const stacked = width > 0 && width - 28 < (120 + 96) * fontScale + space.md;
+    return <View testID="viewer-profile-row" onLayout={event => setWidth(event.nativeEvent.layout.width)}
+        style={[styles.profileRow, stacked && styles.profileRowStacked]}>
+        <ClinicalSurface colors={material.item} highlight={material.highlight} radius={18} />
+        <Text style={[styles.profileLabel, stacked && styles.profileTextStacked]}>{label}</Text>
+        <Text selectable style={[styles.profileValue, stacked && styles.profileTextStacked]}>{value || "—"}</Text>
+    </View>;
+}
+
+export function ViewerChildProfileCard({ session, measurements = [] }) {
+    const { colors } = useTheme(), material = colors.clinicalSummary;
+    const styles = useMemo(() => makeStyles(colors), [colors]);
+    const p = session.payload || {}, dob = p.profile?.dateOfBirth;
+    return <SectionContainerCard title="Child Profile" style={styles.profilePanel}
+        headerStyle={styles.profileHeader} titleStyle={styles.profileTitle}
+        background={<ClinicalSurface colors={material.panel} highlight={material.highlight} radius={24} />}
+        icon={<View accessible={false} style={styles.profileIcon}>
+            <Image accessible={false} source={require("../assets/header/profile-blue.png")} resizeMode="contain" style={styles.profileArtwork} />
+        </View>}>
+        <View testID="viewer-child-profile">
+            <Text style={styles.childName}>{session.childName || "Child"}</Text>
+            {!p.profile ? <Text style={styles.childIdentity}>Profile not shared</Text> : null}
+            {p.profile ? <View style={styles.profileRows}>
+                <ProfileRow label="Date of Birth" value={shortDate(dob)} />
+                <ProfileRow label="Age" value={dob ? abbreviateAge(ageText(dob)) : ""} />
+                <ProfileRow label="Sex" value={p.profile.sex} />
+                <ProfileRow label="Blood Type" value={p.profile.bloodType} />
+                {[["Height (cm)", "height"], ["Weight (kg)", "weight"], ["Head Circumference (cm)", "head_circumference"]].map(([label, field]) =>
+                    <ProfileRow key={field} label={label} value={!p.growth ? "Not shared" : measurements[0]?.[field] != null ? String(measurements[0][field]) : "Not recorded"} />)}
+                <ProfileRow label="Hospital" value={p.profile.hospital} />
+                <ProfileRow label="Pediatrician" value={p.profile.pediatrician} />
+                <ProfileRow label="OB-GYNE" value={p.profile.obgyne} />
+                {[["First Name", "firstName"], ["Last Name", "lastName"], ["Relationship", "relationship"], ["Contact Number", "contactNumber"]].map(([label, field]) =>
+                    <ProfileRow key={field} label={`Emergency Contact ${label}`} value={p.profile.emergencyContactDetails?.[field] || "Not recorded"} />)}
+            </View> : null}
+            <Text style={styles.childMeta}>{(session.recordKeys || []).length} record types shared · code {session.code}</Text>
+        </View>
+    </SectionContainerCard>;
+}
+
+function Section({ icon, title, count, subtitle, children }) {
+    const { colors } = useTheme();
+    return <SectionContainerCard title={title} subtitle={subtitle} count={count}
+        icon={React.isValidElement(icon) ? icon : <Ionicons name={icon} size={29.16} color={colors.primary}
+            style={{ width: 29.16, height: 29.16, lineHeight: 29.16, includeFontPadding: false, textAlign: "center", textAlignVertical: "center" }} />}>
+        {children}
+    </SectionContainerCard>;
+}
+
+function GrowthEntries({ measurements, dob }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
-    return (
-        <View style={styles.section}>
-            <View style={styles.sectionHead}>
-                <Ionicons name={icon} size={16} color={colors.primary} />
-                <Text style={styles.sectionTitle} numberOfLines={2}>
-                    {title}
-                </Text>
-                {count != null ? (
-                    <Text style={styles.sectionCount} numberOfLines={1}>
-                        {count}
-                    </Text>
-                ) : null}
-            </View>
-            {children}
-        </View>
-    );
+    const [expanded, setExpanded] = useState(false);
+    if (!measurements.length) return <Text style={styles.empty}>No measurements.</Text>;
+    return <>
+        <TouchableOpacity onPress={() => setExpanded((value) => !value)} accessibilityRole="button"
+            accessibilityState={{ expanded }} accessibilityLabel={expanded ? "Hide Entries" : "Show Entries"}
+            style={{ minHeight: MIN_TOUCH, flexDirection: "row", alignItems: "center", justifyContent: "center",
+                gap: space.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill }}>
+            <Text style={{ ...type.label, color: colors.primary }}>{expanded ? "Hide Entries" : "Show Entries"}</Text>
+            <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={18} color={colors.primary} />
+        </TouchableOpacity>
+        <AnimatedReveal expanded={expanded} contentStyle={{ paddingTop: space.md, paddingBottom: 24 }}>
+                <Capped rows={measurements} noun="measurements" animate={false} render={(g, i) => (
+                    <Item key={g.id ?? i} tone={colors.recGrowth.on} growthRecord
+                        title={numericDate(g.date) || "Date not recorded"}
+                        sub={g.day != null ? ageLabel(g.day) : dob ? "Age unavailable" : "Age unavailable — birth date not shared"} />
+                )} />
+        </AnimatedReveal>
+    </>;
 }
 
 // One record row. `tone` is a theme status colour and `statusIcon` repeats it
 // as a shape — DESIGN.md requires a second, non-colour signal so a state never
 // depends on hue alone, which the previous bare coloured dot did.
-function Item({ tone, statusIcon, title, sub, flag }) {
+function Item({ tone, statusIcon, title, sub, dateText, flag, status, statusTone, badge, badges, multiline = false, medicationRecord, hospitalRecord, conditionCategory, growthRecord = false }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     return (
-        <View style={styles.listItem}>
-            <Ionicons name={statusIcon} size={15} color={tone} style={{ marginTop: 2 }} />
-            <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.itemTitle} numberOfLines={2} ellipsizeMode="tail">
-                    {title}
-                </Text>
-                {sub ? (
-                    <Text style={styles.itemSub} numberOfLines={3} ellipsizeMode="tail">
-                        {sub}
-                    </Text>
-                ) : null}
-                {flag ? (
-                    <Text style={[styles.itemFlag, { color: tone }]} numberOfLines={2}>
-                        {flag}
-                    </Text>
-                ) : null}
-            </View>
-        </View>
+        <ListEntryCard title={title} subtitle={sub} dateText={dateText} subtitleNumberOfLines={multiline ? 0 : 3} iconAlign="center"
+            titleAccessory={status ? <View style={[styles.recordBadge, { backgroundColor: statusTone === "success" ? colors.successBg : colors.warningBg }]}>
+                <Text style={{ ...type.caption, color: statusTone === "success" ? colors.success : colors.warning }}>{status}</Text>
+            </View> : null}
+            icon={conditionCategory ? <RecordIcon category={conditionCategory} /> : hospitalRecord ? <HospitalStayIcon /> : medicationRecord ? <MedicationIcon record={medicationRecord} /> : growthRecord ? <GrowthIcon /> : statusIcon ? <Ionicons name={statusIcon} size={20} color={tone} /> : null}
+            iconBg={conditionCategory || hospitalRecord || medicationRecord || growthRecord ? "transparent" : tone === colors.recGrowth.on ? colors.recGrowth.bg : tone === colors.danger ? colors.dangerBg : tone === colors.warning ? colors.warningBg
+                : tone === colors.success ? colors.successBg : tone === colors.info ? colors.infoBg : colors.surfaceAlt}
+            labelTrailing={!!badge || !!badges?.length} trailingWidth={badges?.length ? "45%" : undefined}
+            label={badges?.length ? <View style={styles.medicationBadges}>{badges.map((value, i) =>
+                <View key={i} style={styles.medicationBadge}><Text style={styles.recordBadgeText} accessibilityLabel={value}>{value}</Text></View>)}</View>
+                : badge ? <View style={styles.recordBadge}><Text style={styles.recordBadgeText} accessibilityLabel={badge}>{badge}</Text></View>
+                : flag ? <Text style={[styles.itemFlag, { color: tone }]}>{flag}</Text> : null} />
     );
 }
 
 // Caps a list and offers the rest, mirroring ShowMore elsewhere in the app.
-function Capped({ rows, render, noun }) {
+function Capped({ rows, render, noun, animate = true, contentStyle }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const [visible, setVisible] = useState(PAGE);
     const remaining = rows.length - visible;
+    const Container = animate ? AnimatedReveal : React.Fragment;
     return (
-        <>
+        <Container {...(animate ? { contentStyle: contentStyle ? [{ paddingTop: 12, paddingBottom: 24 }, contentStyle] : { paddingTop: 12, paddingBottom: 24 } } : {})}>
             {rows.slice(0, visible).map(render)}
             {remaining > 0 ? (
                 <TouchableOpacity
@@ -403,7 +519,7 @@ function Capped({ rows, render, noun }) {
                     </Text>
                 </TouchableOpacity>
             ) : null}
-        </>
+        </Container>
     );
 }
 
@@ -418,13 +534,9 @@ function VisitReason({ text }) {
     const styles = useMemo(() => makeStyles(colors), [colors]);
     if (!text) return null;
     return (
-        <View style={styles.reasonCard}>
-            <View style={styles.reasonHead}>
-                <Ionicons name="chatbubble-ellipses-outline" size={14} color={colors.primaryDark} />
-                <Text style={styles.reasonLabel}>PARENT'S NOTE — WHY THEY CAME</Text>
-            </View>
+        <SectionContainerCard title="Parent's Note" subtitle="Why they came for this consultation">
             <Text style={styles.reasonText}>“{text}”</Text>
-        </View>
+        </SectionContainerCard>
     );
 }
 
@@ -442,19 +554,19 @@ function NotShared({ recordKeys }) {
     const missing = Object.keys(RECORD_LABELS).filter((k) => !shared.has(k));
     if (!missing.length) return null;
     return (
+        <SectionContainerCard title="Not Shared By The Parent">
         <View style={styles.notSharedCard}>
-            <Ionicons name="eye-off-outline" size={15} color={colors.warning} style={{ marginTop: 1 }} />
+            <Ionicons name="eye-off-outline" size={15} color={colors.warning} />
             <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.notSharedTitle}>Not shared by the parent</Text>
                 <Text style={styles.notSharedBody}>
                     {missing.map((k) => RECORD_LABELS[k]).join(" · ")}
                 </Text>
                 <Text style={styles.notSharedHint}>
-                    These records exist in the app but were withheld for this consultation. Treat
-                    them as unknown, not as empty.
+                    These record types were not included in this consultation. Treat them as unknown, not as empty.
                 </Text>
             </View>
         </View>
+        </SectionContainerCard>
     );
 }
 
@@ -462,314 +574,82 @@ function NotShared({ recordKeys }) {
 // Everything here is derived from the snapshot already on screen — no extra
 // data, no interpretation, just the facts a clinician would otherwise have to
 // assemble by scrolling and doing date arithmetic.
-function ClinicalSummary({ payload, recordKeys }) {
+function ClinicalRecord({ title, sub, badge }) {
+    const { colors } = useTheme(), p = colors.clinicalSummary;
+    const styles = useMemo(() => makeStyles(colors), [colors]);
+    return <View style={styles.clinicalRecord}>
+        <ClinicalSurface colors={p.item} highlight={p.highlight} radius={20} />
+        <View style={styles.clinicalRecordBody}><Text style={styles.clinicalRecordTitle}>{title}</Text>
+            {sub ? <Text style={styles.feedingText}>{sub}</Text> : null}</View>
+        {badge ? <View style={styles.clinicalBadge}><Text style={styles.clinicalBadgeText}>{badge}</Text></View> : null}
+    </View>;
+}
+
+function ClinicalSection({ title, icon, rows, noun, empty, render, first }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
-    const p = payload || {};
-    const dob = p.profile?.dateOfBirth;
-    // Whether the parent shared the type at all, which is a different question
-    // from whether it holds anything. Read from recordKeys rather than from the
-    // payload, because an empty shared section and a withheld one both arrive
-    // as "nothing to render" otherwise.
-    const shared = new Set(recordKeys || []);
-    const allergies = (p.allergies?.allergies || []).filter(Boolean);
-    const hereditary = (p.allergies?.hereditaryConditions || []).filter(Boolean);
-    const overdueCount = (p.vaccinations || []).filter(
-        (v) => v.status !== "completed" && v.due_date && overdueBy(v.due_date),
-    ).length;
-    const ongoing = (p.medicalHistory || []).filter(
-        (m) => !m.resolved && (m.category === "Illness" || m.category === "Hospitalization"),
-    );
-    // What the child is on right now. Kept as its own line rather than folded
-    // into "Unresolved", because taking a prescribed medicine is not a problem
-    // — it is context, and the single fact a clinician most needs before
-    // prescribing anything else.
-    const onNow = (p.medicalHistory || []).filter(
-        (m) => m.category === "Medication" && isActiveOn(medFromSnapshot(m), todayLocal()),
-    );
+    return <View testID={`clinical-section-${noun}`} style={first ? [styles.feedingSection, styles.clinicalFirstSection] : styles.feedingSection}>
+        <View style={styles.feedingHeading}>{icon}<Text style={styles.feedingTitle} accessibilityRole="header">{title}</Text></View>
+        {rows.length ? <Capped rows={rows} noun={noun} contentStyle={styles.clinicalList} render={render} />
+            : <Text style={styles.feedingText}>{empty}</Text>}
+    </View>;
+}
 
-    // Prior vaccine reactions, promoted from a row buried in the immunisation
-    // list. Before giving another dose this is the single most decision-
-    // relevant fact on the screen, and it used to be visible only if the
-    // clinician happened to scroll to the right row.
-    const vaxReactions = (p.vaccinations || []).filter(
-        (v) => v.reaction_severity === "mild" || v.reaction_severity === "severe",
-    );
-
-    // The allergy line has THREE states, and the third is why this band was
-    // rewritten. "Shared but empty" and "withheld" must never look alike:
-    // the first means nobody has recorded an allergy, the second means the
-    // clinician has not been told either way.
-    const allergyShared = shared.has("allergies");
-    const feeding = feedingSummary(p.nutrition, dob);
-
-    return (
-        <View style={styles.summary}>
-            {allergyShared ? (
-                <View style={[styles.summaryRow, allergies.length && styles.summaryRowAlert]}>
-                    <Ionicons
-                        name={allergies.length ? "alert-circle" : "checkmark-circle-outline"}
-                        size={16}
-                        color={allergies.length ? colors.danger : colors.textMuted}
-                        style={{ marginTop: 1 }}
-                    />
-                    <Text
-                        style={[styles.summaryText, allergies.length && styles.summaryTextAlert]}
-                    >
-                        {allergies.length ? `Allergies: ${allergies.join(", ")}` : "Allergies: none recorded"}
-                    </Text>
-                </View>
-            ) : (
-                <View style={[styles.summaryRow, styles.summaryRowWarn]}>
-                    <Ionicons name="eye-off" size={16} color={colors.warning} style={{ marginTop: 1 }} />
-                    <Text style={[styles.summaryText, styles.summaryTextWarn]}>
-                        Allergies: NOT SHARED — ask the parent directly
-                    </Text>
-                </View>
-            )}
-
-            {vaxReactions.length ? (
-                <View style={[styles.summaryRow, styles.summaryRowAlert]}>
-                    <Ionicons name="warning" size={16} color={colors.danger} style={{ marginTop: 1 }} />
-                    <Text style={[styles.summaryText, styles.summaryTextAlert]}>
-                        Prior vaccine reaction:{" "}
-                        {vaxReactions
-                            .map((v) =>
-                                [v.vaccine_name, v.reaction_severity, v.reaction]
-                                    .filter(Boolean)
-                                    .join(" — "),
-                            )
-                            .join("; ")}
-                    </Text>
-                </View>
-            ) : null}
-
-            {hereditary.length ? (
-                <View style={styles.summaryRow}>
-                    <Ionicons name="pulse" size={16} color={colors.textMuted} style={{ marginTop: 1 }} />
-                    <Text style={styles.summaryText}>Hereditary: {hereditary.join(", ")}</Text>
-                </View>
-            ) : null}
-
-            {ongoing.length ? (
-                <View style={[styles.summaryRow, styles.summaryRowAlert]}>
-                    <Ionicons name="medkit" size={16} color={colors.danger} style={{ marginTop: 1 }} />
-                    <Text style={[styles.summaryText, styles.summaryTextAlert]}>
-                        Unresolved: {ongoing.map((m) => m.title || m.category).join(", ")}
-                    </Text>
-                </View>
-            ) : null}
-
-            {onNow.length ? (
-                <View style={styles.summaryRow}>
-                    <Ionicons name="flask" size={16} color={colors.info} style={{ marginTop: 1 }} />
-                    <Text style={styles.summaryText}>
-                        Currently taking:{" "}
-                        {onNow
-                            .map((m) =>
-                                [m.title, m.dose_amount, m.frequency_per_day ? `${m.frequency_per_day}x daily` : null]
-                                    .filter(Boolean)
-                                    .join(" "),
-                            )
-                            .join(", ")}
-                    </Text>
-                </View>
-            ) : null}
-
-            {overdueCount > 0 ? (
-                <View style={[styles.summaryRow, styles.summaryRowWarn]}>
-                    <Ionicons name="time" size={16} color={colors.warning} style={{ marginTop: 1 }} />
-                    <Text style={[styles.summaryText, styles.summaryTextWarn]}>
-                        {overdueCount} vaccine{overdueCount === 1 ? "" : "s"} past due date
-                    </Text>
-                </View>
-            ) : null}
-
-            {feeding ? (
-                <View style={styles.summaryRow}>
-                    <Ionicons name="restaurant" size={16} color={colors.textMuted} style={{ marginTop: 1 }} />
-                    <Text style={styles.summaryText}>{feeding}</Text>
-                </View>
-            ) : null}
+export function ClinicalSummary({ payload, recordKeys }) {
+    const { colors } = useTheme(), material = colors.clinicalSummary;
+    const styles = useMemo(() => makeStyles(colors), [colors]);
+    const p = payload || {}, shared = new Set(recordKeys || []);
+    const allergyShared = shared.has("allergies"), historyShared = shared.has("medicalHistory");
+    // Gate before deriving facts, even if an unexpected payload contains excluded data.
+    const history = historyShared && Array.isArray(p.medicalHistory) ? p.medicalHistory : [];
+    const conditions = medicalHistoryRows({ allergies: allergyShared ? p.allergies : undefined, medicalHistory: history });
+    const allergyRecords = allergyShared ? conditions.filter(row => row.category === "Allergy") : [];
+    const classifiedAllergies = allergyRecords.filter(row => ["food", "non_food"].includes(row.allergy_type));
+    const hereditary = allergyShared ? conditions.filter(row => row.category === "Hereditary Condition") : [];
+    const illnesses = history.filter(row => row.category === "Illness");
+    const vaccinations = shared.has("vaccinations") && Array.isArray(p.vaccinations) ? p.vaccinations : [];
+    const overdueCount = vaccinations.filter(v => v.status !== "completed" && v.due_date && overdueBy(v.due_date)).length;
+    const vaxReactions = vaccinations.filter(v => ["mild", "severe"].includes(v.reaction_severity));
+    const ongoing = history.filter(m => !m.resolved && ["Illness", "Hospitalization"].includes(m.category));
+    const onNow = history.filter(m => m.category === "Medication" && isActiveOn(medFromSnapshot(m), todayLocal()));
+    if (!allergyShared && !historyShared && !shared.has("nutrition") && !overdueCount && !vaxReactions.length) return null;
+    const unavailable = label => `${label} records unavailable in this shared record.`;
+    return <SectionContainerCard title="Clinical Summary" style={styles.clinicalPanel} titleStyle={styles.clinicalTitle}
+        headerStyle={styles.clinicalHeader} background={<ClinicalSurface colors={material.panel} highlight={material.highlight} radius={28} />}>
+        <View testID="clinical-summary" style={styles.summary}>
+            {overdueCount || vaxReactions.length || ongoing.length ? <View testID="clinical-safety-notices" style={styles.clinicalNotices}>
+                {overdueCount > 0 ? <View style={[styles.summaryRow, styles.summaryRowWarn]}>
+                    <Ionicons name="time" size={18} color={colors.warning} />
+                    <Text style={[styles.summaryText, styles.summaryTextWarn]}>{overdueCount} vaccine{overdueCount === 1 ? "" : "s"} past due date</Text>
+                </View> : null}
+                {vaxReactions.length ? <View style={[styles.summaryRow, styles.summaryRowAlert]}>
+                    <Ionicons name="warning" size={18} color={colors.danger} />
+                    <Text style={[styles.summaryText, styles.summaryTextAlert]}>Prior vaccine reaction: {vaxReactions.map(v => [v.vaccine_name, v.reaction_severity, v.reaction].filter(Boolean).join(" \u2014 ")).join("; ")}</Text>
+                </View> : null}
+                {ongoing.length ? <View style={[styles.summaryRow, styles.summaryRowAlert]}>
+                    <Ionicons name="medkit" size={18} color={colors.danger} />
+                    <Text style={[styles.summaryText, styles.summaryTextAlert]}>Unresolved: {ongoing.map(m => m.title || m.category).join(", ")}</Text>
+                </View> : null}
+            </View> : null}
+            {historyShared ? <ClinicalSection first title="ILLNESS" icon={<IllnessIcon size={40} showBackground={false} />} rows={illnesses} noun="illnesses"
+                empty={Array.isArray(p.medicalHistory) ? "No illnesses recorded." : unavailable("Illness")}
+                render={(entry, i) => <ClinicalRecord key={entry.id ?? i} title={entry.title || "Illness name not recorded"} />} /> : null}
+            {allergyShared ? <ClinicalSection first={!historyShared} title="ALLERGIES" icon={<AllergyIcon size={40} showBackground={false} />} rows={classifiedAllergies} noun="allergies"
+                empty={!p.allergies ? unavailable("Allergy") : allergyRecords.length ? "No classified allergies to display." : "No allergies recorded."}
+                render={(entry, i) => <ClinicalRecord key={entry.id ?? i} title={entry.title || "Allergy name not recorded"} badge={entry.allergy_type === "food" ? "food" : "non-food"} />} /> : null}
+            {allergyShared ? <ClinicalSection title="HEREDITARY" icon={<HereditaryIcon size={40} showBackground={false} />} rows={hereditary} noun="hereditary conditions"
+                empty={p.allergies ? "No hereditary conditions recorded." : unavailable("Hereditary")}
+                render={(entry, i) => <ClinicalRecord key={entry.id ?? i} title={entry.title || "Condition name not recorded"} />} /> : null}
+            {historyShared ? <ClinicalSection title="CURRENTLY TAKING" icon={<MedicationIcon size={40} showBackground={false} />} rows={onNow} noun="medications"
+                empty={Array.isArray(p.medicalHistory) ? "No medications currently being taken." : unavailable("Medication")}
+                render={(m, i) => <ClinicalRecord key={m.id ?? i} title={m.title || "Medication name not recorded"}
+                    sub={[m.dose_amount, Number(m.frequency_per_day) > 0 ? `${m.frequency_per_day} ${Number(m.frequency_per_day) === 1 ? "time" : "times"} a day` : null,
+                        courseDayText(medFromSnapshot(m).date, m.course_days, todayLocal())].filter(Boolean).join(" \u2022 ")} />} /> : null}
+            {shared.has("nutrition") ? <FeedingSummary rows={p.nutrition} shared first={!historyShared && !allergyShared} /> : null}
         </View>
-    );
+    </SectionContainerCard>;
 }
 
-// Hides a long, low-signal list behind one tap. Not a cap — everything is
-// still reachable; it just stops hundreds of feed rows from sitting between a
-// clinician and the next section.
-function ShowRaw({ count, children }) {
-    const { colors } = useTheme();
-    const styles = useMemo(() => makeStyles(colors), [colors]);
-    const [open, setOpen] = useState(false);
-    if (!count) return null;
-    return (
-        <>
-            <TouchableOpacity
-                onPress={() => setOpen((v) => !v)}
-                style={styles.showMore}
-                accessibilityRole="button"
-                accessibilityState={{ expanded: open }}
-                accessibilityLabel={`${open ? "Hide" : "Show"} the full log of ${count} entries`}
-            >
-                <Ionicons name={open ? "chevron-up" : "chevron-down"} size={14} color={colors.primary} />
-                <Text style={styles.showMoreText}>
-                    {open ? "Hide" : "Show"} full log ({count} entries)
-                </Text>
-            </TouchableOpacity>
-            {open ? children : null}
-        </>
-    );
-}
-
-// The feeding pattern and every reaction — the two things a clinician can act
-// on. feedingSummary() already computed the pattern for the top band; this
-// reuses it rather than deriving the same numbers a second way.
-function FeedingBrief({ rows, dob }) {
-    const { colors } = useTheme();
-    const styles = useMemo(() => makeStyles(colors), [colors]);
-    const summary = feedingSummary(rows, dob);
-    const reactions = (rows || []).filter(
-        (r) => r.reaction_severity === "mild" || r.reaction_severity === "severe" ||
-            (!r.reaction_severity && !!r.reaction),
-    );
-    if (!summary && !reactions.length) return null;
-    return (
-        <View style={styles.briefCard}>
-            {summary ? <Text style={styles.briefText}>{summary}</Text> : null}
-            {reactions.length ? (
-                <>
-                    <Text style={styles.briefLabel}>
-                        FOOD REACTIONS ({reactions.length})
-                    </Text>
-                    {reactions.map((r, i) => (
-                        <Text key={i} style={styles.briefReaction} numberOfLines={3}>
-                            {[
-                                r.food_introduced || "unspecified food",
-                                r.reaction_severity || "reaction",
-                                r.reaction,
-                                shortDate(r.entry_date),
-                            ]
-                                .filter(Boolean)
-                                .join(" — ")}
-                        </Text>
-                    ))}
-                </>
-            ) : (
-                <Text style={styles.briefNone}>No food reactions recorded.</Text>
-            )}
-        </View>
-    );
-}
-
-// Last seen, and what is already booked. Two facts a clinician reaches for at
-// the start of a consultation, pulled out of the date-ordered list rather than
-// left to be found in it.
-function CareTimeline({ rows }) {
-    const { colors } = useTheme();
-    const styles = useMemo(() => makeStyles(colors), [colors]);
-    const today = todayLocal();
-    const dated = (rows || []).filter((c) => c.checkup_date);
-    const past = dated
-        .filter((c) => String(c.checkup_date).slice(0, 10) <= today)
-        .sort((a, b) => String(b.checkup_date).localeCompare(String(a.checkup_date)));
-    const future = dated
-        .filter((c) => String(c.checkup_date).slice(0, 10) > today)
-        .sort((a, b) => String(a.checkup_date).localeCompare(String(b.checkup_date)));
-
-    if (!past.length && !future.length) return null;
-    const line = (c) =>
-        [c.title || "Checkup", c.doctor_name, c.clinic].filter(Boolean).join(" · ");
-
-    return (
-        <View style={styles.timelineCard}>
-            <View style={styles.timelineCol}>
-                <Text style={styles.timelineLabel}>LAST SEEN</Text>
-                <Text style={styles.timelineValue} numberOfLines={3}>
-                    {past.length
-                        ? `${shortDate(past[0].checkup_date)} — ${line(past[0])}`
-                        : "No past visit recorded"}
-                </Text>
-            </View>
-            <View style={styles.timelineCol}>
-                <Text style={styles.timelineLabel}>SCHEDULED</Text>
-                <Text style={styles.timelineValue} numberOfLines={3}>
-                    {future.length
-                        ? `${shortDate(future[0].checkup_date)} — ${line(future[0])}${
-                              future.length > 1 ? ` (+${future.length - 1} more)` : ""
-                          }`
-                        : "Nothing booked"}
-                </Text>
-            </View>
-        </View>
-    );
-}
-
-// Percentile movement between the earliest and latest usable measurement.
-//
-// PRINCIPLE 5 BOUNDARY, and it is a fine one. A percentile is a published
-// reference position and the difference between two of them is arithmetic —
-// both are facts. "Falling off the curve", "poor growth", "catch-up" are
-// verdicts, and none of them appear here or may be added. The app states the
-// movement and the interval; reading it is the clinician's job, and they are
-// the one person on either side of this screen qualified to do it.
-function GrowthTrend({ rows, sex, dateOfBirth }) {
-    const { colors } = useTheme();
-    const styles = useMemo(() => makeStyles(colors), [colors]);
-    const sexKey = normalizeSex(sex);
-
-    const lines = useMemo(() => {
-        if (!sexKey || !dateOfBirth) return [];
-        const out = [];
-        for (const [indicator, field, label] of [
-            ["weight", "weight", "Weight"],
-            ["height", "height", "Height"],
-            ["head", "head_circumference", "Head"],
-        ]) {
-            const usable = (rows || [])
-                .filter((r) => r.date_recorded && r[field] != null && r[field] !== "")
-                .map((r) => {
-                    const day = ageInDays(dateOfBirth, String(r.date_recorded).slice(0, 10));
-                    if (day == null || day > WHO_MAX_DAY) return null;
-                    const z = zScore(indicator, sexKey, day, Number(r[field]));
-                    return z == null ? null : { date: String(r.date_recorded).slice(0, 10), z };
-                })
-                .filter(Boolean)
-                .sort((a, b) => a.date.localeCompare(b.date));
-            // Two distinct dates or there is no movement to report.
-            if (usable.length < 2) continue;
-            const first = usable[0];
-            const last = usable[usable.length - 1];
-            if (first.date === last.date) continue;
-            const p0 = percentileFromZ(first.z);
-            const p1 = percentileFromZ(last.z);
-            out.push({
-                label,
-                from: formatPercentile(p0),
-                to: formatPercentile(p1),
-                span: spanText(first.date, last.date),
-                n: usable.length,
-            });
-        }
-        return out;
-    }, [rows, sexKey, dateOfBirth]);
-
-    if (!lines.length) return null;
-
-    return (
-        <View style={styles.trendCard}>
-            <Text style={styles.trendTitle}>WHO percentile, first to latest recorded</Text>
-            {lines.map((l, i) => (
-                <Text key={i} style={styles.trendRow} numberOfLines={2}>
-                    {l.label}: {l.from} → {l.to}
-                    <Text style={styles.trendMeta}>
-                        {"  "}({l.n} measurements over {l.span})
-                    </Text>
-                </Text>
-            ))}
-        </View>
-    );
-}
 
 // "What does this child need today?" — the question the immunisation list was
 // not answering. Overdue doses named and sorted oldest-first, then the next
@@ -778,393 +658,216 @@ function GrowthTrend({ rows, sex, dateOfBirth }) {
 // Purely a re-presentation of rows already in the snapshot: no new data, no
 // schedule of its own, and no recommendation. Which doses exist and when they
 // are due was decided by the EPI generator on the parent's side.
-function VaccineStatus({ rows }) {
-    const { colors } = useTheme();
-    const styles = useMemo(() => makeStyles(colors), [colors]);
-    const pending = (rows || []).filter((v) => v.status !== "completed" && v.due_date);
-    const today = todayLocal();
-
-    const overdue = pending
-        .filter((v) => String(v.due_date).slice(0, 10) < today)
-        .sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)));
-
-    const upcoming = pending
-        .filter((v) => String(v.due_date).slice(0, 10) >= today)
-        .sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)));
-    // Everything due on the same day is one visit, which is how a clinic books
-    // it — listing four separate rows for one appointment reads as four trips.
-    const nextDate = upcoming.length ? String(upcoming[0].due_date).slice(0, 10) : null;
-    const nextBatch = nextDate
-        ? upcoming.filter((v) => String(v.due_date).slice(0, 10) === nextDate)
-        : [];
-
-    const label = (v) => [v.vaccine_name, v.dose_number ? `dose ${v.dose_number}` : null]
-        .filter(Boolean)
-        .join(" ");
-
-    if (!overdue.length && !nextBatch.length) return null;
-
-    return (
-        <View style={styles.vaxStatus}>
-            {overdue.length ? (
-                <View style={[styles.vaxBand, styles.vaxBandOverdue]}>
-                    <Text style={styles.vaxBandTitle}>
-                        {overdue.length} missed {overdue.length === 1 ? "dose" : "doses"}
-                    </Text>
-                    {overdue.slice(0, 6).map((v, i) => (
-                        <Text key={i} style={styles.vaxBandRow} numberOfLines={2}>
-                            {label(v)} — {overdueBy(v.due_date)}
-                        </Text>
-                    ))}
-                    {overdue.length > 6 ? (
-                        <Text style={styles.vaxBandRow}>+{overdue.length - 6} more, listed below</Text>
-                    ) : null}
-                </View>
-            ) : null}
-
-            {nextBatch.length ? (
-                <View style={[styles.vaxBand, styles.vaxBandNext]}>
-                    <Text style={styles.vaxBandTitleNext}>
-                        Next due {shortDate(nextDate)}
-                    </Text>
-                    <Text style={styles.vaxBandRowNext} numberOfLines={3}>
-                        {nextBatch.map(label).join(" · ")}
-                    </Text>
-                </View>
-            ) : null}
-        </View>
-    );
+// Daily averages share the same logged-day denominator; missing calendar
+// days never imply that the baby was not fed. Undated reactions remain visible.
+function feedingSummary(rows) {
+    const entries = (Array.isArray(rows) ? rows : []).filter((r) => r && typeof r === "object")
+        .map(nutritionToApp).filter((e) => ["milk", "solid"].includes(e.entryType));
+    const dated = entries.filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.date)
+        && toLocalISO(new Date(`${e.date}T00:00:00`)) === e.date);
+    const days = new Set(dated.map((e) => e.date)).size;
+    const milk = dated.filter((e) => e.entryType === "milk");
+    const solids = dated.filter((e) => e.entryType === "solid");
+    const positive = (value) => Number.isFinite(value) && value > 0;
+    const bottles = milk.filter((e) => e.feedMethod === "bottle" && positive(e.quantity)
+        && ["mL", "oz", "L"].includes(e.unit)
+        && (e.milkType !== "Mixed" || positive(e.breastmilkQuantity)));
+    const breast = milk.filter((e) => e.feedMethod === "breast" && positive(e.durationMinutes));
+    const average = (total) => days ? Math.round(total / days * 10) / 10 : null;
+    return {
+        days,
+        averages: {
+            milk: average(milk.length),
+            bottle: bottles.length ? average(bottles.reduce((sum, e) => sum + feedVolumeMl(e), 0)) : null,
+            breast: breast.length ? average(breast.reduce((sum, e) => sum + e.durationMinutes, 0)) : null,
+            solid: average(solids.length),
+        },
+        reactions: solidFoodStats(entries.filter((e) => e.entryType === "solid")).reactions.sort((a, b) =>
+            Number(b.reactionSeverity === "severe") - Number(a.reactionSeverity === "severe") || byMoment(b, a)),
+    };
 }
 
-// Compresses the nutrition log into the one line a clinician can use. The
-// section itself sits last and caps at 10 rows, so against a real account —
-// 300-plus feeds — it shows a handful of recent entries and answers nothing.
-// Everything here is counted from the same snapshot already on screen.
-function feedingSummary(rows, dob) {
-    if (!Array.isArray(rows) || !rows.length) return "";
-    const milk = rows.filter((r) => (r.entry_type || "milk") === "milk" && r.entry_date);
-    const solids = rows.filter((r) => r.entry_type === "solid" && r.entry_date);
-    const parts = [];
+function ReactionWarning({ severity, size = 40 }) {
+    const { colors } = useTheme(), p = colors.clinicalSummary;
+    const tone = p[severity] || p.unknown;
+    const id = "clinical-warning-" + useId().replace(/[^a-zA-Z0-9_-]/g, "");
+    return <View accessible={false} style={{ width: size, height: size, flexShrink: 0, borderRadius: size / 2 }}>
+        <ClinicalSurface colors={tone.surface} highlight={p.highlight} radius={size / 2} />
+        <Svg aria-hidden pointerEvents="none" width={size} height={size} viewBox="0 0 40 40" style={{ position: "relative" }}>
+            <Defs><LinearGradient id={id} x1="0" y1="0" x2="1" y2="1">{tone.art.map((c, i) => <Stop key={i} offset={i / 2} stopColor={c} />)}</LinearGradient></Defs>
+            <Path d="M17 8q3-5 6 0l12 21q3 5-3 5H8q-6 0-3-5Z" fill={`url(#${id})`} />
+            <Path d="M20 14v9m0 5v1" stroke={p.reflection} strokeWidth="3" strokeLinecap="round" />
+            <Path d="m9 26 9-16" stroke={p.reflection} strokeWidth="1.5" strokeLinecap="round" opacity="0.65" />
+        </Svg>
+    </View>;
+}
 
-    if (milk.length) {
-        // Rows arrive newest-first from the snapshot query.
-        const current = milk[0].milk_type;
-        const breast = milk.filter((r) => r.feed_method === "breast").length;
-        const method =
-            breast === milk.length ? "at the breast" : breast === 0 ? "by bottle" : "breast and bottle";
-        // Feeds a day, measured over the days that actually have entries —
-        // averaging across empty days would understate a sparse history.
-        const byDay = new Set(milk.map((r) => String(r.entry_date).slice(0, 10)));
-        const perDay = byDay.size ? milk.length / byDay.size : 0;
-        parts.push(`${current || "Milk"} ${method}, ~${perDay.toFixed(1)} feeds/day`);
-    }
-
-    if (solids.length) {
-        const first = solids[solids.length - 1];
-        const days = dob && first ? ageInDays(dob, first.entry_date) : null;
-        const distinct = new Set(
-            solids.map((r) => String(r.food_introduced || "").trim().toLowerCase()).filter(Boolean),
-        ).size;
-        parts.push(
-            days != null
-                ? `solids from ${Math.round(days / 30.4375)} mo (${distinct} foods)`
-                : `${distinct} solid foods introduced`,
-        );
-    }
-
-    const reactions = solids.filter(
-        (r) => r.reaction_severity === "mild" || r.reaction_severity === "severe",
-    ).length;
-    if (reactions) parts.push(`${reactions} food reaction${reactions === 1 ? "" : "s"} recorded`);
-
-    return parts.join(" · ");
+function FeedingSummary({ rows, shared, first }) {
+    const { colors } = useTheme(), p = colors.clinicalSummary;
+    const { fontScale } = useWindowDimensions();
+    const styles = useMemo(() => makeStyles(colors), [colors]);
+    const summary = useMemo(() => shared ? feedingSummary(rows) : null, [rows, shared]);
+    const [width, setWidth] = useState(0);
+    const scale = Math.max(1, fontScale || 1);
+    const columns = !width || (width - 12) / 2 >= 112 * scale ? 2 : 1;
+    // Round down fractional web measurements so a pair cannot overflow into separate rows.
+    const side = width ? Math.floor((width - 12 * (columns - 1)) / columns) : undefined;
+    const inline = side >= 200 * scale;
+    const metrics = [
+        { key: "milk", label: "Milk", unit: "entries" }, { key: "bottle", label: "Bottle amounts", unit: "mL" },
+        { key: "breast", label: "Breastfeeding time", unit: "min" }, { key: "solid", label: "Solid foods", unit: "entries" },
+    ];
+    const reaction = (e, i) => {
+        const tone = p[e.reactionSeverity] || p.unknown;
+        return <View key={i} testID={`clinical-reaction-${e.reactionSeverity || "unknown"}`} style={styles.feedingReaction}>
+            <ClinicalSurface colors={tone.surface} highlight={p.highlight} radius={20} />
+            <ReactionWarning severity={e.reactionSeverity} />
+            <View style={styles.feedingReactionDetails}><Text style={styles.feedingLabel}>{e.foodIntroduced || "Food not recorded"}</Text>
+                <Text style={styles.feedingText}>{numericDate(e.date) || "Date not recorded"}</Text></View>
+            <View style={[styles.clinicalBadge, { backgroundColor: tone.badge }]}><Text style={[styles.clinicalBadgeText, { color: tone.ink }]}>
+                {e.reactionSeverity === "severe" ? "Severe" : e.reactionSeverity === "mild" ? "Mild" : "Severity not recorded"}
+            </Text></View>
+        </View>;
+    };
+    if (!shared) return null;
+    return <View testID="clinical-feeding" style={first ? [styles.feedingSection, styles.clinicalFirstSection] : styles.feedingSection}>
+        <View style={styles.feedingHeading}><MilkIcon size={40} showBackground={false} /><Text style={styles.feedingTitle} accessibilityRole="header">FEEDING{" "}
+            <Text style={styles.feedingPerDay}>avg per day</Text></Text></View>
+        <Text style={styles.feedingAverageHint}>Daily averages across logged days</Text>
+        {!Array.isArray(rows) ? <Text style={styles.feedingText}>Feeding records unavailable in this shared record.</Text> : null}
+        <View style={styles.feedingMetricRow} testID="feeding-metrics" onLayout={e => setWidth(e.nativeEvent.layout.width)}>
+            {metrics.map(metric => <View key={metric.key} testID={`feeding-metric-${metric.key}`}
+                style={[styles.feedingMetric, inline && styles.feedingMetricInline, { width: side || "48%" }]}
+                accessible accessibilityLabel={`${metric.label}, ${summary.averages[metric.key] == null ? "Not recorded" : `${summary.averages[metric.key]} ${metric.unit} per day`}, across ${summary.days} logged days`}>
+                <ClinicalSurface colors={p.item} highlight={p.highlight} radius={22} />
+                <View style={styles.feedingMetricIcon}><ClinicalSurface colors={p.icon} highlight={p.highlight} radius={24} />
+                    {metric.key === "solid" ? <SolidFoodIcon size={48} showBackground={false} /> : metric.key === "milk" ? <MilkIcon size={48} showBackground={false} />
+                        : <MetricArtwork kind={metric.key === "bottle" ? "volume" : "clock"} size={48} />}</View>
+                <View style={styles.feedingMetricBody}><Text style={styles.feedingMetricLabel}>{metric.label}</Text>
+                    <Text style={[styles.feedingMetricValue, summary.averages[metric.key] == null && styles.feedingMetricUnit]}>
+                        {summary.averages[metric.key] == null ? "Not recorded" : <>{summary.averages[metric.key]} <Text style={styles.feedingMetricUnit}>{metric.unit}</Text></>}
+                    </Text></View>
+            </View>)}
+        </View>
+        <Text style={styles.clinicalReactionsTitle} accessibilityRole="header">All Reported Food Reactions</Text>
+        {summary.reactions.length ? <Capped rows={summary.reactions} noun="food reactions" contentStyle={styles.clinicalReactionsList} render={reaction} />
+            : <Text style={styles.feedingText}>{Array.isArray(rows) ? "No food reactions reported." : "Food reaction records unavailable in this shared record."}</Text>}
+    </View>;
 }
 
 function RecordsView({ session, onEnd, onExit }) {
     const { colors } = useTheme();
+    const insets = useSafeAreaInsets();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const p = session.payload || {};
-    const sexKey = normalizeSex(p.profile?.sex);
     const dob = p.profile?.dateOfBirth;
+    const { t } = useLanguage();
+    const measurements = useMemo(() => growthMeasurements(p.growth?.measurements, dob), [p.growth, dob]);
+    const solids = useMemo(() => (p.nutrition || []).map(nutritionToApp).filter((e) => e.entryType === "solid"), [p.nutrition]);
     // Measured section offsets for the jump bar. A ref, not state: these are
     // written on every layout pass and nothing should re-render because a
     // section moved two pixels.
     const scrollRef = useRef(null);
     const sectionY = useRef({});
 
-    // Where a measurement sits on the WHO reference. Shown here and nowhere
-    // else in this file: a percentile is a published reference position, not a
-    // verdict, and the clinician is the person qualified to read it. The app
-    // still never labels it (PRODUCT.md, "never imply clinical authority").
-    const percentileFor = (indicator, value, dateRecorded) => {
-        if (!sexKey || !dob || value == null || value === "") return null;
-        const day = ageInDays(dob, String(dateRecorded).slice(0, 10));
-        if (day == null || day > WHO_MAX_DAY) return null;
-        const z = zScore(indicator, sexKey, day, Number(value));
-        if (z == null) return null;
-        return formatPercentile(percentileFromZ(z));
-    };
-
-    const sections = {
-        profile: p.profile && (
-            <Section key="profile" icon="person-circle-outline" title={RECORD_LABELS.profile}>
-                <Row label="Date of Birth" value={shortDate(p.profile.dateOfBirth)} />
-                <Row label="Age" value={p.profile.dateOfBirth ? ageText(p.profile.dateOfBirth) : ""} />
-                <Row label="Sex" value={p.profile.sex} />
-                <Row label="Blood Type" value={p.profile.bloodType} />
-                <Row
-                    label="Birth Weight / Length"
-                    value={`${p.profile.birthWeight ?? "—"} kg · ${p.profile.birthLength ?? "—"} cm`}
-                />
-                <Row label="Hospital" value={p.profile.hospital} />
-                <Row label="Pediatrician" value={p.profile.pediatrician} />
-                <Row label="OB-GYNE" value={p.profile.obgyne} />
-                <Row label="Emergency Contact" value={p.profile.emergencyContact} />
-            </Section>
-        ),
-
-
-        medicalHistory: p.medicalHistory && (
+    const medicalHistory = medicalHistoryRows(p);
+    const medications = (p.medicalHistory || []).filter((m) => m.category === "Medication"
+        && ["taking", "completed"].includes(medicationStatus(m, todayLocal())));
+    const allergies = medicalHistory.filter((m) => m.category === "Allergy");
+    const classifiedAllergies = allergies.filter((m) => ["food", "non_food"].includes(m.allergy_type));
+    const hereditary = medicalHistory.filter((m) => m.category === "Hereditary Condition");
+    const conditions = medicalHistory.filter((m) => m.category === "Illness");
+    const hospitalStays = medicalHistory.filter((m) => m.category === "Hospitalization");
+    const medicalSection = (rows, key, title, icon) => (
             <Section
-                key="medicalHistory"
-                icon="pulse-outline"
-                title={RECORD_LABELS.medicalHistory}
-                count={p.medicalHistory.length}
+                key={key}
+                icon={icon}
+                title={title}
+                count={key === "medicalHistory" ? hereditary.length + conditions.length + hospitalStays.length + classifiedAllergies.length : rows.length}
             >
-                {p.medicalHistory.length === 0 && <Text style={styles.empty}>No records.</Text>}
-                <Capped
-                    rows={p.medicalHistory}
+                {key === "medicalHistory" && <>
+                    <Text style={styles.groupTitle}>Hereditary</Text>
+                    {!p.allergies ? <Text style={styles.empty}>Not shared</Text>
+                        : hereditary.length === 0 ? <Text style={styles.empty}>No hereditary conditions recorded</Text> : null}
+                    {hereditary.length > 0 ? <Capped rows={hereditary} noun="conditions" render={(m, i) => <Item key={m.id ?? i}
+                        title={m.title} conditionCategory="Hereditary Condition" multiline sub={[CARE_LABELS[m.care_level], m.facility].filter(Boolean).join("\n")}
+                        dateText={numericDate(m.date_recorded)} />} /> : null}
+                    <Text style={styles.groupTitle}>Allergy</Text>
+                    {!p.allergies ? <Text style={styles.empty}>Not shared</Text>
+                        : allergies.length === 0 ? <Text style={styles.empty}>No allergy</Text>
+                        : classifiedAllergies.length === 0 ? <Text style={[styles.empty, styles.allergySpacing]}>No classified allergies to display</Text> : null}
+                    {["food", "non_food"].map((kind) => {
+                        const entries = classifiedAllergies.filter((m) => m.allergy_type === kind);
+                        return entries.length > 0 ? <View key={kind}>
+                            <Text style={styles.groupTitle}>{kind === "food" ? "Food" : "Non-food"}</Text>
+                            <Capped rows={entries} noun="allergies" render={(m, i) => <View key={m.id ?? i} style={styles.allergySpacing}><Item
+                                title={m.title} conditionCategory="Allergy" multiline sub={[m.description, CARE_LABELS[m.care_level], m.facility].filter(Boolean).join("\n")}
+                                dateText={numericDate(m.date_recorded)} /></View>} />
+                        </View> : null;
+                    })}
+                </>}
+                {key === "medications" && rows.length === 0 ? <Text style={styles.empty}>No medications to display</Text> : null}
+                {(key === "medications" ? ["taking", "completed"] : ["conditions", ...(hospitalStays.length ? ["hospital"] : [])]).map((group) => {
+                    const medGroup = key === "medications";
+                    const entries = medGroup ? rows.filter((m) => medicationStatus(m, todayLocal()) === group)
+                        : group === "hospital" ? hospitalStays : conditions;
+                    return <View key={group}>
+                    <Text style={styles.groupTitle}>{group === "taking" ? "Taking" : group === "completed" ? "Completed" : group === "hospital" ? "Hospital Stays" : "Conditions"}</Text>
+                    {!medGroup && group === "conditions" && entries.length === 0 && p.medicalHistory
+                        ? <Text style={styles.empty}>No conditions recorded</Text> : null}
+                    {!medGroup && group === "conditions" && !p.medicalHistory ? <Text style={styles.empty}>Illness records not shared</Text> : null}
+                    {medGroup && rows.length > 0 && entries.length === 0 ? <Text style={styles.empty}>
+                        {group === "taking" ? "No medications currently being taken" : "No completed medications"}</Text> : null}
+                    <Capped
+                    rows={entries}
                     noun="entries"
                     render={(m, i) => {
-                        // Every category here has a course now. Medications
-                        // were rendered neutral for one pass, correctly, while
-                        // `resolved` was a column nothing could ever set for
-                        // them — migration 006 made "still taking / finished"
-                        // real, so they carry a status again.
                         const isMed = m.category === "Medication";
-                        // Coral for a child in hospital right now, amber for an
-                        // illness still being got over, green once it is over.
-                        // Same ladder the Dashboard's Needs Attention card uses.
-                        // A medicine still being taken is teal — informational,
-                        // not a problem: a course running as prescribed is not
-                        // something to alarm a clinician about.
-                        const tone = m.resolved
-                            ? colors.success
-                            : isMed
-                              ? colors.info
-                              : m.category === "Hospitalization"
-                                ? colors.danger
-                                : colors.warning;
-                        // Currently on it is the single most decision-relevant
-                        // thing on this screen, so it leads the line.
-                        const doseLine = isMed
-                            ? [
-                                  m.dose_amount,
-                                  m.frequency_per_day ? `${m.frequency_per_day}x daily` : null,
-                              ]
-                                  .filter(Boolean)
-                                  .join(", ")
-                            : "";
+                        const state = isMed ? medicationStatus(m, todayLocal()) : m.resolved === true ? "completed" : m.resolved === false ? "active" : "Status not recorded";
+                        const completed = state === "completed";
                         const treats = isMed && m.treats_id
-                            ? (p.medicalHistory.find((x) => String(x.id) === String(m.treats_id)) || {}).title
-                            : "";
-                        return (
-                            <Item
-                                key={i}
-                                tone={tone}
-                                statusIcon={
-                                    m.resolved
-                                        ? "checkmark-circle"
-                                        : isMed
-                                          ? "ellipse"
-                                          : "alert-circle"
-                                }
-                                title={`${m.title || m.category} · ${m.category}`}
-                                sub={[
-                                    shortDate(m.date_recorded),
-                                    doseLine,
-                                    // How long it ran, which is what a clinician
-                                    // is reading this list for. A bare start
-                                    // date leaves "three days" and "three
-                                    // months" looking identical. A row resolved
-                                    // with no end date (possible before
-                                    // migration 005) says so plainly rather
-                                    // than claiming to be ongoing.
-                                    m.resolved
-                                        ? m.resolved_date
-                                            ? spanText(m.date_recorded, m.resolved_date)
-                                            : isMed
-                                              ? "finished"
-                                              : "resolved"
-                                        : isMed
-                                          ? courseDayText(m.date_recorded, m.course_days, todayLocal()).toLowerCase()
-                                          : spanText(m.date_recorded, ""),
-                                    treats ? `for ${treats}` : null,
-                                    m.prescribed_by ? `by ${m.prescribed_by}` : null,
-                                    CARE_LABELS[m.care_level],
-                                    m.facility,
-                                ]
-                                    .filter(Boolean)
-                                    .join(" · ")}
-                            />
-                        );
+                            ? (p.medicalHistory.find((x) => String(x.id) === String(m.treats_id)) || {}).title : "";
+                        const doseBadge = [m.dose_amount,
+                            m.frequency_per_day ? `${m.frequency_per_day}x daily` : null,
+                            m.course_days ? `${m.course_days} days` : null].filter(Boolean);
+                        return <Item key={m.id ?? i} conditionCategory={m.category === "Illness" ? "Illness" : undefined} medicationRecord={isMed ? m : undefined} hospitalRecord={m.category === "Hospitalization" ? m : undefined} tone={completed ? colors.success : colors.warning}
+                            statusIcon={!isMed && completed ? "checkmark-circle" : null}
+                            status={m.category === "Hospitalization" ? hospitalStayInfo(m).statusLabel : isMed || completed ? null : state} statusTone={completed ? "success" : "warning"}
+                            title={`${m.title || m.category}${["Illness", "Medication"].includes(m.category) ? "" : ` · ${m.category}`}`}
+                            badges={isMed ? doseBadge : undefined}
+                            badge={isMed ? undefined : m.category === "Hospitalization" ? hospitalStayInfo(m).durationLabel : conditionDuration(m, todayLocal())} multiline
+                            sub={[treats ? `for ${treats}` : null, m.prescribed_by ? `by ${m.prescribed_by}` : null,
+                                CARE_LABELS[m.care_level], m.facility,
+                                m.allergy_type ? `${m.allergy_type === "food" ? "Food" : "Non-food"} allergy` : null].filter(Boolean).join("\n")}
+                            dateText={numericDate(m.date_recorded) || "Date not recorded"} />;
                     }}
                 />
+                </View>;
+                })}
             </Section>
-        ),
+    );
 
-        vaccinations: p.vaccinations && (
-            <Section
-                key="vaccinations"
-                icon="medical-outline"
-                title="Immunisation status"
-                count={p.vaccinations.length}
-            >
-                {p.vaccinations.length === 0 && <Text style={styles.empty}>No records.</Text>}
-                {/* The actionable read, above the archive. "18 vaccines past
-                    due" told a clinician a number they could not act on; what
-                    they need is WHICH, oldest first, and what falls due next.
-                    Both are derived from rows already on screen. */}
-                <VaccineStatus rows={p.vaccinations} />
-                <Capped
-                    rows={p.vaccinations}
-                    noun="vaccines"
-                    render={(v, i) => {
-                        const done = v.status === "completed";
-                        const late = !done && v.due_date ? overdueBy(v.due_date) : "";
-                        // A reaction to a previous dose is among the most
-                        // decision-relevant things this screen can carry, and
-                        // it could not reach a clinician at all before. It
-                        // outranks lateness in the flag slot when present.
-                        const reacted =
-                            v.reaction_severity === "mild" || v.reaction_severity === "severe";
-                        const reactionFlag = reacted
-                            ? `${v.reaction_severity} reaction${v.reaction ? `: ${v.reaction}` : ""}`
-                            : null;
-                        return (
-                            <Item
-                                key={i}
-                                tone={
-                                    reacted
-                                        ? v.reaction_severity === "severe"
-                                            ? colors.danger
-                                            : colors.warning
-                                        : done
-                                          ? colors.success
-                                          : late
-                                            ? colors.danger
-                                            : colors.warning
-                                }
-                                statusIcon={
-                                    reacted
-                                        ? "alert-circle"
-                                        : done
-                                          ? "checkmark-circle"
-                                          : late
-                                            ? "alert-circle"
-                                            : "time-outline"
-                                }
-                                title={v.vaccine_name}
-                                sub={[
-                                    v.dose_number ? `dose ${v.dose_number}` : null,
-                                    v.visit_name,
-                                    done
-                                        ? `given ${shortDate(v.date_given) || "—"}`
-                                        : `due ${shortDate(v.due_date) || "—"}`,
-                                ]
-                                    .filter(Boolean)
-                                    .join(" · ")}
-                                flag={reactionFlag || late || null}
-                            />
-                        );
-                    }}
-                />
-            </Section>
+    const sections = {
+        medicalHistory: (p.medicalHistory || p.allergies) && medicalSection(medicalHistory, "medicalHistory", RECORD_LABELS.medicalHistory, "pulse-outline"),
+        medications: p.medicalHistory && medicalSection(medications, "medications", "Medication", <MedicationIcon size={30} showBackground={false} />),
+        vaccinations: session.recordKeys?.includes("vaccinations") && Array.isArray(p.vaccinations) && (
+            <ViewerImmunizationStatusCard key={`vaccinations-${session.code}-${session.capturedAt || ""}`} rows={p.vaccinations} />
         ),
 
         growth: p.growth && (
-            <Section
-                key="growth"
-                icon="trending-up-outline"
-                title={RECORD_LABELS.growth}
-                count={(p.growth.measurements || []).length}
-            >
-                <Row
-                    label="At Birth"
-                    value={`${p.growth.birthWeight ?? "—"} kg · ${p.growth.birthLength ?? "—"} cm`}
-                />
-                {(p.growth.measurements || []).length === 0 && (
-                    <Text style={styles.empty}>No measurements.</Text>
-                )}
-                {/* The chart, not just the numbers. "Is this child tracking or
-                    falling off?" is the question this section exists to answer,
-                    and a newest-first list capped at 10 could hide the older
-                    baseline that makes the comparison possible.
-
-                    GrowthChart is reused exactly as the parent's Dashboard uses
-                    it — it reads date_recorded / weight / height /
-                    head_circumference, which is the snapshot's own shape, so no
-                    adapter is involved and the two screens cannot plot the same
-                    child differently. */}
-                {(p.growth.measurements || []).length > 0 && dob && sexKey ? (
-                    <>
-                        {/* `plain` is deliberately NOT passed. The parent's
-                            Dashboard card states the percentile in words and
-                            drops the outer reference band; this screen keeps
-                            the ordinal and both bands, which is the shorthand a
-                            clinician reads fluently. */}
-                        <GrowthChart
-                            rows={p.growth.measurements}
-                            sex={p.profile?.sex}
-                            dateOfBirth={dob}
-                            name={(p.profile?.name || "").split(" ")[0]}
-                        />
-                        <GrowthTrend
-                            rows={p.growth.measurements}
-                            sex={p.profile?.sex}
-                            dateOfBirth={dob}
-                        />
-                    </>
-                ) : null}
-                <Capped
-                    rows={p.growth.measurements || []}
-                    noun="measurements"
-                    render={(g, i) => {
-                        // Percentiles are the reason a clinician reads this
-                        // section at all; raw centimetres make them do the
-                        // reference lookup by hand.
-                        const pct = [
-                            ["weight", g.weight, "Wt"],
-                            ["height", g.height, "Ht"],
-                            ["head", g.head_circumference, "HC"],
-                        ]
-                            .map(([ind, val, label]) => {
-                                const s = percentileFor(ind, val, g.date_recorded);
-                                return s ? `${label} ${s}` : null;
-                            })
-                            .filter(Boolean)
-                            .join(" · ");
-                        return (
-                            <Item
-                                key={i}
-                                tone={colors.info}
-                                statusIcon="analytics-outline"
-                                title={`${g.weight ?? "—"} kg · ${g.height ?? "—"} cm${
-                                    g.head_circumference ? ` · HC ${g.head_circumference} cm` : ""
-                                }`}
-                                // Where it was taken, when recorded. A clinic
-                                // scale and a home scale are different
-                                // instruments and the difference is the
-                                // clinician's to weigh -- the app states the
-                                // fact and stops there (migration 007).
-                                sub={[shortDate(g.date_recorded), GROWTH_PLACE[g.measured_at]]
-                                    .filter(Boolean)
-                                    .join(" · ")}
-                                flag={pct ? `${pct} (WHO percentile)` : null}
-                            />
-                        );
-                    }}
-                />
+            <Section key="growth" icon={<GrowthIcon size={29.16} showBackground={false} />} title={RECORD_LABELS.growth}>
+                <LatestMeasurementsSummary measurement={measurements[0] || null} plain />
+                {dob ? <GrowthChart rows={p.growth.measurements || []} dateOfBirth={dob}
+                    title={t("growthLast30DaysTitle")} plain showMetricDots={false} dateWindow={recentDateRange(30, dob)}
+                    emptyMessage={t("growthNoMeasurementsLast30Days")} />
+                    : <Text style={styles.empty}>The growth chart needs a birth date, which was not shared.</Text>}
+                <View style={{ marginTop: space.md, marginBottom: space.md }}>
+                    <Text style={{ ...type.bodyStrong, color: colors.text, marginBottom: space.sm }}>At Birth</Text>
+                    <Row label="Height" value={p.growth.birthLength != null ? `${p.growth.birthLength} cm` : "Not recorded"} />
+                    <Row label="Weight" value={p.growth.birthWeight != null ? `${p.growth.birthWeight} kg` : "Not recorded"} />
+                    <Row label="Head Circumference" value={p.growth.birthHeadCircumference != null ? `${p.growth.birthHeadCircumference} cm` : "Not recorded"} />
+                </View>
+                <GrowthEntries key={session.code} measurements={measurements} dob={dob} />
             </Section>
         ),
 
@@ -1172,14 +875,10 @@ function RecordsView({ session, onEnd, onExit }) {
             <Section
                 key="checkups"
                 icon="calendar-outline"
-                title="Care timeline"
+                title="Appointments & Checkups"
                 count={p.checkups.length}
             >
                 {p.checkups.length === 0 && <Text style={styles.empty}>No records.</Text>}
-                {/* "When were they last seen" and "what is already booked" are
-                    two different questions, and a single date-ordered list made
-                    a clinician answer both by reading the whole thing. */}
-                <CareTimeline rows={p.checkups} />
                 <Capped
                     rows={p.checkups}
                     noun="checkups"
@@ -1187,16 +886,15 @@ function RecordsView({ session, onEnd, onExit }) {
                         <Item
                             key={i}
                             tone={c.status === "completed" ? colors.success : colors.warning}
-                            statusIcon={c.status === "completed" ? "checkmark-circle" : "time-outline"}
+                            multiline
                             title={c.title || "Checkup"}
                             sub={[
                                 c.doctor_name,
                                 c.clinic,
-                                shortDate(c.checkup_date),
-                                shortTime(c.time_of_visit),
                             ]
                                 .filter(Boolean)
-                                .join(" · ")}
+                                .join("\n")}
+                            dateText={numericDate(c.checkup_date) || "Date not recorded"}
                         />
                     )}
                 />
@@ -1206,7 +904,7 @@ function RecordsView({ session, onEnd, onExit }) {
         milestones: p.milestones && (
             <Section
                 key="milestones"
-                icon="ribbon-outline"
+                icon={<RecordIcon category="milestone" size={29.16} showBackground={false} />}
                 title={RECORD_LABELS.milestones}
                 count={p.milestones.length}
             >
@@ -1223,9 +921,8 @@ function RecordsView({ session, onEnd, onExit }) {
                             // age_achieved was queried, decrypted and shipped in
                             // the snapshot, then never rendered — and for a
                             // milestone it is the clinically meaningful field.
-                            sub={[m.age_achieved, shortDate(m.date_recorded)]
-                                .filter(Boolean)
-                                .join(" · ")}
+                            badge={abbreviateAge(m.age_achieved) || "Age not recorded"}
+                            dateText={numericDate(m.date_recorded) || "Date not recorded"}
                         />
                     )}
                 />
@@ -1233,95 +930,47 @@ function RecordsView({ session, onEnd, onExit }) {
         ),
 
         nutrition: p.nutrition && (
-            <Section
-                key="nutrition"
-                icon="restaurant-outline"
-                title="Feeding"
-                count={p.nutrition.length}
-            >
-                {p.nutrition.length === 0 && <Text style={styles.empty}>No records.</Text>}
-                {/* Summary first, reactions in full, the raw log last and
-                    collapsed.
-
-                    The feed-by-feed log is the least useful thing on this
-                    screen: a real account holds hundreds of rows and the cap
-                    showed ten recent ones, which answers no clinical question.
-                    What a clinician needs from nutrition is the pattern and the
-                    reactions — so those lead, and the log stays available
-                    rather than being deleted. */}
-                <FeedingBrief rows={p.nutrition} dob={dob} />
-                <ShowRaw count={p.nutrition.length}>
-                <Capped
-                    rows={p.nutrition}
-                    noun="entries"
-                    render={(f, i) => {
-                        // Severity drives the tone; free text alone is a
-                        // pre-migration row, which still deserves the flag.
-                        const severe = f.reaction_severity === "severe";
-                        const flagged = severe || f.reaction_severity === "mild" || (!f.reaction_severity && !!f.reaction);
-                        return (
-                            <Item
-                                key={i}
-                                tone={severe ? colors.danger : flagged ? colors.warning : colors.info}
-                                statusIcon={flagged ? "alert-circle" : "restaurant-outline"}
-                                title={
-                                    feedRowSummary(f).replace(" • ", " — ") +
-                                    (f.formula_brand ? ` (${f.formula_brand})` : "")
-                                }
-                                sub={[shortDate(f.entry_date), shortTime(f.entry_time)]
-                                    .filter(Boolean)
-                                    .join(" · ")}
-                                flag={
-                                    flagged
-                                        ? `${severe ? "severe" : "mild"} reaction${f.reaction ? `: ${f.reaction}` : ""}`
-                                        : null
-                                }
-                            />
-                        );
-                    }}
-                />
-                </ShowRaw>
+            <React.Fragment key="nutrition">
+            <Section icon={<MilkIcon size={29.16} showBackground={false} />} title="Milk Type Periods" subtitle="Saved periods, separate from individual feeding entries">
+                {Array.isArray(p.milkTypePeriods) ? p.milkTypePeriods.length ? p.milkTypePeriods.map(record => {
+                    const period = milkPeriodInfo(record, String(session.capturedAt || todayLocal()).slice(0, 10));
+                    return <View key={record.id} style={{ paddingVertical: space.md, gap: space.xs }}>
+                        <Text style={{ ...type.bodyStrong, color: colors.text }}>{period.type}</Text>
+                        <Text style={{ ...type.caption, color: colors.textSecondary }}>{period.dateLabel}</Text>
+                        {record.notes ? <Text style={{ ...type.caption, color: colors.textSecondary }}>{record.notes}</Text> : null}
+                    </View>;
+                }) : <Text style={{ ...type.caption, color: colors.textMuted }}>No saved milk-type periods in this snapshot.</Text>
+                    : <Text style={{ ...type.caption, color: colors.textMuted }}>Milk-type periods were not included in this older share.</Text>}
             </Section>
+            <Section key="nutrition" icon={<SolidFoodIcon size={29.16} showBackground={false} />} title="Solid Foods"
+                subtitle="Foods this child has tried">
+                <SolidFoodsSummary solids={solids} dob={dob} readOnly />
+            </Section>
+            </React.Fragment>
         ),
     };
 
     return (
         <ScrollView
             ref={scrollRef}
-            contentContainerStyle={styles.recScroll}
+            style={styles.root}
+            contentContainerStyle={[styles.recScroll, { paddingTop: space.lg + insets.top,
+                paddingBottom: space.xl + insets.bottom }]}
             keyboardShouldPersistTaps="handled"
         >
-            <View style={styles.viewOnlyBanner}>
-                <Ionicons name="eye" size={15} color={colors.onPrimary} />
-                <Text style={styles.viewOnlyText}>VIEW ONLY · authorized by parent</Text>
-            </View>
-
-            {/* Identity as one block. Age used to sit in the summary band while
-                the name sat above it, so the fact every paediatric judgment
-                hangs on was separated from the person it belongs to. */}
-            <Text style={styles.childName} numberOfLines={2}>
-                {session.childName || "Child"}
-            </Text>
-            <Text style={styles.childIdentity} numberOfLines={2}>
-                {[
-                    dob ? ageText(dob) : null,
-                    p.profile?.sex,
-                    p.profile?.bloodType ? `Blood ${p.profile.bloodType}` : null,
-                    dob ? `born ${shortDate(dob)}` : null,
-                ]
-                    .filter(Boolean)
-                    .join(" · ") || "Profile not shared"}
-            </Text>
-            <Text style={styles.childMeta}>
-                {(session.recordKeys || []).length} record types shared · code {session.code}
-            </Text>
+            <TouchableOpacity style={styles.backButton} onPress={onEnd} accessibilityRole="button" accessibilityLabel="Back to consultation access">
+                <Ionicons name="chevron-back" size={22} color={colors.text} />
+                <Text style={styles.backText}>Back</Text>
+            </TouchableOpacity>
             <SnapshotTimestamp capturedAt={session.capturedAt} />
+            <ViewerChildProfileCard session={session} measurements={measurements} />
 
             <VisitReason text={p.visitReason} />
 
             <ClinicalSummary payload={p} recordKeys={session.recordKeys} />
 
             <NotShared recordKeys={session.recordKeys} />
+            <Text style={styles.groupTitle}>Record Shortcuts</Text>
 
             {/* Jump bar. Eight sections and several long lists, read by someone
                 with a patient in front of them — scrolling to find growth is
@@ -1345,7 +994,8 @@ function RecordsView({ session, onEnd, onExit }) {
                                 // the ref is the DOM node, which understands
                                 // `top`, while native wants `y`. Passing both
                                 // keeps one call working on both.
-                                scrollRef.current.scrollTo({ y, top: y, animated: true });
+                                const offset = Math.max(0, y - insets.top - space.lg);
+                                scrollRef.current.scrollTo({ y: offset, top: offset, animated: true });
                             }
                         }}
                         accessibilityRole="button"
@@ -1377,10 +1027,8 @@ function RecordsView({ session, onEnd, onExit }) {
                 </Text>
             </View>
 
-            <TouchableOpacity style={styles.endBtn} onPress={onEnd}>
-                <Text style={styles.endText}>End Session</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.exitLink} onPress={onExit}>
+            <Button title="End Session" icon="log-out-outline" onPress={onEnd} />
+            <TouchableOpacity style={styles.exitLink} onPress={onExit} accessibilityRole="button" accessibilityLabel="Back to parent sign-in">
                 <Ionicons name="arrow-back" size={14} color={colors.primary} />
                 <Text style={styles.exitText}>Back to parent sign-in</Text>
             </TouchableOpacity>
@@ -1389,204 +1037,141 @@ function RecordsView({ session, onEnd, onExit }) {
 }
 
 const makeStyles = (colors) => StyleSheet.create({
-    entryScroll: { flexGrow: 1, justifyContent: "center", padding: 20, backgroundColor: colors.background },
-    entryCard: {
-        backgroundColor: colors.surface, borderRadius: 28, padding: 24, borderWidth: 1, borderColor: colors.border,
-        maxWidth: 440, width: "100%", alignSelf: "center",
-    },
+    root: { flex: 1 },
+    entryScroll: { flexGrow: 1, justifyContent: "center", padding: space.xl },
+    entryCard: { maxWidth: 440, width: "100%", alignSelf: "center" },
     logoCircle: {
-        width: 56, height: 56, borderRadius: 16, backgroundColor: colors.softGreen,
-        alignItems: "center", justifyContent: "center", alignSelf: "center", marginBottom: 14,
-        borderWidth: 1, borderColor: colors.border,
+        width: 56, height: 56, borderRadius: radius.lg, backgroundColor: colors.primarySoft,
+        alignItems: "center", justifyContent: "center", alignSelf: "center", marginBottom: space.lg,
     },
-    title: { ...type.title, color: colors.primary, textAlign: "center" },
-    subtitle: { ...type.caption, color: colors.textMuted, textAlign: "center", marginTop: 6, marginBottom: 18, lineHeight: 18 },
-    field: { marginBottom: 14 },
-    label: { ...type.subheading, color: colors.textMuted, letterSpacing: 1, marginBottom: 6 },
-    inputWrap: {
-        flexDirection: "row", alignItems: "center", backgroundColor: colors.surfaceAlt,
-        borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 12, height: 46,
-    },
-    input: { flex: 1, ...type.body, color: colors.text },
     errorBox: {
-        flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.dangerBg,
-        borderRadius: 10, padding: 10, marginBottom: 12,
+        flexDirection: "row", alignItems: "center", gap: space.sm, backgroundColor: colors.dangerBg,
+        borderRadius: radius.md, padding: space.md, marginBottom: space.md,
     },
-    errorText: { flex: 1, ...type.caption, color: colors.danger, fontWeight: "600" },
-    accessNotice: { ...type.caption, color: colors.textMuted, textAlign: "center", marginBottom: 10, lineHeight: 18 },
-    viewBtn: {
-        flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-        backgroundColor: colors.primary, height: 48, borderRadius: 24, marginTop: 2,
-    },
-    viewBtnText: { color: colors.onPrimary, ...type.label, fontWeight: "800" },
-    scanHint: { flexDirection: "row", gap: 6, alignItems: "flex-start", marginTop: 14 },
-    scanHintText: { flex: 1, ...type.caption, color: colors.textMuted, lineHeight: 18 },
-    exitLink: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 16 },
-    exitText: { ...type.caption, color: colors.primary, fontWeight: "700" },
-    recScroll: { padding: 16, paddingBottom: 40 },
-    viewOnlyBanner: {
-        flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-        backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 9, marginBottom: 14,
-    },
-    viewOnlyText: { color: colors.onPrimary, ...type.caption, fontWeight: "800", letterSpacing: 1 },
-    childName: { ...type.display, fontSize: 24, lineHeight: 29, color: colors.text },
-    childIdentity: { ...type.bodyStrong, color: colors.textSecondary, marginTop: 2 },
-    childMeta: { ...type.caption, color: colors.textMuted, marginTop: 2 },
-
-    // Parent's note. Primary-tinted so it reads as authored content rather than
-    // as a system status — and quoted, so it is never mistaken for a clinical
-    // assessment the app has made.
-    reasonCard: {
-        marginTop: space.md,
-        padding: space.md,
-        borderRadius: 14,
-        borderCurve: "continuous",
-        backgroundColor: colors.primarySoft,
-        borderWidth: 1,
-        borderColor: colors.primary,
-    },
-    reasonHead: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
-    reasonLabel: { ...type.caption, fontWeight: "800", color: colors.primaryDark, letterSpacing: 0.4 },
-    reasonText: { ...type.body, color: colors.text, fontStyle: "italic", lineHeight: 23 },
+    errorText: { flex: 1, ...type.label, color: colors.danger },
+    accessNotice: { ...type.caption, color: colors.textMuted, marginBottom: space.lg },
+    scanHint: { flexDirection: "row", gap: space.sm, alignItems: "center", marginTop: space.lg },
+    scanHintText: { flex: 1, ...type.caption, color: colors.textMuted },
+    exitLink: { minHeight: MIN_TOUCH, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.sm, marginTop: space.md },
+    exitText: { ...type.label, color: colors.primary },
+    recScroll: { padding: space.xl },
+    backButton: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", minHeight: MIN_TOUCH,
+        gap: space.xs, paddingHorizontal: space.md, borderRadius: radius.pill, backgroundColor: colors.surface, marginBottom: space.lg },
+    backText: { ...type.label, color: colors.text },
+    profilePanel: { padding: 18, borderWidth: 0, borderRadius: 24, backgroundColor: colors.clinicalSummary.panel[0], boxShadow: colors.clinicalSummary.panelShadow },
+    profileHeader: { marginBottom: 16 },
+    profileTitle: { ...type.bodyStrong, fontSize: 18, lineHeight: 24, color: colors.clinicalSummary.secondary, textTransform: "none" },
+    profileIcon: { ...cardHeaderIconStyle, width: 40, height: 40 },
+    profileArtwork: { width: 30, height: 30 },
+    childName: { ...type.title, fontSize: 24, lineHeight: 30, color: colors.clinicalSummary.text, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.clinicalSummary.divider },
+    childIdentity: { ...type.body, color: colors.clinicalSummary.secondary, marginTop: 16 },
+    profileRows: { paddingTop: 16, gap: 10 },
+    profileRow: { minHeight: 48, paddingHorizontal: 14, paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: space.md, borderRadius: 18, boxShadow: colors.clinicalSummary.itemShadow },
+    profileLabel: { ...type.body, fontSize: 14, lineHeight: 20, color: colors.clinicalSummary.secondary, flex: 1.25, minWidth: 0 },
+    profileValue: { ...type.bodyStrong, fontSize: 15, lineHeight: 22, color: colors.clinicalSummary.text, flex: 1, minWidth: 0, textAlign: "right" },
+    profileRowStacked: { flexDirection: "column", alignItems: "stretch", gap: 4 },
+    profileTextStacked: { flexGrow: 0, flexShrink: 0, flexBasis: "auto", textAlign: "left" },
+    childMeta: { ...type.caption, lineHeight: 20, color: colors.clinicalSummary.secondary, marginTop: 18, paddingTop: 14, borderTopWidth: 1, borderTopColor: colors.clinicalSummary.divider },
+    reasonText: { ...type.body, color: colors.text, fontStyle: "italic" },
 
     // Withheld record types. Amber, not coral: this is "you have not been told",
     // which is a caution, not an error or an emergency (DESIGN.md's tone ladder).
     notSharedCard: {
         flexDirection: "row",
+        alignItems: "center",
         gap: space.sm,
-        marginTop: space.md,
         padding: space.md,
-        borderRadius: 14,
+        borderRadius: radius.md,
         borderCurve: "continuous",
         backgroundColor: colors.warningBg,
         borderWidth: 1,
         borderColor: colors.warning,
     },
-    notSharedTitle: { ...type.label, color: colors.warning, marginBottom: 2 },
-    notSharedBody: { ...type.caption, color: colors.text, lineHeight: 18 },
-    notSharedHint: { ...type.caption, color: colors.textSecondary, marginTop: 4, lineHeight: 18 },
+    notSharedBody: { ...type.body, color: colors.text },
+    notSharedHint: { ...type.caption, color: colors.textSecondary, marginTop: space.sm },
 
-    jumpBar: { flexDirection: "row", gap: 6, paddingVertical: space.md, paddingRight: space.md },
+    jumpBar: { flexDirection: "row", gap: space.sm, paddingBottom: space.lg },
     jumpChip: {
         minHeight: MIN_TOUCH,
         justifyContent: "center",
         paddingHorizontal: space.md,
-        borderRadius: 999,
+        borderRadius: radius.pill,
         borderCurve: "continuous",
-        backgroundColor: colors.surfaceAlt,
+        backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.hairline,
     },
-    jumpChipText: { ...type.caption, color: colors.textSecondary, fontWeight: "600" },
+    jumpChipText: { ...type.label, color: colors.primaryDark },
 
-    vaxStatus: { gap: 8, marginBottom: space.sm },
-    vaxBand: { padding: space.sm, borderRadius: 12, borderCurve: "continuous", borderWidth: 1 },
-    vaxBandOverdue: { backgroundColor: colors.dangerBg, borderColor: colors.danger },
-    vaxBandNext: { backgroundColor: colors.infoBg, borderColor: colors.info },
-    vaxBandTitle: { ...type.label, color: colors.danger, marginBottom: 3 },
-    vaxBandTitleNext: { ...type.label, color: colors.info, marginBottom: 3 },
-    vaxBandRow: { ...type.caption, color: colors.text, lineHeight: 18 },
-    vaxBandRowNext: { ...type.caption, color: colors.text, lineHeight: 18 },
 
-    trendCard: {
-        marginTop: space.sm,
-        padding: space.sm,
-        borderRadius: 12,
-        borderCurve: "continuous",
-        backgroundColor: colors.surfaceAlt,
-    },
-    trendTitle: { ...type.caption, fontWeight: "800", color: colors.textSecondary, marginBottom: 4 },
-    trendRow: { ...type.body, color: colors.text, lineHeight: 22 },
-    trendMeta: { ...type.caption, color: colors.textMuted },
 
-    timelineCard: { flexDirection: "row", gap: space.md, marginBottom: space.sm, flexWrap: "wrap" },
-    timelineCol: { flex: 1, minWidth: 140 },
-    timelineLabel: { ...type.caption, fontWeight: "800", color: colors.textMuted, letterSpacing: 0.4 },
-    timelineValue: { ...type.caption, color: colors.text, lineHeight: 18, marginTop: 2 },
 
-    briefCard: {
-        padding: space.sm,
-        borderRadius: 12,
-        borderCurve: "continuous",
-        backgroundColor: colors.surfaceAlt,
-        marginBottom: space.sm,
-    },
-    briefText: { ...type.body, color: colors.text, lineHeight: 22 },
-    briefLabel: { ...type.caption, fontWeight: "800", color: colors.danger, marginTop: 6, letterSpacing: 0.4 },
-    briefReaction: { ...type.caption, color: colors.text, lineHeight: 18, marginTop: 2 },
-    briefNone: { ...type.caption, color: colors.textMuted, marginTop: 4 },
+    snapshotContainer: { width: "100%", gap: space.sm, marginBottom: space.md },
     snapshotBanner: {
-        flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: colors.surfaceAlt,
-        borderRadius: 12, padding: 10, marginTop: 10, marginBottom: 14,
+        flexDirection: "row", alignItems: "center", alignSelf: "flex-start", maxWidth: "100%", gap: space.sm,
+        borderRadius: radius.pill, paddingHorizontal: space.md, paddingVertical: space.sm,
     },
-    snapshotBannerStale: { backgroundColor: colors.warningBg },
-    snapshotText: { flex: 1, ...type.caption, color: colors.textMuted, fontWeight: "600" },
-    snapshotTextStale: { color: colors.warning, fontWeight: "800" },
-    snapshotWarningText: { ...type.caption, color: colors.warning, marginTop: 3, lineHeight: 18 },
-    // Clinical summary band — the five-second read, above every section.
-    summary: {
-        backgroundColor: colors.surface,
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: colors.primary,
-        padding: 14,
-        marginBottom: 14,
-        gap: 8,
-    },
-    summaryIdentity: { ...type.heading, fontWeight: "800", color: colors.text },
-    summaryRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-    summaryRowAlert: {
-        backgroundColor: colors.dangerBg,
-        borderRadius: 10,
-        paddingVertical: 6,
-        paddingHorizontal: 8,
-        marginHorizontal: -2,
-    },
-    summaryRowWarn: {
-        backgroundColor: colors.warningBg,
-        borderRadius: 10,
-        paddingVertical: 6,
-        paddingHorizontal: 8,
-        marginHorizontal: -2,
-    },
-    summaryText: { flex: 1, ...type.label, fontWeight: "400", color: colors.textSecondary, lineHeight: 20 },
-    summaryTextAlert: { color: colors.danger, fontWeight: "700" },
-    summaryTextWarn: { color: colors.warning, fontWeight: "700" },
+    snapshotText: { flexShrink: 1, ...type.caption },
+    snapshotWarningText: { ...type.caption, color: colors.warning, lineHeight: 18 },
+    clinicalPanel: { padding: 16, borderRadius: 28, borderWidth: 0, backgroundColor: colors.clinicalSummary.panel[0], boxShadow: colors.clinicalSummary.panelShadow },
+    clinicalHeader: { borderBottomWidth: 0, paddingBottom: 0, marginBottom: 20 },
+    clinicalTitle: { ...type.heading, fontSize: 25, lineHeight: 32, color: colors.clinicalSummary.text, textTransform: "none" },
+    summary: { gap: 22 }, clinicalNotices: { gap: 12 },
+    summaryRow: { flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 16 },
+    summaryRowAlert: { backgroundColor: colors.dangerBg }, summaryRowWarn: { backgroundColor: colors.warningBg },
+    summaryText: { flex: 1, ...type.body, color: colors.textSecondary },
+    summaryTextAlert: { ...type.bodyStrong, color: colors.danger }, summaryTextWarn: { ...type.bodyStrong, color: colors.warning },
+    feedingSection: { borderTopWidth: 1, borderTopColor: colors.clinicalSummary.divider, paddingTop: 14, gap: 14 },
+    clinicalFirstSection: { borderTopWidth: 0, paddingTop: 0 },
+    feedingHeading: { flexDirection: "row", alignItems: "center", gap: 10 },
+    feedingTitle: { ...type.subheading, fontSize: 16, lineHeight: 22, color: colors.clinicalSummary.text, includeFontPadding: false, flexShrink: 1 },
+    feedingPerDay: { ...type.caption, fontFamily: type.body.fontFamily, fontWeight: type.body.fontWeight,
+        color: colors.clinicalSummary.secondary, textTransform: "none", letterSpacing: 0 },
+    feedingText: { ...type.body, fontSize: 13, lineHeight: 20, color: colors.clinicalSummary.secondary },
+    feedingLabel: { ...type.bodyStrong, fontSize: 15, lineHeight: 22, color: colors.clinicalSummary.text },
+    clinicalList: { paddingTop: 0, paddingBottom: 0, gap: 12 },
+    clinicalRecord: { minHeight: 52, padding: 14, borderRadius: 20, flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap", boxShadow: colors.clinicalSummary.itemShadow },
+    clinicalRecordBody: { flex: 1, minWidth: 100, gap: 4 },
+    clinicalRecordTitle: { ...type.bodyStrong, fontSize: 15, lineHeight: 22, color: colors.clinicalSummary.text },
+    clinicalBadge: { borderRadius: 999, paddingVertical: 5, paddingHorizontal: 10, backgroundColor: colors.clinicalSummary.icon[0], alignSelf: "center", maxWidth: "100%", boxShadow: colors.clinicalSummary.badgeShadow },
+    clinicalBadgeText: { ...type.caption, fontSize: 13, lineHeight: 18, color: colors.clinicalSummary.secondary },
+    feedingReaction: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", borderRadius: 20, padding: 12, gap: 10, minHeight: 76, boxShadow: colors.clinicalSummary.itemShadow },
+    feedingReactionDetails: { flex: 1, minWidth: 80, gap: 3 },
+    clinicalReactionsList: { paddingTop: 0, paddingBottom: 0, gap: 14 },
+    clinicalReactionsTitle: { ...type.subheading, fontSize: 17, lineHeight: 24, color: colors.clinicalSummary.text, marginTop: 6, textTransform: "none" },
+    feedingAverageHint: { ...type.caption, fontSize: 13, lineHeight: 20, color: colors.clinicalSummary.secondary },
+    feedingMetricUnit: { ...type.caption, color: colors.clinicalSummary.secondary },
+    feedingMetricRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "stretch", gap: 12 },
+    feedingMetric: { minHeight: 164, alignItems: "flex-start", padding: 12, gap: 8, borderRadius: 22, boxShadow: colors.clinicalSummary.itemShadow },
+    feedingMetricInline: { flexDirection: "row", alignItems: "center", gap: 12 },
+    feedingMetricIcon: { width: 48, height: 48, borderRadius: 24, flexShrink: 0 },
+    feedingMetricBody: { alignSelf: "stretch", minWidth: 0, gap: 5, flexShrink: 1, justifyContent: "center" },
+    feedingMetricLabel: { ...type.caption, fontSize: 13, lineHeight: 19, color: colors.clinicalSummary.secondary, textAlign: "left" },
+    feedingMetricValue: { ...type.heading, fontSize: 24, lineHeight: 31, color: colors.clinicalSummary.text, textAlign: "left" },
 
-    section: {
-        // Was a hardcoded "#FFFFFF", which stayed white in dark mode.
-        backgroundColor: colors.surface,
-        borderRadius: 18, padding: 16, borderWidth: 1, borderColor: colors.border, marginBottom: 12,
-    },
-    sectionHead: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
-    sectionTitle: { ...type.bodyStrong, fontSize: 15, fontWeight: "800", color: colors.primary, flex: 1, minWidth: 0 },
-    sectionCount: {
-        ...type.caption, fontWeight: "700", color: colors.textMuted, flexShrink: 0,
-        backgroundColor: colors.surfaceAlt, borderRadius: 999,
-        paddingHorizontal: 8, paddingVertical: 2, overflow: "hidden",
-    },
-    dataRow: { flexDirection: "row", justifyContent: "space-between", gap: 12, paddingVertical: 7, borderTopWidth: 1, borderTopColor: colors.hairline },
+    dataRow: { flexDirection: "row", justifyContent: "space-between", gap: space.md, paddingVertical: space.md, borderTopWidth: 1, borderTopColor: colors.hairline },
     dataLabel: { ...type.caption, color: colors.textMuted, flex: 1, minWidth: 0 },
-    dataValue: { ...type.caption, color: colors.text, fontWeight: "700", flex: 1, minWidth: 0, textAlign: "right" },
-    dataRowStacked: { flexDirection: "column", gap: 2 },
+    dataValue: { ...type.bodyStrong, color: colors.text, flex: 1, minWidth: 0, textAlign: "right" },
+    dataRowStacked: { flexDirection: "column", gap: space.xs },
     // Longhand, not `flex: 0` — see the note on Dashboard's statCellStacked.
     dataValueStacked: { textAlign: "left", flexGrow: 0, flexShrink: 0, flexBasis: "auto" },
-    listItem: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 8 },
-    itemTitle: { ...type.label, fontWeight: "700", color: colors.text },
-    itemSub: { ...type.caption, color: colors.textMuted, marginTop: 1 },
     // The one line a clinician scans for: overdue, or a feeding reaction.
-    itemFlag: { ...type.caption, fontWeight: "700", marginTop: 1 },
+    itemFlag: { ...type.label },
+    recordBadge: { backgroundColor: colors.surfaceAlt, borderRadius: radius.md, paddingHorizontal: space.sm, paddingVertical: space.xs, maxWidth: 136 },
+    recordBadgeText: { ...type.caption, color: colors.textSecondary, textAlign: "center" },
+    medicationBadges: { flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: space.xs, minWidth: 0 },
+    medicationBadge: { backgroundColor: colors.surfaceAlt, borderRadius: radius.md, paddingHorizontal: space.sm, paddingVertical: space.xs, maxWidth: "100%", minWidth: 0, flexShrink: 1 },
+    allergySpacing: { paddingBottom: space.sm },
+    groupTitle: { ...type.body, fontWeight: "700", color: colors.text, marginTop: space.md, marginBottom: space.sm },
     showMore: {
-        flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
-        minHeight: 44, marginTop: 4, borderTopWidth: 1, borderTopColor: colors.hairline,
+        flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.sm,
+        minHeight: MIN_TOUCH, marginTop: space.xs, borderTopWidth: 1, borderTopColor: colors.hairline,
     },
-    showMoreText: { ...type.caption, fontWeight: "700", color: colors.primary },
+    showMoreText: { ...type.label, color: colors.primary },
     empty: { ...type.caption, color: colors.textMuted, fontStyle: "italic" },
     readOnlyNote: {
-        flexDirection: "row", gap: 8, alignItems: "flex-start", backgroundColor: colors.surfaceAlt,
-        borderRadius: 12, padding: 12, marginTop: 4, marginBottom: 14,
+        flexDirection: "row", gap: space.sm, alignItems: "center", backgroundColor: colors.surface,
+        borderRadius: radius.md, padding: space.md, marginBottom: space.lg,
     },
     readOnlyText: { flex: 1, ...type.caption, color: colors.textMuted, lineHeight: 18 },
-    endBtn: { backgroundColor: colors.accentStrong, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
-    endText: { color: colors.onPrimary, ...type.label, fontWeight: "800" },
 });

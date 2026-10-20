@@ -89,6 +89,7 @@ function createResourceRouter({
         ...acceptPhoto,
         asyncHandler(async (req, res) => {
             const data = pickBody(req.body);
+            if (validate) validate(data, { isCreate: true });
             // A multipart create carries the file itself; the resulting ref
             // wins over any photo URL the same body also sent.
             if (photoColumn && req.file) {
@@ -98,7 +99,6 @@ function createResourceRouter({
                     extOf(req.file)
                 );
             }
-            if (validate) validate(data, { isCreate: true });
             const encData = encrypted.length ? encryptFields(data, encrypted) : data;
             const cols = Object.keys(encData);
             const values = Object.values(encData);
@@ -151,9 +151,10 @@ function createResourceRouter({
                     params
                 );
             };
-            const { rows } = table === "medical_history" ? await withTransaction(async (client) => {
+            const lockColumns = table === "medical_history" ? "category, allergy_type" : table === "vaccinations" ? "status, due_date" : null;
+            const { rows } = lockColumns ? await withTransaction(async (client) => {
                 const current = await client.query(
-                    "SELECT category, allergy_type FROM medical_history WHERE id = $1 AND child_id = $2 FOR UPDATE",
+                    `SELECT ${lockColumns} FROM ${table} WHERE id = $1 AND child_id = $2 FOR UPDATE`,
                     [req.params.id, req.child.id]
                 );
                 if (!current.rows[0]) throw new ApiError(404, "Record not found");

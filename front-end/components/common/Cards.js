@@ -1,8 +1,12 @@
 import React, { useMemo, useState } from "react";
-import { View, Text, StyleSheet, Image, TouchableOpacity } from "react-native";
+import { Animated, Platform, Pressable, View, Text, StyleSheet, Image, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { radius, space, shadow, type, TEXT_COL_MIN } from "../../theme";
+import { radius, space, shadow, type, TEXT_COL_MIN, recordItemStyle, cardHeaderIconStyle } from "../../theme";
+import Gradient from "../ui/Gradient";
 import { useTheme } from "../../context/ThemeContext";
+import RecordIcon from "../ui/RecordIcon";
+import MemoryDateRow from "../ui/MemoryDateRow";
+import useSoftPress from "../ui/useSoftPress";
 
 // 1. SECTION CONTAINER CARD
 //
@@ -23,7 +27,7 @@ import { useTheme } from "../../context/ThemeContext";
 // No oscillation: the action wrapper is `flexShrink: 0` in row mode and
 // `alignSelf: "flex-start"` when stacked, so it reports the same natural width
 // in both states and the predicate can't flip-flop between them.
-export function SectionContainerCard({ title, subtitle, action, children }) {
+export function SectionContainerCard({ title, subtitle, action, icon, count, children, style, background, headerStyle, titleStyle, subtitleStyle }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const [headerWidth, setHeaderWidth] = useState(0);
@@ -36,14 +40,21 @@ export function SectionContainerCard({ title, subtitle, action, children }) {
         headerWidth - actionWidth - space.sm < TEXT_COL_MIN;
 
     return (
-        <View style={styles.sectionContainer}>
+        <View style={[styles.sectionContainer, style]}>
+            {background}
             <View
-                style={[styles.sectionHeader, stacked && styles.sectionHeaderStacked]}
+                style={[styles.sectionHeader, stacked && styles.sectionHeaderStacked, headerStyle]}
                 onLayout={(e) => setHeaderWidth(e.nativeEvent.layout.width)}
             >
                 <View style={styles.sectionHeading}>
-                    <Text style={styles.sectionTitle}>{title}</Text>
-                    {subtitle ? <Text style={styles.sectionSubtitle}>{subtitle}</Text> : null}
+                    {icon || count != null ? <View style={styles.sectionTitleRow}>
+                        {icon ? <View style={styles.sectionTitleIcon}>{icon}</View> : null}
+                        <Text style={[styles.sectionTitle, styles.sectionTitleFlexible, titleStyle]}>{title}</Text>
+                        {count != null ? <View style={styles.sectionCountBadge}>
+                            <Text selectable style={styles.sectionCountText}>{count}</Text>
+                        </View> : null}
+                    </View> : <Text style={titleStyle ? [styles.sectionTitle, titleStyle] : styles.sectionTitle}>{title}</Text>}
+                    {subtitle ? <Text style={subtitleStyle ? [styles.sectionSubtitle, subtitleStyle] : styles.sectionSubtitle}>{subtitle}</Text> : null}
                 </View>
                 {action ? (
                     <View
@@ -98,15 +109,12 @@ export function RadioRow({ label, sublabel, selected, onPress, icon, iconBg, tra
 }
 
 // 3. LIST ENTRY CARD
-// `iconBg` is effectively required — every real content type should be tinted
-// with its own colors.rec* token (see theme.js) rather than falling back to a
-// shared default, which is exactly how five different record types used to
-// end up with the same icon color. The dev warning catches an omission at
-// first render instead of it rendering as a silently-identical gray tile.
-export function ListEntryCard({ title, subtitle, label, notes, icon, iconBg, actions, thumbnailUrl, onThumbnailPress }) {
+// Leading icons are optional. When present, `iconBg` must use the record's
+// colors.rec* tint rather than silently falling back to a shared gray tile.
+export function ListEntryCard({ title, titleAccessory, subtitle, subtitleNumberOfLines = 3, dateText, label, labelTrailing = false, trailingWidth, notes, icon, iconBg, iconAlign = "flex-start", actions, actionsTop = false, thumbnailUrl, onThumbnailPress, onPress, accessibilityLabel, style }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
-    if (__DEV__ && !iconBg) {
+    if (__DEV__ && icon && !iconBg) {
         console.warn("ListEntryCard: iconBg is required — pass a colors.rec* tint for this record type.");
     }
     // The thumbnail and the action are grouped into one shrink-proof trailing
@@ -115,18 +123,30 @@ export function ListEntryCard({ title, subtitle, label, notes, icon, iconBg, act
     // narrow enough to clip a real record name like "Pentavalent (DPT-HepB-Hib) 3".
     // The text column now shrinks last and ellipsizes rather than pushing the
     // trailing block off the card edge.
-    const trailing = thumbnailUrl || actions;
+    const trailing = (label && labelTrailing) || thumbnailUrl || actions;
+    const Card = onPress ? TouchableOpacity : View;
     return (
-        <View style={styles.listCard}>
-            <View style={styles.listMain}>
-                <View style={[styles.listIconContainer, { backgroundColor: iconBg }]}>{icon}</View>
+        <Card
+            style={[styles.listCard, style]}
+            onPress={onPress}
+            activeOpacity={0.82}
+            accessibilityRole={onPress ? "button" : undefined}
+            accessibilityLabel={onPress ? accessibilityLabel || `View ${title}` : undefined}
+        >
+            <Gradient pointerEvents="none" accessible={false} colors={colors.recordItem.surface}
+                style={[StyleSheet.absoluteFillObject, { borderRadius: 24, boxShadow: "inset 0 1px 2px " + colors.recordItem.highlight }]} />
+            <View style={[styles.listMain, { alignItems: iconAlign }]}>
+                {icon ? <View style={[styles.listIconContainer, { backgroundColor: iconBg }]}>{icon}</View> : null}
                 <View style={styles.listTextContainer}>
-                    <Text style={styles.listTitle} numberOfLines={2} ellipsizeMode="tail">
+                    {titleAccessory ? <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.xs }}>
+                    <Text style={[styles.listTitle, { flexShrink: 1 }]} numberOfLines={2} ellipsizeMode="tail">
                         {title}
                     </Text>
-                    {label ? <View style={styles.listLabelContainer}>{label}</View> : null}
+                    {titleAccessory}
+                    </View> : <Text style={styles.listTitle} numberOfLines={2} ellipsizeMode="tail">{title}</Text>}
+                    {label && !labelTrailing ? <View style={styles.listLabelContainer}>{label}</View> : null}
                     {subtitle ? (
-                        <Text style={styles.listSubtitle} numberOfLines={3} ellipsizeMode="tail">
+                        <Text style={styles.listSubtitle} numberOfLines={subtitleNumberOfLines} ellipsizeMode="tail">
                             {subtitle}
                         </Text>
                     ) : null}
@@ -135,13 +155,18 @@ export function ListEntryCard({ title, subtitle, label, notes, icon, iconBg, act
                             {"“" + notes + "”"}
                         </Text>
                     ) : null}
+                    {dateText ? <Text style={styles.listDate}>{dateText}</Text> : null}
                 </View>
             </View>
             {trailing ? (
-                <View style={styles.listTrailing}>
+                <View style={[styles.listTrailing, actionsTop && styles.listTrailingTop, trailingWidth && { width: trailingWidth, minWidth: 0 }]}>
+                    {label && labelTrailing ? <View style={[styles.listTrailingLabel, trailingWidth && { flex: 1, minWidth: 0, flexShrink: 1 }]}>{label}</View> : null}
                     {thumbnailUrl ? (
                         <TouchableOpacity
-                            onPress={onThumbnailPress}
+                            onPress={(event) => {
+                                event.stopPropagation?.();
+                                onThumbnailPress?.();
+                            }}
                             style={styles.thumbWrap}
                             accessibilityRole="imagebutton"
                             accessibilityLabel="View attached photo"
@@ -152,7 +177,7 @@ export function ListEntryCard({ title, subtitle, label, notes, icon, iconBg, act
                     {actions ? <View style={styles.listActions}>{actions}</View> : null}
                 </View>
             ) : null}
-        </View>
+        </Card>
     );
 }
 
@@ -165,11 +190,8 @@ export function ListEntryCard({ title, subtitle, label, notes, icon, iconBg, act
 // component — they use ListEntryCard's `thumbnailUrl` slot instead, a
 // structurally separate path, which is what keeps "keepsake" and "clinical
 // record" from ever visually blending into one thing.
-// `badge` marks a tile's kind in the Gallery's mixed timeline (a milestone
-// among photo memories). It is always paired with the kind spelled out in the
-// caption, so the distinction never rests on a small glyph alone.
-// `placeholderIcon` overrides the fallback glyph when there is no photo — a
-// milestone with no picture should not look like a missing photo.
+// `kind` keeps milestones identifiable by both the shared flag and a caption;
+// ordinary photo memories retain their image placeholder and record identity.
 export function MemoryVisualCard({
     title,
     description,
@@ -177,43 +199,49 @@ export function MemoryVisualCard({
     photoUrl,
     onClick,
     style,
-    badge,
-    placeholderIcon = "image-outline",
+    kind = "memory",
 }) {
     const { colors } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
-    const CardComponent = onClick ? TouchableOpacity : View;
+    const p = colors.memoriesSurface;
+    const { respond, transform } = useSoftPress();
+    const [pressed, setPressed] = useState(false), [focused, setFocused] = useState(false);
+    const press = down => { setPressed(down); respond(down); };
+    const focus = event => setFocused(Platform.OS === "web" && Boolean(event.currentTarget?.matches?.(":focus-visible")));
     return (
-        <CardComponent onPress={onClick} activeOpacity={0.85} style={[styles.memoryCard, style]}>
+        <Animated.View style={[styles.memoryCard, style, { transform, boxShadow: pressed ? p.pressedShadow : p.itemShadow }]}>
+        <Gradient pointerEvents="none" accessible={false} colors={p.item}
+            style={[StyleSheet.absoluteFillObject, { borderRadius: 22, boxShadow: `inset 1px 2px 2px ${p.highlight}, inset -1px -1px 2px ${p.shade}` }]} />
+        <Pressable onPress={onClick} onPressIn={() => press(true)} onPressOut={() => press(false)}
+            onFocus={focus} onKeyDown={focus} onBlur={() => { setFocused(false); press(false); }}
+            accessibilityRole={onClick ? "button" : undefined} accessibilityLabel={onClick ? `View ${title}` : undefined}
+            style={[styles.memoryPressable, Platform.OS === "web" && { outlineStyle: focused ? "solid" : "none",
+                outlineWidth: 2, outlineOffset: 3, outlineColor: p.accent }]}>
             <View style={styles.memoryFrame}>
                 {photoUrl ? (
                     <Image source={{ uri: photoUrl }} style={styles.memoryImage} />
                 ) : (
                     <View style={[styles.memoryImage, styles.memoryPlaceholder]}>
-                        <Ionicons name={placeholderIcon} size={26} color={colors.textMuted} />
+                        {kind === "milestone" ? <RecordIcon category="milestone" size={48} />
+                            : <Ionicons name="image-outline" size={26} color={colors.textMuted} />}
                     </View>
                 )}
-                {badge ? (
+                {kind === "milestone" ? (
                     <View style={styles.memoryBadge}>
-                        <Ionicons name={badge} size={12} color={colors.onPrimary} />
+                        <RecordIcon category="milestone" size={26} />
                     </View>
                 ) : null}
             </View>
             <View style={styles.memoryCaption}>
-                {date ? (
-                    <Text style={styles.memoryDate} numberOfLines={1} ellipsizeMode="tail">
-                        {date}
-                    </Text>
-                ) : null}
-                {/* Two lines: these render in 48%-wide grid tiles on both the
-                    Dashboard and the Gallery, where one line clipped most real
-                    captions ("First Steps Caught on Camera" → "First Step…"). */}
-                <Text style={styles.memoryTitle} numberOfLines={2}>{title}</Text>
+                <Text style={styles.memoryTitle}>{title}</Text>
                 {description ? (
-                    <Text style={styles.memoryDesc} numberOfLines={2}>{description}</Text>
+                    <Text style={styles.memoryDesc}>{description}</Text>
                 ) : null}
+                {kind === "milestone" ? <Text style={styles.memoryKind}>Milestone</Text> : null}
+                <View style={styles.memoryDate}><MemoryDateRow date={date} /></View>
             </View>
-        </CardComponent>
+        </Pressable>
+        </Animated.View>
     );
 }
 
@@ -230,8 +258,8 @@ export function EmptyStateCard({ message, icon }) {
     }
     return (
         <View style={styles.emptyCard}>
-            <View style={styles.emptyIconWrap}>
-                <Ionicons name={icon || "help-circle-outline"} size={20} color={colors.primaryDark} />
+            <View style={[styles.emptyIconWrap, React.isValidElement(icon) && { backgroundColor: "transparent", borderRadius: 999 }]}>
+                {React.isValidElement(icon) ? icon : <Ionicons name={icon || "help-circle-outline"} size={20} color={colors.primaryDark} />}
             </View>
             <Text style={styles.emptyText}>{message}</Text>
         </View>
@@ -265,7 +293,13 @@ const makeStyles = (colors) => StyleSheet.create({
     // default min-width is `auto` — without it the title's intrinsic width
     // stops the block from ever shrinking and the row overflows instead.
     sectionHeading: { flex: 1, flexShrink: 1, minWidth: 0 },
-    sectionTitle: { ...type.heading, color: colors.text },
+    sectionTitle: { ...type.heading, color: colors.text, textTransform: "capitalize" },
+    sectionTitleRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
+    sectionTitleIcon: { ...cardHeaderIconStyle, alignSelf: "center" },
+    sectionTitleFlexible: { flexShrink: 1, alignSelf: "center", includeFontPadding: false, textAlignVertical: "center" },
+    sectionCountBadge: { minWidth: 28, height: 28, paddingHorizontal: space.sm, borderRadius: radius.pill,
+        borderCurve: "continuous", backgroundColor: colors.surfaceAlt, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+    sectionCountText: { ...type.caption, color: colors.textSecondary, textAlign: "center", fontVariant: ["tabular-nums"] },
     sectionSubtitle: { ...type.caption, color: colors.textMuted, marginTop: 3 },
     // flexShrink: 0 keeps the buttons at their natural width so their labels
     // never clip, and keeps the measured width stable across both modes.
@@ -314,11 +348,12 @@ const makeStyles = (colors) => StyleSheet.create({
     radioTrailing: { marginLeft: space.sm },
 
     listCard: {
+        ...recordItemStyle(colors),
         padding: space.md,
         backgroundColor: colors.surface,
-        borderWidth: 1,
+
         borderColor: colors.hairline,
-        borderRadius: radius.lg,
+
         borderCurve: "continuous",
         flexDirection: "row",
         justifyContent: "space-between",
@@ -326,7 +361,8 @@ const makeStyles = (colors) => StyleSheet.create({
         // centre that block against a 40pt icon, which left the icon floating
         // in the middle of the card with ragged space above and below it.
         alignItems: "flex-start",
-        marginBottom: space.sm,
+        marginBottom: 12,
+        borderWidth: 0, borderRadius: 24,
     },
     listMain: { flexDirection: "row", alignItems: "flex-start", flex: 1, minWidth: 0 },
     listIconContainer: {
@@ -344,9 +380,12 @@ const makeStyles = (colors) => StyleSheet.create({
     listLabelContainer: { marginTop: 4, alignSelf: "flex-start" },
     listSubtitle: { ...type.caption, color: colors.textMuted, marginTop: 3 },
     listNotes: { ...type.caption, color: colors.textSecondary, marginTop: 5, fontStyle: "italic" },
+    listDate: { ...type.caption, color: colors.textMuted, marginTop: space.xs },
     // One shrink-proof trailing block instead of two unbounded siblings, so
     // the text column is the only thing that gives way as the card narrows.
-    listTrailing: { flexDirection: "row", alignItems: "center", flexShrink: 0 },
+    listTrailing: { flexDirection: "row", alignItems: "center", alignSelf: "center", flexShrink: 0 },
+    listTrailingTop: { alignSelf: "flex-start" },
+    listTrailingLabel: { marginLeft: space.sm, flexShrink: 0 },
     listActions: { marginLeft: space.sm },
     thumbWrap: {
         width: 46,
@@ -362,18 +401,10 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     thumb: { width: "100%", height: "100%" },
 
-    memoryCard: {
-        borderRadius: radius.lg,
-        borderCurve: "continuous",
-        borderWidth: 1,
-        borderColor: colors.borderStrong,
-        padding: space.sm,
-        backgroundColor: colors.surface,
-        marginBottom: space.md,
-        ...shadow.card,
-    },
+    memoryCard: { borderCurve: "continuous", borderRadius: 22, overflow: "visible" },
+    memoryPressable: { flex: 1, padding: 8, borderRadius: 22 },
     memoryFrame: {
-        borderRadius: radius.md,
+        borderRadius: 17,
         borderCurve: "continuous",
         overflow: "hidden",
         aspectRatio: 1,
@@ -385,18 +416,16 @@ const makeStyles = (colors) => StyleSheet.create({
         position: "absolute",
         top: 6,
         left: 6,
-        width: 22,
-        height: 22,
-        borderRadius: radius.pill,
-        borderCurve: "continuous",
-        backgroundColor: colors.primary,
+        width: 26,
+        height: 26,
         alignItems: "center",
         justifyContent: "center",
     },
-    memoryCaption: { paddingTop: space.sm, paddingHorizontal: space.xs, paddingBottom: space.xs },
-    memoryDate: { ...type.subheading, color: colors.textMuted, marginBottom: 3 },
-    memoryTitle: { ...type.bodyStrong, color: colors.text },
-    memoryDesc: { ...type.caption, color: colors.textMuted, marginTop: 3 },
+    memoryCaption: { flex: 1, paddingTop: 8, paddingHorizontal: 2, paddingBottom: 4 },
+    memoryDate: { marginTop: "auto" },
+    memoryTitle: { ...type.bodyStrong, fontSize: 15, lineHeight: 20, color: colors.memoriesSurface.text },
+    memoryDesc: { ...type.caption, color: colors.memoriesSurface.secondary, marginTop: 4 },
+    memoryKind: { ...type.caption, color: colors.memoriesSurface.secondary, marginTop: 6 },
 
     emptyCard: {
         width: "100%",

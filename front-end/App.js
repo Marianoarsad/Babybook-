@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import {
     View,
     Text,
@@ -6,15 +6,12 @@ import {
     TouchableOpacity,
     Pressable,
     StatusBar,
-    Modal,
     TextInput,
     Image,
-    ScrollView,
+
     Platform,
-    AppState,
     Animated,
     Easing,
-    useWindowDimensions,
 } from "react-native";
 // react-native-safe-area-context, NOT React Native's own SafeAreaView, which
 // this file used to use. RN's version is a no-op on Android — it renders a
@@ -23,7 +20,11 @@ import {
 // button's `bottom: 92` were both hardcoded guesses that could not account for
 // a home indicator or gesture bar.
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
+import { Asset } from "expo-asset";
+import { BlurTargetView } from "expo-blur";
 import { LanguageProvider, useLanguage } from "./context/LanguageContext";
+import DatabaseLoadingProvider, { useDatabaseLoading } from "./context/DatabaseLoadingContext";
+import Modal from "./components/ui/AppModal";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { Archivo_600SemiBold, Archivo_700Bold } from "@expo-google-fonts/archivo";
 import {
@@ -38,16 +39,20 @@ import {
     shadow,
     type,
     MIN_TOUCH,
-    TEXT_COL_MIN,
     motion,
     HEADER_TITLE_MAX,
     HEADER_TITLE_MIN,
     HEADER_COLLAPSE,
 } from "./theme";
 import ActionSheet from "./components/ui/ActionSheet";
+import GlassFab from "./components/ui/GlassFab";
+import GlassHeaderButton, { HEADER_ICON_SOURCES } from "./components/ui/GlassHeaderButton";
+import TabBar, { TAB_BAR_BASE_HEIGHT, TAB_ICON_SOURCES } from "./components/ui/TabBar";
 import AnchoredMenu, { AnchoredMenuItem, AnchoredMenuFooter } from "./components/ui/AnchoredMenu";
 import Gradient from "./components/ui/Gradient";
 import { ScrollContext, useScrollController } from "./context/ScrollContext";
+
+const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
 // Guarded expo-haptics, same pattern as ui/Toast.js — a no-op if the module
 // isn't available rather than a crash.
@@ -67,11 +72,9 @@ try {
 } catch (e) {
     ExpoFont = null;
 }
-// Guarded expo-splash-screen — keeps the native splash (app.json) on screen
-// until fonts are loaded and the saved session is restored, so nothing ever
-// flashes blank/white before components/Splash.js can paint. That screen
-// deliberately matches this one's background and logo size, so the handoff
-// between them is invisible — see the note at the top of Splash.js.
+// Keep the native splash (app.json) visible until startup resources,
+// preferences, onboarding state, and the saved session are ready. Web uses
+// the matching React fallback in components/Splash.js.
 let SplashScreen = null;
 try {
     // eslint-disable-next-line global-require
@@ -81,8 +84,7 @@ try {
     SplashScreen = null;
 }
 import ThemeProvider, { useTheme } from "./context/ThemeContext";
-import { fitsColumns } from "./utils/responsive";
-import { storage } from "./utils/storageAdapter";
+import { storage, removeLegacyOfflineSummaries } from "./utils/storageAdapter";
 import { seen, markSeen } from "./utils/firstRun";
 
 // Web only: one consistent muted-gray placeholder across every input, so raw
@@ -101,24 +103,32 @@ if (Platform.OS === "web" && typeof document !== "undefined") {
 // Import Screen Components
 import Auth from "./components/Auth";
 import Dashboard from "./components/Dashboard";
+import BabyProfileScreen from "./components/BabyProfileScreen";
+import recordStore from "./utils/recordStore.cjs";
 import Health from "./components/Health";
 import Growth from "./components/Growth";
 import Services from "./components/Services";
 import NutritionTracker from "./components/NutritionTracker";
 import ShareRecords from "./components/ShareRecords";
 import ProfessionalView from "./components/ProfessionalView";
+import consultationLinks from "./utils/consultationLinks.cjs";
+import NotificationMenu from "./components/NotificationMenu";
+import Notifications from "./components/Notifications";
+import useNotificationInbox from "./utils/useNotificationInbox";
 import EmptyChild from "./components/EmptyChild";
 import Onboarding from "./components/Onboarding";
 import ToastProvider, { useToast } from "./components/ui/Toast";
-import SideMenu, { MENU_TITLES } from "./components/SideMenu";
+import MutationFeedback from "./components/ui/MutationFeedback";
+import { useRecords, useSessionEpoch } from "./utils/useRecords";
 import CalendarView from "./components/CalendarView";
 import AllActivity from "./components/AllActivity";
 import Search from "./components/Search";
-import OfflineSummaryView from "./components/OfflineSummaryView";
 import Splash from "./components/Splash";
-import { DateField, TimeField } from "./components/ui/DateField";
-import KeyboardAvoider from "./components/ui/KeyboardAvoider";
-import ViewProfile from "./components/settings/ViewProfile";
+import { DateField, TimeField, MeasurementField } from "./components/ui/DateField";
+import Field, { FieldShell } from "./components/ui/Field";
+
+import RecordFormSheet, { RecordFormGroup, RecordFormRow, RecordFormScreen } from "./components/ui/RecordFormSheet";
+import ViewProfile, { PROFILE_TITLES } from "./components/settings/ViewProfile";
 import EditProfile from "./components/settings/EditProfile";
 import GeneralSettings from "./components/settings/GeneralSettings";
 import ThemePreferences from "./components/settings/ThemePreferences";
@@ -129,25 +139,26 @@ import ChangePassword from "./components/settings/ChangePassword";
 import PrivacySettings from "./components/settings/PrivacySettings";
 import { api, getToken, setToken, clearToken } from "./utils/api";
 import { scheduleReminder, morningOf, cancelRemindersOfKind } from "./utils/notifications";
-import { childToProfile, profileFormToChild } from "./utils/adapters";
+import { childToProfile, profileFormToChild, stripDoctorPrefix } from "./utils/adapters";
 import { todayLocal } from "./utils/dates";
 import { pickImage, pickerAvailable } from "./utils/imagePicker";
 
-// Header title shown ("← <title>") whenever currentView is a side-menu
-// destination or one of the sub-screens below — reuses SideMenu's own labels so
-// they can't drift apart. Only the 5 bottom tabs are absent here; those keep
+// Header title shown ("← <title>") whenever currentView is a Profile-hub
+// destination or one of the sub-screens below. The Profile hub owns the shared
+// destination labels so the header and rows cannot drift apart. The 5 bottom tabs keep
 // showing the baby's name, which is also the child switcher.
 //
 // EVERY sub-screen belongs in this map. Search and Recent Activity used to draw
 // their own back headers instead, which worked while the app header sat above
 // the page — but the header is position:absolute now (see styles.header), so a
 // screen's own bar renders at y=0 UNDERNEATH it and the two titles overlap.
-// A new sub-screen gets an entry here; it does not get its own header.
+// Baby Profile owns its centered header; other new sub-screens use this map.
 const SCREEN_TITLES = {
-    ...MENU_TITLES,
-    share: "Share Records",
-    offlineSummary: "Offline Summary",
+    viewProfile: "Profile",
+    editBabyProfile: "Edit Baby Profile",
+    ...PROFILE_TITLES,
     search: "Search",
+    notifications: "Notifications",
     allActivity: "Recent Activity",
 };
 
@@ -171,35 +182,27 @@ function MainAppShell({
     onThemeOverrideChange,
     schemeOverride,
     onSchemeOverrideChange,
+    preferencesReady,
 }) {
-    const { language, t } = useLanguage();
+    const { language, t, ready: languageReady } = useLanguage();
+    const { setReady: setLoadingReady } = useDatabaseLoading();
     const { colors, scheme } = useTheme();
     const styles = useMemo(() => makeStyles(colors), [colors]);
     const insets = useSafeAreaInsets();
+    const sessionEpoch = useSessionEpoch();
     // The tab bar is MEASURED rather than assumed. Its height moves with the
     // OS font scale (it contains a text label) and with the bottom inset, so
     // the floating button's old hardcoded `bottom: 92` was only ever correct
     // on one device at one font size.
     const [tabBarHeight, setTabBarHeight] = useState(0);
+    const blurTargetRef = useRef(null);
     // The header floats OVER the page now, so it reserves no layout space and
     // every scrolling screen has to pad for it. Measured, never hardcoded: it
     // moves with the safe-area inset and grows with the OS font scale.
     const [headerHeight, setHeaderHeight] = useState(0);
-    const scroll = useScrollController(headerHeight);
+    const scroll = useScrollController(headerHeight, tabBarHeight);
 
-    // Room inside the child-profile sheet, so its paired fields (birth weight /
-    // birth height) can drop to one per line rather than squeezing to ~130pt
-    // each on a small phone. Derived from the sheet's own geometry — screen,
-    // less the backdrop padding, capped at maxWidth, less the card padding.
-    const { width: windowWidth } = useWindowDimensions();
-    const modalTwoCol = fitsColumns(
-        Math.min(windowWidth - space.xl * 2, 440) - space.xl * 2,
-        2,
-        space.sm,
-    );
-
-    // Preload the icon fonts (@expo/vector-icons) so buttons/icons never render
-    // blank. The app shows components/Splash.js until these are ready.
+    // Preload the icon and text fonts so buttons and copy never render blank.
     const [fontsReady, setFontsReady] = useState(false);
     useEffect(() => {
         let active = true;
@@ -221,9 +224,6 @@ function MainAppShell({
                 console.log("font preload:", e.message);
             } finally {
                 if (active) setFontsReady(true);
-                // Hand off from the native splash to Splash.js only once
-                // fonts are ready, so there's no blank/white frame between them.
-                if (SplashScreen) SplashScreen.hideAsync().catch(() => {});
             }
         })();
         return () => {
@@ -241,12 +241,27 @@ function MainAppShell({
 
     // Authentication State
     const [isAuthenticated, setIsAuthenticated] = useState(false);
-    // The splash owns its own timing (minimum visible duration + fade); this
-    // only records that it has finished, so it never returns mid-session.
-    const [splashDone, setSplashDone] = useState(false);
+    // The React splash owns its fade on web and when native splash is unavailable.
+    const usesReactSplash = Platform.OS === "web" || !SplashScreen;
+    const [reactSplashDone, setReactSplashDone] = useState(false);
     const [authScene, setAuthScene] = useState("login");
     // Healthcare Professional mode (separate actor, no parent account)
-    const [professionalMode, setProfessionalMode] = useState(false);
+    const [incomingShare, setIncomingShare] = useState(() => consultationLinks.browserConsultation());
+    const [professionalMode, setProfessionalMode] = useState(() => !!consultationLinks.browserConsultation());
+    useEffect(() => {
+        if (Platform.OS !== "web") return undefined;
+        const openShare = () => {
+            const share = consultationLinks.browserConsultation();
+            if (share) { setIncomingShare(share); setProfessionalMode(true); }
+            else { setIncomingShare(null); setProfessionalMode(false); }
+        };
+        window.addEventListener("hashchange", openShare);
+        window.addEventListener("popstate", openShare);
+        return () => {
+            window.removeEventListener("hashchange", openShare);
+            window.removeEventListener("popstate", openShare);
+        };
+    }, []);
     // All three start EMPTY, and that is the point. parentName defaulted to
     // the literal string "Sarah" and parentAvatar to a stock photograph of a
     // stranger, so before the session was restored the app addressed every
@@ -265,10 +280,14 @@ function MainAppShell({
 
     // Main navigation view
     const [currentView, setCurrentView] = useState("dashboard");
+    // Growth unmounts when another screen is shown, so keep only its applied
+    // date view here for the lifetime of the signed-in session. Each child
+    // gets an independent view; drafts remain local to Growth.
+    const growthDateViewsRef = useRef({});
+    const nutritionDateViewsRef = useRef({});
     // Enter-only screen transition (fade + rise) — the outgoing screen is
     // swapped synchronously by React, only the incoming one animates in.
-    // useNativeDriver follows the house style already used in Skeleton.js/
-    // SideMenu.js: off on web, since RNW's transform driver doesn't support it.
+    // Keep the native transform driver off on web, where RNW does not support it.
     const contentOpacity = useRef(new Animated.Value(1)).current;
     const contentTranslateY = useRef(new Animated.Value(0)).current;
     useEffect(() => {
@@ -293,6 +312,7 @@ function MainAppShell({
     // Optional deep-link sub-tab for Health/Growth (set by Dashboard quick actions).
     // navKey bumps on every request so repeated taps re-apply the tab.
     const [navTab, setNavTab] = useState(null);
+    const [navPayload, setNavPayload] = useState(null);
     const [navKey, setNavKey] = useState(0);
     // Back-button history for the global header — every navigation that goes
     // through changeView() pushes the screen it left, so goBack() can return
@@ -300,7 +320,33 @@ function MainAppShell({
     // -> back lands on View Profile, not Home). Capped so a long tab-hopping
     // session can't grow this unbounded; back only ever needs to pop one level.
     const historyRef = useRef([]);
-    const changeView = (view, tab = null) => {
+    const [babyProfileTarget, setBabyProfileTarget] = useState(null);
+    const profileFlow = useRef(null);
+    const editTarget = useRef(null);
+    const activeBabyId = useRef(null);
+    const homeOffset = useRef(0);
+    const [homeRestore, setHomeRestore] = useState(null);
+    useEffect(() => {
+        const listener = scroll.scrollY.addListener(({ value }) => {
+            if (currentView === "dashboard") homeOffset.current = Math.max(0, value);
+        });
+        return () => scroll.scrollY.removeListener(listener);
+    }, [currentView, scroll.scrollY]);
+    const changeView = (view, tab = null, payload = null) => {
+        if (currentView === "editBabyProfile" && view !== currentView) {
+            editTarget.current = null;
+            setFormAvatarUri("");
+            setBloodTypeMenuOpen(false);
+        }
+        if (view === "babyProfile") {
+            const id = String(payload?.childId || "");
+            if (!id || id !== activeBabyId.current) return;
+            setBabyProfileTarget({ id, epoch: sessionEpoch });
+            profileFlow.current = { id, epoch: sessionEpoch, offset: currentView === "dashboard" ? homeOffset.current : null };
+        } else if (!["babyProfile", "editBabyProfile"].includes(view)) {
+            profileFlow.current = null;
+            setHomeRestore(null);
+        }
         setCurrentView((prevView) => {
             if (view !== prevView) {
                 historyRef.current = [...historyRef.current, prevView].slice(-10);
@@ -319,6 +365,7 @@ function MainAppShell({
         // Add Vaccine form on its own. Same for Log Growth, Add Memory and
         // Log Milk on their tabs.
         setNavTab(tab);
+        setNavPayload(payload);
         setNavKey((k) => k + 1);
         // The incoming screen mounts at offset 0. Without this the shared value
         // still holds the OUTGOING screen's offset and the header opens stuck
@@ -326,13 +373,27 @@ function MainAppShell({
         // above, one layer up.
         scroll.resetScroll();
     };
+    const openHeaderView = (view) => {
+        if (view === currentView) scroll.scrollToTop();
+        changeView(view);
+    };
     const goBack = () => {
+        if (currentView === "editBabyProfile") {
+            editTarget.current = null;
+            setFormAvatarUri("");
+        }
         const prev = historyRef.current[historyRef.current.length - 1];
         historyRef.current = historyRef.current.slice(0, -1);
+        if ((prev || "dashboard") === "dashboard" && profileFlow.current) {
+            const flow = profileFlow.current;
+            if (flow.id === activeBabyId.current && flow.epoch === recordStore.getEpoch()) setHomeRestore(flow);
+            profileFlow.current = null;
+        }
         setCurrentView(prev || "dashboard");
         // Back navigation bypasses changeView, so it has to clear the deep-link
         // target itself or it leaks the same stale alias.
         setNavTab(null);
+        setNavPayload(null);
         setNavKey((k) => k + 1);
         // goBack bypasses changeView, so it clears the scroll offset itself for
         // the same reason it clears navTab itself.
@@ -352,15 +413,18 @@ function MainAppShell({
     //
     // The "+" only appears on the five bottom-tab screens. It used to render
     // everywhere, which put a "log something" affordance over Privacy
-    // Settings, Search, Share Records and — worst — Offline Summary, the
-    // read-only screen whose whole promise is that it works with no signal.
+    // Settings, Search and Share Records.
     const FAB_VIEWS = ["dashboard", "health", "growth", "nutrition", "calendar"];
     const showFab = FAB_VIEWS.includes(currentView);
+    const pageGradient = currentView === "search" ? colors.searchSurface.background : currentView === "share" ? colors.shareSurface.background
+        : currentView === "viewProfile" ? colors.profileSettings.background : colors.pageGradient;
 
     // Core records lists — children now load from the backend.
     const [profiles, setProfiles] = useState([]);
     const [selectedProfileId, setSelectedProfileId] = useState(null);
     const [bootstrapping, setBootstrapping] = useState(true);
+    const [assetsReady, setAssetsReady] = useState(false);
+    const startupAssetsStartedRef = useRef(false);
 
     // These props are retained for prop compatibility but screens now
     // self-load their records from the backend.
@@ -370,9 +434,13 @@ function MainAppShell({
 
     // Modal Control States
     const [showAddProfileModal, setShowAddProfileModal] = useState(false);
-    const [showEditProfileModal, setShowEditProfileModal] = useState(false);
-    // Slide-in side menu (opened from the header avatar).
-    const [menuOpen, setMenuOpen] = useState(false);
+    const addedProfileId = useRef(null);
+    useEffect(() => { if (showAddProfileModal) addedProfileId.current = null; }, [showAddProfileModal]);
+    const [bloodTypeMenuOpen, setBloodTypeMenuOpen] = useState(false);
+    const [bloodTypeMenuAnchor, setBloodTypeMenuAnchor] = useState(null);
+    const bloodTypeTriggerRef = useRef(null);
+    useEffect(() => { if (currentView !== "editBabyProfile") setBloodTypeMenuOpen(false); }, [currentView]);
+    const [profileSaving, setProfileSaving] = useState(null);
     // Baby switcher, opened from the child's name in the header. It used to be
     // a row of pills pinned to the top of the Dashboard, which meant it cost a
     // row of vertical space on the busiest screen AND existed on only that one
@@ -400,6 +468,7 @@ function MainAppShell({
     // Annual data-retention re-consent (Data Privacy Act of 2012).
     const [consentDue, setConsentDue] = useState(false);
     const [withdrawConfirm, setWithdrawConfirm] = useState(false);
+    const [consentAction, setConsentAction] = useState(null);
 
     // Form states for profile adding/editing
     const [formName, setFormName] = useState("");
@@ -407,20 +476,58 @@ function MainAppShell({
     const [formGender, setFormGender] = useState("girl");
     const [formWeight, setFormWeight] = useState("3.2");
     const [formHeight, setFormHeight] = useState("49.0");
+    const [formBirthHead, setFormBirthHead] = useState("");
     const [formBloodType, setFormBloodType] = useState("");
     const [formHospital, setFormHospital] = useState("");
     const [formPediatrician, setFormPediatrician] = useState("");
+    const [formPediatricianContact, setFormPediatricianContact] = useState("");
+    const [formPediatricianClinic, setFormPediatricianClinic] = useState("");
     const [formObgyne, setFormObgyne] = useState("");
-    const [formEmergency, setFormEmergency] = useState("");
+    const [formObgyneContact, setFormObgyneContact] = useState("");
+    const [formEmergencyFirstName, setFormEmergencyFirstName] = useState("");
+    const [formEmergencyLastName, setFormEmergencyLastName] = useState("");
+    const [formEmergencyRelationship, setFormEmergencyRelationship] = useState("");
+    const [formEmergencyNumber, setFormEmergencyNumber] = useState("");
     const [formNickname, setFormNickname] = useState("");
     const [formPlaceOfBirth, setFormPlaceOfBirth] = useState("");
     const [formTimeOfBirth, setFormTimeOfBirth] = useState("");
-    const [formHealthCenter, setFormHealthCenter] = useState("");
     // Profile picture: a picked device photo (uploaded on save) or a pasted URL.
     const [formAvatarUri, setFormAvatarUri] = useState("");
 
     const activeProfile =
         profiles.find((p) => p.id === selectedProfileId) || profiles[0];
+    activeBabyId.current = activeProfile?.id;
+    const viewedBaby = babyProfileTarget?.epoch === sessionEpoch && babyProfileTarget.id === activeProfile?.id
+        ? profiles.find(profile => profile.id === babyProfileTarget.id) : null;
+    useEffect(() => {
+        const flow = profileFlow.current;
+        const target = editTarget.current;
+        if ((flow && (flow.id !== activeProfile?.id || flow.epoch !== sessionEpoch))
+            || (target && (target.id !== activeProfile?.id || target.epoch !== sessionEpoch))) {
+            profileFlow.current = null;
+            editTarget.current = null;
+            setBabyProfileTarget(null);
+            setHomeRestore(null);
+            setFormAvatarUri("");
+            setBloodTypeMenuOpen(false);
+            historyRef.current = [];
+            setCurrentView("dashboard");
+        }
+    }, [activeProfile?.id, sessionEpoch]);
+    const sharedGrowth = useRecords(professionalMode ? null : activeProfile?.id, "growth");
+    useEffect(() => {
+        if (professionalMode || !activeProfile) return;
+        const rows = [...sharedGrowth].sort((a, b) => String(b.date_recorded).localeCompare(String(a.date_recorded)) || Number(b.id) - Number(a.id));
+        const weight = rows.find((row) => row.weight != null)?.weight;
+        const height = rows.find((row) => row.height != null)?.height;
+        setProfiles((prev) => prev.map((profile) => profile.id === activeProfile.id ? { ...profile,
+            currentWeight: weight != null ? Number(weight) : profile.birthWeight,
+            currentHeight: height != null ? Number(height) : profile.birthHeight } : profile));
+    }, [professionalMode, activeProfile?.id, sharedGrowth]);
+    const selectProfile = (profile) => {
+        setSelectedProfileId(profile ? profile.id : null);
+        if (onThemeGenderChange) onThemeGenderChange(profile ? profile.gender : undefined);
+    };
 
     // Alert dots for the baby switcher. Without this a parent with two children
     // has to switch back and forth to find out whether the other one has
@@ -454,7 +561,7 @@ function MainAppShell({
     const requestedAlertsRef = useRef(new Set());
     const profileIdKey = profiles.map((p) => p.id).join(",");
     useEffect(() => {
-        if (profiles.length < 2) return;
+        if (professionalMode || profiles.length < 2) return;
         const unknown = profiles.filter((p) => !requestedAlertsRef.current.has(p.id));
         if (!unknown.length) return;
         for (const p of unknown) requestedAlertsRef.current.add(p.id);
@@ -464,8 +571,8 @@ function MainAppShell({
             unknown.map(async (p) => {
                 try {
                     const [vax, med] = await Promise.all([
-                        api.listRecords(p.id, "vaccinations"),
-                        api.listRecords(p.id, "medical-history"),
+                        api.listRecords(p.id, "vaccinations", { background: true }),
+                        api.listRecords(p.id, "medical-history", { background: true }),
                     ]);
                     const overdue = (vax || []).some(
                         (v) => v.status !== "completed" && v.due_date && v.due_date < todayStr,
@@ -492,7 +599,7 @@ function MainAppShell({
             active = false;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [profileIdKey]);
+    }, [professionalMode, profileIdKey]);
 
     // True when some child OTHER than the one on screen needs attention — the
     // whole point of the dot on the header. The active child's own problems are
@@ -501,56 +608,21 @@ function MainAppShell({
         (p) => p.id !== (activeProfile && activeProfile.id) && childAlerts[p.id],
     );
 
-    // Unseen QR-access-log notifications: poll while the app is open (no
-    // server push exists yet — see CLAUDE.md 4.5, deferred). Toast + badge
-    // only, cleared when the parent opens Share Records (ShareRecords.js
-    // calls markAccessLogSeen on load).
+    // One scoped inbox controller supplies both the bell and its full screen.
     const toast = useToast();
     const [unseenCount, setUnseenCount] = useState(0);
-    const toastedIdsRef = useRef(new Set());
-    const seenFirstCheckRef = useRef(false);
-    const checkUnseenAccess = async () => {
-        if (!activeProfile) return;
-        try {
-            const { count, rows } = await api.unseenAccessLog(activeProfile.id);
-            setUnseenCount(count);
-            const freshRows = (rows || []).filter((r) => !toastedIdsRef.current.has(r.id));
-            if (seenFirstCheckRef.current && freshRows.length > 0) {
-                const latest = freshRows[0];
-                const when = new Date(latest.access_date).toLocaleTimeString(undefined, {
-                    hour: "numeric",
-                    minute: "2-digit",
-                });
-                toast.info(`Your records were viewed by ${latest.professional_name} at ${when}`);
-            }
-            (rows || []).forEach((r) => toastedIdsRef.current.add(r.id));
-            seenFirstCheckRef.current = true;
-        } catch (e) {
-            console.log("unseen access check:", e.message);
-        }
-    };
-    useEffect(() => {
-        checkUnseenAccess();
-        const interval = setInterval(checkUnseenAccess, 90000);
-        const sub = AppState.addEventListener
-            ? AppState.addEventListener("change", (state) => {
-                  if (state === "active") checkUnseenAccess();
-              })
-            : null;
-        return () => {
-            clearInterval(interval);
-            if (sub && sub.remove) sub.remove();
-        };
-    }, [activeProfile ? activeProfile.id : null]);
+    const notificationInbox = useNotificationInbox(professionalMode ? null : activeProfile?.id, setUnseenCount);
+    useEffect(() => { setUnseenCount(0); }, [activeProfile?.id, sessionEpoch]);
 
     // Drive the app theme from the selected child's gender (girl/boy).
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (onThemeGenderChange) onThemeGenderChange(activeProfile ? activeProfile.gender : undefined);
     }, [activeProfile ? activeProfile.gender : undefined]);
 
     // Apply a logged-in user's profile fields to local state.
     const applyUser = (user) => {
         if (!user) return;
+        api.seedAccount(user);
         setParentName(user.fullName || user.full_name || "Parent");
         // Assigned unconditionally, not behind an `if`: a field the parent has
         // just CLEARED has to clear here too, and the old guarded form left the
@@ -562,20 +634,28 @@ function MainAppShell({
 
     // Annual re-consent: keep the data for another year.
     const handleKeepData = async () => {
+        if (consentAction) return;
+        setConsentAction("renew");
         try {
             await api.renewConsent();
         } catch (e) {
             console.log("renew consent:", e.message);
+        } finally {
+            setConsentAction(null);
         }
         setConsentDue(false);
         setWithdrawConfirm(false);
     };
     // Withdraw consent: permanently delete the account and all data, then log out.
     const handleWithdrawData = async () => {
+        if (consentAction) return;
+        setConsentAction("delete");
         try {
             await api.deleteAccount();
         } catch (e) {
             console.log("delete account:", e.message);
+        } finally {
+            setConsentAction(null);
         }
         setConsentDue(false);
         setWithdrawConfirm(false);
@@ -590,7 +670,7 @@ function MainAppShell({
     // forward — a stopgap until server-side push exists (see CLAUDE.md 4.5).
     const scheduleUpcomingVaccineReminders = async (childId) => {
         try {
-            const rows = await api.listRecords(childId, "reminders");
+            const rows = await api.listRecords(childId, "reminders", { background: true });
             const cutoff = new Date();
             cutoff.setMonth(cutoff.getMonth() + 6);
             const cutoffStr = cutoff.toISOString().split("T")[0];
@@ -622,7 +702,7 @@ function MainAppShell({
             const rows = await api.listChildren();
             const mapped = rows.map(childToProfile);
             setProfiles(mapped);
-            setSelectedProfileId(mapped.length ? mapped[0].id : null);
+            selectProfile(mapped[0] || null);
             mapped.forEach((p) => scheduleUpcomingVaccineReminders(p.id));
         } catch (e) {
             console.log("loadChildren:", e.message);
@@ -631,22 +711,64 @@ function MainAppShell({
 
     // On launch, restore a saved session via the stored JWT.
     useEffect(() => {
+        if (professionalMode) { setBootstrapping(false); return undefined; }
+        let active = true;
+        setBootstrapping(true);
         (async () => {
             try {
                 const token = await getToken();
+                if (!active) return;
                 if (token) {
                     const { user } = await api.me();
+                    if (!active) return;
                     setIsAuthenticated(true);
                     applyUser(user);
                     await loadChildren();
                 }
             } catch (e) {
-                await clearToken(); // token invalid/expired
+                if (active && e.status === 401) await clearToken(); // token invalid/expired
             } finally {
-                setBootstrapping(false);
+                if (active) setBootstrapping(false);
             }
         })();
-    }, []);
+        return () => { active = false; };
+    }, [professionalMode]);
+
+    // Preload only images that can appear immediately after startup. First
+    // launch also gets the Auth illustrations because both onboarding CTAs lead there.
+    useEffect(() => {
+        if (bootstrapping || onboarded === null || startupAssetsStartedRef.current) return undefined;
+        startupAssetsStartedRef.current = true;
+        let active = true;
+        let completed = false;
+        setAssetsReady(false);
+        const sources = !onboarded
+            ? [
+                  require("./assets/onboarding-book-collage.png"),
+                  require("./assets/onboarding-qr-hand.png"),
+                  require("./assets/onboarding-care-circle.png"),
+                  require("./assets/splash-icon.png"),
+                  require("./assets/auth-login-hero.png"),
+                  require("./assets/auth-register-hero.png"),
+              ]
+            : !isAuthenticated
+              ? [
+                    require("./assets/splash-icon.png"),
+                    require("./assets/auth-login-hero.png"),
+                    require("./assets/auth-register-hero.png"),
+                ]
+              : [];
+        Asset.loadAsync([...sources, ...TAB_ICON_SOURCES, ...HEADER_ICON_SOURCES])
+            .catch((e) => console.log("startup asset preload:", e.message || e))
+            .finally(() => {
+                completed = true;
+                if (active) setAssetsReady(true);
+            });
+        return () => {
+            active = false;
+            if (!completed) startupAssetsStartedRef.current = false;
+        };
+    }, [bootstrapping, onboarded, isAuthenticated]);
 
     // ORDER MATTERS. loadChildren() runs BEFORE setIsAuthenticated(true).
     //
@@ -674,9 +796,12 @@ function MainAppShell({
         setIsAuthenticated(false);
         setAuthScene("login");
         setProfiles([]);
-        setSelectedProfileId(null);
+        selectProfile(null);
+        growthDateViewsRef.current = {};
+        nutritionDateViewsRef.current = {};
         setCurrentView("dashboard");
         setNavTab(null); // nor let it carry the old session's pending deep link
+        setNavPayload(null);
         historyRef.current = []; // don't let a new session's back arrow reach the old one
         try {
             await clearToken();
@@ -690,7 +815,7 @@ function MainAppShell({
         const created = await api.createChild(profileFormToChild(form, { includeBirth: true }));
         const prof = childToProfile(created);
         setProfiles((prev) => [...prev, prof]);
-        setSelectedProfileId(prof.id);
+        selectProfile(prof);
         scheduleUpcomingVaccineReminders(prof.id);
     };
 
@@ -699,9 +824,10 @@ function MainAppShell({
             toast.error("Please enter baby name");
             return;
         }
+        if (profileSaving) return;
+        setProfileSaving("add");
         try {
-            const created = await api.createChild(
-                profileFormToChild(
+            const body = profileFormToChild(
                     {
                         name: formName,
                         nickname: formNickname,
@@ -711,27 +837,35 @@ function MainAppShell({
                         gender: formGender,
                         weight: formWeight,
                         height: formHeight,
+                        birthHeadCircumference: formBirthHead,
                         bloodType: formBloodType,
                         hospital: formHospital,
                         pediatrician: formPediatrician,
                         obgyne: formObgyne,
-                        emergencyContact: formEmergency,
-                        preferredHealthCenter: formHealthCenter,
+                        emergencyContactDetails: {
+                            firstName: formEmergencyFirstName,
+                            lastName: formEmergencyLastName,
+                            relationship: formEmergencyRelationship,
+                            contactNumber: formEmergencyNumber,
+                        },
                     },
                     { includeBirth: true },
-                ),
-            );
+                );
+            const created = addedProfileId.current
+                ? await api.updateChild(addedProfileId.current, body)
+                : await api.createChild(body);
+            addedProfileId.current = created.id;
             let prof = childToProfile(created);
             if (formAvatarUri) {
                 try {
                     const withAvatar = await api.uploadChildAvatar(created.id, formAvatarUri);
                     prof = childToProfile(withAvatar);
                 } catch (e) {
-                    console.log("avatar upload:", e.message);
+                    throw new Error(`Baby profile saved, but its photo could not be saved: ${e.message}. Retry to finish without creating another profile.`);
                 }
             }
-            setProfiles((prev) => [...prev, prof]);
-            setSelectedProfileId(prof.id);
+            setProfiles((prev) => [...prev.filter((p) => p.id !== prof.id), prof]);
+            selectProfile(prof);
             scheduleUpcomingVaccineReminders(prof.id);
             setShowAddProfileModal(false);
             setFormName("");
@@ -742,22 +876,31 @@ function MainAppShell({
             setFormHospital("");
             setFormPediatrician("");
             setFormObgyne("");
-            setFormEmergency("");
-            setFormHealthCenter("");
+            setFormEmergencyFirstName("");
+            setFormEmergencyLastName("");
+            setFormEmergencyRelationship("");
+            setFormEmergencyNumber("");
             setFormAvatarUri("");
         } catch (e) {
             toast.error(e.message || "Could not add child");
+        } finally {
+            setProfileSaving(null);
         }
     };
 
     const handleEditProfile = async () => {
+        const target = editTarget.current;
+        const isCurrent = () => editTarget.current === target && target?.id === activeBabyId.current && target?.epoch === recordStore.getEpoch();
+        if (!isCurrent()) return;
         if (!formName) {
             toast.error("Please enter baby name");
             return;
         }
+        if (profileSaving) return;
+        setProfileSaving("edit");
         try {
             const updated = await api.updateChild(
-                activeProfile.id,
+                target.id,
                 profileFormToChild(
                     {
                         name: formName,
@@ -769,59 +912,94 @@ function MainAppShell({
                         bloodType: formBloodType,
                         hospital: formHospital,
                         pediatrician: formPediatrician,
+                        pediatricianContactNumber: formPediatricianContact,
+                        birthHeadCircumference: formBirthHead,
+                        pediatricianClinicHospital: formPediatricianClinic,
                         obgyne: formObgyne,
-                        emergencyContact: formEmergency,
-                        preferredHealthCenter: formHealthCenter,
+                        obgynContactNumber: formObgyneContact,
+                        emergencyContactDetails: {
+                            firstName: formEmergencyFirstName,
+                            lastName: formEmergencyLastName,
+                            relationship: formEmergencyRelationship,
+                            contactNumber: formEmergencyNumber,
+                        },
                     },
                     { includeBirth: false },
                 ),
             );
+            if (!isCurrent()) return;
             let prof = childToProfile(updated);
+            setProfiles(prev => prev.map(p => p.id === prof.id ? { ...prof, currentWeight: p.currentWeight, currentHeight: p.currentHeight } : p));
             if (formAvatarUri) {
                 try {
-                    const withAvatar = await api.uploadChildAvatar(activeProfile.id, formAvatarUri);
+                    const withAvatar = await api.uploadChildAvatar(target.id, formAvatarUri);
+                    if (!isCurrent()) return;
                     prof = childToProfile(withAvatar);
                 } catch (e) {
-                    console.log("avatar upload:", e.message);
+                    throw new Error(`Profile saved, but its photo could not be saved: ${e.message}. Retry to finish.`);
                 }
             }
-            setProfiles((prev) => prev.map((p) => (p.id === prof.id ? prof : p)));
-            setShowEditProfileModal(false);
+            if (!isCurrent()) return;
+            setProfiles((prev) => prev.map((p) => (p.id === prof.id ? { ...prof, currentWeight: p.currentWeight, currentHeight: p.currentHeight } : p)));
             setFormAvatarUri("");
+            goBack();
         } catch (e) {
-            toast.error(e.message || "Could not update child");
+            if (isCurrent()) toast.error(e.message || "Could not update child");
+        } finally {
+            setProfileSaving(null);
         }
     };
 
-    const openEditModal = () => {
+    const openEditModal = ({ photo = false } = {}) => {
+        if (!activeProfile || profileSaving) return;
+        const target = { id: activeProfile.id, epoch: sessionEpoch };
+        editTarget.current = target;
+        if (currentView === "dashboard") profileFlow.current = { ...target, offset: homeOffset.current };
+
+        const emergency = activeProfile.emergencyContactDetails || {};
+        setFormBirthHead(activeProfile.birthHeadCircumference != null ? String(activeProfile.birthHeadCircumference) : "");
         setFormName(activeProfile.name);
         setFormDob(activeProfile.dateOfBirth);
         setFormGender(activeProfile.gender);
-        setFormHeight(
-            String(activeProfile.currentHeight || activeProfile.birthHeight),
-        );
-        setFormWeight(
-            String(activeProfile.currentWeight || activeProfile.birthWeight),
-        );
         setFormBloodType(activeProfile.bloodType || "");
         setFormHospital(activeProfile.hospital || "");
-        setFormPediatrician(activeProfile.pediatricianName || "");
-        setFormObgyne(activeProfile.obgynName || "");
-        setFormEmergency(activeProfile.emergencyContact || "");
+        setFormPediatrician(stripDoctorPrefix(activeProfile.pediatricianName));
+        setFormPediatricianContact(activeProfile.pediatricianContactNumber || "");
+        setFormPediatricianClinic(activeProfile.pediatricianClinicHospital || "");
+        setFormObgyne(stripDoctorPrefix(activeProfile.obgynName));
+        setFormObgyneContact(activeProfile.obgynContactNumber || "");
+        setFormEmergencyFirstName(emergency.firstName || "");
+        setFormEmergencyLastName(emergency.lastName || "");
+        setFormEmergencyRelationship(emergency.relationship || "");
+        setFormEmergencyNumber(emergency.contactNumber || "");
         setFormNickname(activeProfile.nickname || "");
         setFormPlaceOfBirth(activeProfile.placeOfBirth || "");
         setFormTimeOfBirth(activeProfile.timeOfBirth || "");
-        setFormHealthCenter(activeProfile.preferredHealthCenter || "");
         setFormAvatarUri("");
-        setShowEditProfileModal(true);
+        changeView("editBabyProfile");
+        if (photo) pickImage().then(uri => {
+            if (uri && editTarget.current === target && recordStore.getEpoch() === target.epoch && activeBabyId.current === target.id) setFormAvatarUri(uri);
+        }).catch(error => { if (editTarget.current === target) toast.error(error.message || "Could not choose photo"); });
+    };
+
+    const openBloodTypeMenu = () => {
+        if (bloodTypeTriggerRef.current?.measureInWindow) {
+            bloodTypeTriggerRef.current.measureInWindow((x, y, width, height) => {
+                setBloodTypeMenuAnchor({ x, y, width, height });
+                setBloodTypeMenuOpen(true);
+            });
+            return;
+        }
+        setBloodTypeMenuAnchor(null);
+        setBloodTypeMenuOpen(true);
     };
 
     // Open the add-baby modal with a clean avatar picker + fields.
     const openAddModal = () => {
+        setFormBirthHead("");
         setFormNickname("");
         setFormPlaceOfBirth("");
         setFormTimeOfBirth("");
-        setFormHealthCenter("");
         setFormAvatarUri("");
         setShowAddProfileModal(true);
     };
@@ -836,8 +1014,10 @@ function MainAppShell({
                     activeOpacity={pickerAvailable() ? 0.85 : 1}
                     onPress={async () => {
                         if (!pickerAvailable()) return;
+                        const target = editTarget.current;
+                        const epoch = recordStore.getEpoch();
                         const uri = await pickImage();
-                        if (uri) setFormAvatarUri(uri);
+                        if (uri && recordStore.getEpoch() === epoch && editTarget.current === target) setFormAvatarUri(uri);
                     }}
                     accessibilityRole="button"
                     accessibilityLabel="Choose baby photo"
@@ -865,16 +1045,35 @@ function MainAppShell({
     // Show the branded loading screen until icon fonts are ready, the saved
     // session has been restored, and the one-time onboarding check resolves —
     // so no screen ever renders with blank icons or a flash of the carousel.
-    // The splash stays up until fonts, the restored session and the first-run
-    // check have all resolved — and for its own minimum duration on top of
-    // that, so a warm start shows a moment of brand instead of a flicker.
-    const ready = fontsReady && !bootstrapping && onboarded !== null;
-    if (!splashDone) {
-        return <Splash appReady={ready} onFinished={() => setSplashDone(true)} />;
+    // React splash also waits for the logo's visible interval; native keeps
+    // the OS splash until readiness without adding a second splash hold.
+    const ready =
+        fontsReady &&
+        assetsReady &&
+        preferencesReady &&
+        languageReady &&
+        !bootstrapping &&
+        onboarded !== null;
+    useEffect(() => {
+        setLoadingReady(ready && (!usesReactSplash || reactSplashDone));
+    }, [ready, usesReactSplash, reactSplashDone, setLoadingReady]);
+    useEffect(() => {
+        if (ready && Platform.OS !== "web" && SplashScreen) {
+            SplashScreen.hideAsync().catch(() => {});
+        }
+    }, [ready]);
+
+    if (!ready) {
+        return usesReactSplash ? <Splash /> : null;
+    }
+    if (usesReactSplash && !reactSplashDone) {
+        return <Splash appReady onFinished={() => setReactSplashDone(true)} />;
     }
 
     if (professionalMode) {
-        return <ProfessionalView onExit={() => setProfessionalMode(false)} />;
+        return <ProfessionalView initialShare={incomingShare} onExit={() => {
+            consultationLinks.clearBrowserConsultation(); setIncomingShare(null); setProfessionalMode(false);
+        }} />;
     }
 
     if (!isAuthenticated) {
@@ -922,7 +1121,8 @@ function MainAppShell({
 
     return (
         // The page background is a gradient, not a flat fill, and its stops
-        // come from the active palette — so it switches with the child the same
+        // come from the active palette; Search opts into its white-blue canvas.
+        // Other screens switch with the child the same
         // way every accent already does. The final stop IS colors.background,
         // because every status and record-type colour in theme.js was
         // contrast-verified against that flat value. See theme.js pageGradient.
@@ -935,7 +1135,7 @@ function MainAppShell({
         // between cards, which is where a page background is actually seen.
         <ScrollContext.Provider value={scroll}>
         <Gradient
-            colors={colors.pageGradient}
+            colors={pageGradient}
             locations={[0, 0.5, 1]}
             start={{ x: 0.5, y: 0 }}
             end={{ x: 0.5, y: 1 }}
@@ -949,44 +1149,340 @@ function MainAppShell({
                 { paddingLeft: insets.left, paddingRight: insets.right },
             ]}
         >
-            <StatusBar barStyle={scheme === "dark" ? "light-content" : "dark-content"} backgroundColor={colors.pageGradient[0]} />
+            <StatusBar barStyle={scheme === "dark" ? "light-content" : "dark-content"} backgroundColor={pageGradient[0]} />
+            <BlurTargetView ref={blurTargetRef} style={styles.blurTarget}>
+            {/* Native blur captures the same page gradient beneath content. */}
+            <Gradient pointerEvents="none" colors={pageGradient} locations={[0, 0.5, 1]}
+                start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={StyleSheet.absoluteFillObject} />
+            <MutationFeedback profiles={profiles} top={headerHeight + space.xs} />
+
+            {/* Main Container View content */}
+            <Animated.View
+                style={[
+                    styles.content,
+                    { opacity: contentOpacity, transform: [{ translateY: contentTranslateY }] },
+                ]}
+            >
+                {currentView === "dashboard" && (
+                    <Dashboard
+                        key={`${sessionEpoch}:${activeProfile.id}`}
+                        profile={activeProfile}
+                        initialScrollOffset={homeRestore?.id === activeProfile.id && homeRestore.epoch === sessionEpoch ? homeRestore.offset : null}
+                        onScrollRestored={() => setHomeRestore(null)}
+                        parentName={parentName}
+                        onOpenEditModal={openEditModal}
+                        onUpdateProfile={(updated) =>
+                            setProfiles((prev) =>
+                                prev.map((p) =>
+                                    p.id === updated.id ? { ...p, ...updated } : p,
+                                ),
+                            )
+                        }
+                        onChangeView={changeView}
+                    />
+                )}
+                {currentView === "babyProfile" && <BabyProfileScreen key={`${sessionEpoch}:${babyProfileTarget?.id}`}
+                    profile={viewedBaby} onBack={goBack} onEdit={openEditModal} />}
+                {currentView === "health" && (
+                    <Health
+                        profile={activeProfile}
+                        onUpdateProfile={(updated) =>
+                            setProfiles((prev) =>
+                                prev.map((p) =>
+                                    p.id === updated.id ? { ...p, ...updated } : p,
+                                ),
+                            )
+                        }
+                        immunizations={immunizations}
+                        setImmunizations={setImmunizations}
+                        initialTab={navTab}
+                        initialRecord={navPayload}
+                        navKey={navKey}
+                    />
+                )}
+                {currentView === "growth" && (
+                    <Growth
+                        blurTarget={blurTargetRef}
+                        profile={activeProfile}
+                        savedDateView={growthDateViewsRef.current[activeProfile.id] || null}
+                        onDateViewChange={(view) => {
+                            growthDateViewsRef.current[activeProfile.id] = view;
+                        }}
+                        onUpdateProfile={(updated) =>
+                            setProfiles((prev) =>
+                                prev.map((p) =>
+                                    p.id === updated.id ? { ...p, ...updated } : p,
+                                ),
+                            )
+                        }
+                        milestones={milestones}
+                        setMilestones={setMilestones}
+                        initialTab={navTab}
+                        navKey={navKey}
+                    />
+                )}
+                {currentView === "nutrition" && (
+                    <NutritionTracker
+                        blurTarget={blurTargetRef}
+                        profile={activeProfile}
+                        savedDateView={nutritionDateViewsRef.current[activeProfile.id] || null}
+                        onDateViewChange={(view) => {
+                            nutritionDateViewsRef.current[activeProfile.id] = view;
+                        }}
+                        initialAction={navTab}
+                        navKey={navKey}
+                    />
+                )}
+                {currentView === "services" && <Services />}
+                {currentView === "calendar" && <CalendarView profile={activeProfile} onNavigate={changeView} />}
+                {currentView === "allActivity" && <AllActivity profile={activeProfile} />}
+                {currentView === "notifications" && (
+                    <Notifications key={`${sessionEpoch}:${activeProfile.id}`} profile={activeProfile} inbox={notificationInbox} onNavigate={changeView} />
+                )}
+                {currentView === "search" && (
+                    <Search key={`${sessionEpoch}:${activeProfile.id}`} profile={activeProfile} onNavigate={changeView} />
+                )}
+                {currentView === "share" && (
+                    <ShareRecords
+                        key={`${sessionEpoch}:${activeProfile.id}`}
+                        profile={activeProfile}
+                        immunizations={immunizations}
+                        milestones={milestones}
+                        appointments={appointments}
+                        initialSection={navPayload?.section}
+                        initialAccessEntry={navPayload?.accessEntry}
+                        onClose={goBack}
+                    />
+                )}
+                {currentView === "viewProfile" && (
+                    <ViewProfile
+                        key={sessionEpoch}
+                        parentName={parentName}
+                        parentAvatar={parentAvatar}
+                        parentRelationship={parentRelationship}
+                        schemeOverride={schemeOverride}
+                        onNavigate={changeView}
+                        onLogout={handleLogOut}
+                    />
+                )}
+                {currentView === "editProfile" && (
+                    <EditProfile
+                        parentName={parentName}
+                        onUpdateParentName={setParentName}
+                        parentAvatar={parentAvatar}
+                        parentRelationship={parentRelationship}
+                        onUpdateParentRelationship={setParentRelationship}
+                    />
+                )}
+                {currentView === "generalSettings" && <GeneralSettings />}
+                {currentView === "themePreferences" && (
+                    <ThemePreferences
+                        themeOverride={themeOverride}
+                        onThemeOverrideChange={onThemeOverrideChange}
+                        childGender={activeProfile ? activeProfile.gender : undefined}
+                        schemeOverride={schemeOverride}
+                        onSchemeOverrideChange={onSchemeOverrideChange}
+                    />
+                )}
+                {currentView === "languagePreferences" && <LanguagePreferences />}
+                {currentView === "helpSupport" && <HelpSupport />}
+                {currentView === "aboutApp" && <AboutApp />}
+                {currentView === "changePassword" && <ChangePassword />}
+                {currentView === "privacySettings" && (
+                    <PrivacySettings onAccountDeleted={handleLogOut} />
+                )}
+
+                {/* Screen: EDIT BABY PROFILE */}
+                {currentView === "editBabyProfile" ? <RecordFormScreen
+                    onSubmit={handleEditProfile} busy={profileSaving === "edit"} submitLabel="Save Changes">
+                    <RecordFormGroup>
+
+                                {renderAvatarPicker(activeProfile.hasRecordedAvatar === false ? "" : activeProfile.avatarUrl)}
+
+                                <RecordFormRow label={<Text style={styles.modalLabel}>
+                                    {t("profileNameLabel")}
+                                </Text>}>
+
+                                <TextInput
+                                    style={styles.modalInput}
+                                    value={formName}
+                                    onChangeText={setFormName}
+                                />
+                                </RecordFormRow>
+
+                                <RecordFormRow label={<Text style={styles.modalLabel}>Nickname</Text>}>
+
+                                <TextInput
+                                    style={styles.modalInput}
+                                    placeholder="e.g. Baby E"
+                                    placeholderTextColor={colors.placeholder}
+                                    value={formNickname}
+                                    onChangeText={setFormNickname}
+                                />
+                                </RecordFormRow>
+
+                                <DateField
+                                    label={t("profileDobLabel")}
+                                    value={formDob}
+                                    onChange={setFormDob}
+                                    maximumDate={todayLocal()}
+                                />
+
+                                <Text style={styles.modalLabel}>
+                                    {t("profileGenderLabel")}
+                                </Text>
+                                <View style={styles.genderContainer}>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.genderButton,
+                                            formGender === "girl" &&
+                                                styles.genderButtonActive,
+                                        ]}
+                                        onPress={() => setFormGender("girl")}
+                                    >
+                                        <Text
+                                            style={[
+                                                styles.genderButtonText,
+                                                formGender === "girl" &&
+                                                    styles.genderButtonTextActive,
+                                            ]}
+                                        >
+                                            {t("female")}
+                                        </Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.genderButton,
+                                            formGender === "boy" &&
+                                                styles.genderButtonActive,
+                                        ]}
+                                        onPress={() => setFormGender("boy")}
+                                    >
+                                        <Text
+                                            style={[
+                                                styles.genderButtonText,
+                                                formGender === "boy" &&
+                                                    styles.genderButtonTextActive,
+                                            ]}
+                                        >
+                                            {t("male")}
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                <FieldShell label="Blood Type" focused={bloodTypeMenuOpen}>
+                                <TouchableOpacity
+                                    ref={bloodTypeTriggerRef}
+                                    style={styles.bloodTypeTrigger}
+                                    onPress={openBloodTypeMenu}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Blood Type, ${formBloodType || "Select blood type"}`}
+                                    accessibilityState={{ expanded: bloodTypeMenuOpen }}
+                                >
+                                    <Text
+                                        style={[styles.dropdownText, !formBloodType && styles.dropdownPlaceholder]}
+                                        numberOfLines={1}
+                                    >
+                                        {formBloodType || "Select blood type"}
+                                    </Text>
+                                    <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
+                                </TouchableOpacity>
+                                </FieldShell>
+                                <MeasurementField label="Birth Head Circumference (optional)" unit="cm" min={20} max={65}
+                                    value={formBirthHead} onChange={setFormBirthHead} />
+                                <RecordFormRow label={<Text style={styles.modalLabel}>Birth Hospital</Text>}>
+
+                                <TextInput
+                                    style={styles.modalInput}
+                                    value={formHospital}
+                                    onChangeText={setFormHospital}
+                                />
+                                </RecordFormRow>
+                                <Field label="Pediatrician" prefix="Dr." placeholder="Doctor's name"
+                                    value={formPediatrician}
+                                    onChangeText={(value) => setFormPediatrician(stripDoctorPrefix(value))}
+                                    autoCapitalize="words" />
+                                <Field label="Pediatrician Contact Number" placeholder="Contact number"
+                                    value={formPediatricianContact} onChangeText={setFormPediatricianContact}
+                                    numericMode="digits" keyboardType="phone-pad" textContentType="telephoneNumber" />
+                                <Field label="Pediatrician Clinic/Hospital" placeholder="Clinic or hospital name"
+                                    value={formPediatricianClinic} onChangeText={setFormPediatricianClinic}
+                                    autoCapitalize="words" />
+                                <Field label="OB-GYNE" prefix="Dr." placeholder="Doctor's name"
+                                    value={formObgyne}
+                                    onChangeText={(value) => setFormObgyne(stripDoctorPrefix(value))}
+                                    autoCapitalize="words" />
+                                <Field label="OB-GYNE Contact Number" placeholder="Contact number"
+                                    value={formObgyneContact} onChangeText={setFormObgyneContact}
+                                    numericMode="digits" keyboardType="phone-pad" textContentType="telephoneNumber" />
+                                <Field label="Emergency Contact First Name" placeholder="First name"
+                                    value={formEmergencyFirstName} onChangeText={setFormEmergencyFirstName}
+                                    autoCapitalize="words" />
+                                <Field label="Emergency Contact Last Name" placeholder="Last name"
+                                    value={formEmergencyLastName} onChangeText={setFormEmergencyLastName}
+                                    autoCapitalize="words" />
+                                <Field label="Emergency Contact Relationship" placeholder="e.g. Mother"
+                                    value={formEmergencyRelationship} onChangeText={setFormEmergencyRelationship}
+                                    autoCapitalize="words" />
+                                <Field label="Emergency Contact Number" placeholder="Contact number"
+                                    value={formEmergencyNumber} onChangeText={setFormEmergencyNumber}
+                                    numericMode="digits" keyboardType="phone-pad" textContentType="telephoneNumber" />
+
+                                <RecordFormRow label={<Text style={styles.modalLabel}>Place of Birth</Text>}>
+
+                                <TextInput
+                                    style={styles.modalInput}
+                                    value={formPlaceOfBirth}
+                                    onChangeText={setFormPlaceOfBirth}
+                                />
+                                </RecordFormRow>
+                                <TimeField
+                                    label="Time of Birth (Optional)"
+                                    value={formTimeOfBirth}
+                                    onChange={setFormTimeOfBirth}
+                                />
+
+                    </RecordFormGroup>
+                </RecordFormScreen> : null}
+            </Animated.View>
+            {/* Capture the scroll-fading ground, but never the foreground controls. */}
+            {currentView !== "babyProfile" && <Animated.View
+                pointerEvents="none"
+                style={[
+                    styles.headerBg,
+                    { height: headerHeight, bottom: undefined },
+                    {
+                        opacity: scroll.scrollY.interpolate({
+                            inputRange: [0, HEADER_COLLAPSE],
+                            outputRange: [0, 1],
+                            extrapolate: "clamp",
+                        }),
+                    },
+                ]}
+            />}
+            </BlurTargetView>
 
             {/* Dynamic Header — rendered AFTER the content below so it paints
                 on top of it. It floats over the page rather than sitting above
                 it, which is what lets content scroll beneath the bar and makes
                 its white background mean something. */}
-            <Animated.View
-                style={[styles.header, { paddingTop: insets.top }]}
+            {currentView !== "babyProfile" && <Animated.View
+                pointerEvents="box-none"
+                style={[styles.header, { left: insets.left, right: insets.right, paddingTop: insets.top }]}
                 onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
             >
-                {/* The white ground, as an OVERLAY with animated opacity rather
-                    than an animated backgroundColor — colour is not
-                    native-driver-safe, opacity is, and it composites over the
-                    gradient correctly. The hairline fades in with it. */}
-                <Animated.View
-                    pointerEvents="none"
-                    style={[
-                        styles.headerBg,
-                        {
-                            opacity: scroll.scrollY.interpolate({
-                                inputRange: [0, HEADER_COLLAPSE],
-                                outputRange: [0, 1],
-                                extrapolate: "clamp",
-                            }),
-                        },
-                    ]}
-                />
                 <View style={styles.headerRow}>
                 <View style={styles.headerLeft}>
                     {SCREEN_TITLES[currentView] ? (
                         <>
                             <TouchableOpacity
                                 onPress={goBack}
-                                style={styles.backBtn}
+                                style={[styles.backBtn, currentView === "share" && { width: 44, height: 44, borderRadius: 22, boxShadow: colors.shareSurface.iconShadow }]}
                                 accessibilityRole="button"
                                 accessibilityLabel="Back"
                             >
-                                <Ionicons name="arrow-back" size={22} color={colors.text} />
+                                {currentView === "share" ? <Gradient pointerEvents="none" colors={colors.shareSurface.control} style={[StyleSheet.absoluteFillObject, { borderRadius: 22 }]} /> : null}
+                                <Ionicons name={currentView === "share" ? "chevron-back" : "arrow-back"} size={22} color={currentView === "share" ? colors.shareSurface.azure : colors.text} />
                             </TouchableOpacity>
                             <Text style={styles.screenTitle} numberOfLines={1}>
                                 {SCREEN_TITLES[currentView]}
@@ -1072,220 +1568,42 @@ function MainAppShell({
                     )}
                 </View>
                 <View style={styles.headerRight}>
-                    <TouchableOpacity
-                        onPress={() => changeView("search")}
-                        style={[styles.menuBtn, { marginRight: space.md }]}
-                        accessibilityRole="button"
-                        accessibilityLabel="Search records"
-                    >
-                        <Ionicons name="search-outline" size={22} color={colors.primary} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
+                    {activeProfile ? <NotificationMenu count={notificationInbox.unreadCount} blurTarget={blurTargetRef}
+                        onOpen={() => { openHeaderView("notifications"); notificationInbox.refresh(); }} /> : null}
+                    <GlassHeaderButton icon="search" blurTarget={blurTargetRef}
+                        onPress={() => openHeaderView("search")}
+                        accessibilityLabel="Search records" />
+                    <GlassHeaderButton icon="qr" blurTarget={blurTargetRef} badgeCount={unseenCount}
                         onPress={() => {
                             setUnseenCount(0);
-                            changeView("share");
+                            openHeaderView("share");
                         }}
-                        style={styles.headerQrBtn}
-                        accessibilityRole="button"
-                        accessibilityLabel="Share records by QR code"
-                    >
-                        <Ionicons name="qr-code" size={20} color={colors.primary} />
-                        {unseenCount > 0 && (
-                            <View style={styles.headerBadge}>
-                                <Text style={styles.headerBadgeText}>
-                                    {unseenCount > 9 ? "9+" : unseenCount}
-                                </Text>
-                            </View>
-                        )}
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        onPress={() => setMenuOpen(true)}
-                        style={styles.menuBtn}
-                        accessibilityRole="button"
-                        accessibilityLabel="Open menu"
-                    >
-                        <Ionicons name="menu-outline" size={22} color={colors.primary} />
-                    </TouchableOpacity>
+                        accessibilityLabel="Share records by QR code" />
+                    <GlassHeaderButton icon="profile" blurTarget={blurTargetRef}
+                        onPress={() => openHeaderView("viewProfile")}
+                        selected={currentView === "viewProfile"}
+                        accessibilityLabel="Open profile and settings" />
                 </View>
                 </View>
-            </Animated.View>
+            </Animated.View>}
 
-            {/* Main Container View content */}
-            <Animated.View
-                style={[
-                    styles.content,
-                    { opacity: contentOpacity, transform: [{ translateY: contentTranslateY }] },
-                ]}
-            >
-                {currentView === "dashboard" && (
-                    <Dashboard
-                        profile={activeProfile}
-                        parentName={parentName}
-                        onOpenEditModal={openEditModal}
-                        onUpdateProfile={(updated) =>
-                            setProfiles((prev) =>
-                                prev.map((p) =>
-                                    p.id === updated.id ? updated : p,
-                                ),
-                            )
-                        }
-                        onChangeView={changeView}
-                    />
-                )}
-                {currentView === "health" && (
-                    <Health
-                        profile={activeProfile}
-                        onUpdateProfile={(updated) =>
-                            setProfiles((prev) =>
-                                prev.map((p) =>
-                                    p.id === updated.id ? updated : p,
-                                ),
-                            )
-                        }
-                        immunizations={immunizations}
-                        setImmunizations={setImmunizations}
-                        initialTab={navTab}
-                        navKey={navKey}
-                    />
-                )}
-                {currentView === "growth" && (
-                    <Growth
-                        profile={activeProfile}
-                        onUpdateProfile={(updated) =>
-                            setProfiles((prev) =>
-                                prev.map((p) =>
-                                    p.id === updated.id ? updated : p,
-                                ),
-                            )
-                        }
-                        milestones={milestones}
-                        setMilestones={setMilestones}
-                        initialTab={navTab}
-                        navKey={navKey}
-                    />
-                )}
-                {currentView === "nutrition" && (
-                    <NutritionTracker
-                        profile={activeProfile}
-                        initialAction={navTab}
-                        navKey={navKey}
-                    />
-                )}
-                {currentView === "services" && <Services />}
-                {currentView === "calendar" && <CalendarView profile={activeProfile} />}
-                {currentView === "allActivity" && <AllActivity profile={activeProfile} />}
-                {currentView === "search" && (
-                    <Search profile={activeProfile} onClose={goBack} onNavigate={changeView} />
-                )}
-                {currentView === "share" && (
-                    <ShareRecords
-                        profile={activeProfile}
-                        immunizations={immunizations}
-                        milestones={milestones}
-                        appointments={appointments}
-                        onClose={goBack}
-                    />
-                )}
-                {currentView === "offlineSummary" && <OfflineSummaryView profile={activeProfile} />}
-                {currentView === "viewProfile" && (
-                    <ViewProfile
-                        parentName={parentName}
-                        parentAvatar={parentAvatar}
-                        parentRelationship={parentRelationship}
-                        onEdit={() => changeView("editProfile")}
-                    />
-                )}
-                {currentView === "editProfile" && (
-                    <EditProfile
-                        parentName={parentName}
-                        onUpdateParentName={setParentName}
-                        parentAvatar={parentAvatar}
-                        parentRelationship={parentRelationship}
-                        onUpdateParentRelationship={setParentRelationship}
-                    />
-                )}
-                {currentView === "generalSettings" && <GeneralSettings />}
-                {currentView === "themePreferences" && (
-                    <ThemePreferences
-                        themeOverride={themeOverride}
-                        onThemeOverrideChange={onThemeOverrideChange}
-                        childGender={activeProfile ? activeProfile.gender : undefined}
-                        schemeOverride={schemeOverride}
-                        onSchemeOverrideChange={onSchemeOverrideChange}
-                    />
-                )}
-                {currentView === "languagePreferences" && <LanguagePreferences />}
-                {currentView === "helpSupport" && <HelpSupport />}
-                {currentView === "aboutApp" && <AboutApp />}
-                {currentView === "changePassword" && <ChangePassword />}
-                {currentView === "privacySettings" && (
-                    <PrivacySettings profile={activeProfile} onAccountDeleted={handleLogOut} />
-                )}
-            </Animated.View>
-
-            {/* Modern bottom navigation tabs */}
-            <View
-                style={[styles.tabBar, { paddingBottom: space.md + insets.bottom }]}
-                onLayout={(e) => setTabBarHeight(e.nativeEvent.layout.height)}
-            >
-                {[
-                    { key: "dashboard", icon: "home", label: t("navDashboard") },
-                    { key: "health", icon: "shield-checkmark", label: t("navHealth") },
-                    { key: "growth", icon: "trending-up", label: t("navGrowth") },
-                    { key: "nutrition", icon: "restaurant", label: t("navNutrition") },
-                    { key: "calendar", icon: "calendar", label: t("navCalendar") },
-                ].map((tab) => {
-                    const active = currentView === tab.key;
-                    return (
-                        <TouchableOpacity
-                            key={tab.key}
-                            style={styles.tabItem}
-                            onPress={() => {
-                                if (Haptics && Haptics.selectionAsync) {
-                                    Haptics.selectionAsync().catch(() => {});
-                                }
-                                changeView(tab.key);
-                            }}
-                            accessibilityRole="button"
-                            accessibilityLabel={tab.label}
-                            accessibilityState={{ selected: active }}
-                        >
-                            <View style={[styles.tabPill, active && styles.tabPillActive]}>
-                                <Ionicons
-                                    name={active ? tab.icon : tab.icon + "-outline"}
-                                    size={21}
-                                    color={active ? colors.accentStrong : colors.textMuted}
-                                />
-                            </View>
-                            <Text
-                                numberOfLines={1}
-                                style={[styles.tabLabel, active && styles.tabLabelActive]}
-                            >
-                                {tab.label}
-                            </Text>
-                        </TouchableOpacity>
-                    );
-                })}
-            </View>
+            {currentView !== "babyProfile" && <TabBar activeView={currentView}
+                blurTarget={blurTargetRef}
+                onLayout={(event) => setTabBarHeight(event.nativeEvent.layout.height)}
+                onSelect={(view) => {
+                    if (Haptics?.selectionAsync) Haptics.selectionAsync().catch(() => {});
+                    changeView(view);
+                }}
+            />}
 
             {/* Floating add button, above the tab bar on the five record
                 screens. See FAB_VIEWS above for why it is no longer global. */}
             {showFab ? (
-                <TouchableOpacity
-                    onPress={() => setActionSheetVisible(true)}
-                    style={[
-                        styles.fab,
-                        // Sits a fixed gap above the MEASURED tab bar, so it
-                        // stays clear of it at any font scale and above any
-                        // home indicator. The 72 fallback matches the bar's
-                        // natural height for the first frame before onLayout.
-                        { bottom: (tabBarHeight || 72 + insets.bottom) + space.md },
-                    ]}
-                    accessibilityRole="button"
-                    accessibilityLabel="Add a record"
-                >
-                    <Ionicons name="add" size={28} color={colors.onPrimary} />
-                </TouchableOpacity>
+                <GlassFab onPress={() => setActionSheetVisible(true)} blurTarget={blurTargetRef}
+                    appearance="azureGlass"
+                    style={[styles.fab, {
+                        bottom: (tabBarHeight || TAB_BAR_BASE_HEIGHT + insets.bottom) + space.md,
+                    }]} />
             ) : null}
 
             <ActionSheet
@@ -1295,24 +1613,17 @@ function MainAppShell({
             />
 
             {/* Modal: ADD BABY PROFILE */}
-            <Modal
-                visible={showAddProfileModal}
-                transparent
-                animationType="slide"
-            >
-                <KeyboardAvoider>
-                <View style={styles.modalBg}>
-                    <ScrollView contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled">
-                        <View style={styles.modalCard}>
-                            <Text style={styles.modalTitle}>
-                                {t("profileAddTitle")}
-                            </Text>
+            <RecordFormSheet visible={showAddProfileModal} title={t("profileAddTitle")}
+                onClose={() => setShowAddProfileModal(false)} onSubmit={handleAddProfile} busy={profileSaving === "add"}
+                cancelLabel={t("cancel")} submitLabel={t("save")}>
+                <RecordFormGroup>
 
                             {renderAvatarPicker()}
 
-                            <Text style={styles.modalLabel}>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>
                                 {t("profileNameLabel")}
-                            </Text>
+                            </Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 placeholder="Baby Full Name"
@@ -1320,8 +1631,10 @@ function MainAppShell({
                                 value={formName}
                                 onChangeText={setFormName}
                             />
+                            </RecordFormRow>
 
-                            <Text style={styles.modalLabel}>Nickname</Text>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>Nickname</Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 placeholder="e.g. Baby E"
@@ -1329,12 +1642,13 @@ function MainAppShell({
                                 value={formNickname}
                                 onChangeText={setFormNickname}
                             />
+                            </RecordFormRow>
 
                             <DateField
                                 label={t("profileDobLabel")}
                                 value={formDob}
                                 onChange={setFormDob}
-                                maximumDate={new Date().toISOString().slice(0, 10)}
+                                maximumDate={todayLocal()}
                             />
 
                             <Text style={styles.modalLabel}>
@@ -1379,32 +1693,15 @@ function MainAppShell({
                                 </TouchableOpacity>
                             </View>
 
-                            <View style={modalTwoCol ? styles.formRow : styles.formStack}>
-                                <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
-                                    <Text style={styles.modalLabel}>
-                                        Birth Weight (kg)
-                                    </Text>
-                                    <TextInput
-                                        keyboardType="numeric"
-                                        style={styles.modalInput}
-                                        value={formWeight}
-                                        onChangeText={setFormWeight}
-                                    />
-                                </View>
-                                <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
-                                    <Text style={styles.modalLabel}>
-                                        Birth Height (cm)
-                                    </Text>
-                                    <TextInput
-                                        keyboardType="numeric"
-                                        style={styles.modalInput}
-                                        value={formHeight}
-                                        onChangeText={setFormHeight}
-                                    />
-                                </View>
-                            </View>
+                            <MeasurementField label="Birth Weight" unit="kg" min={0.3} max={40}
+                                value={formWeight} onChange={setFormWeight} />
+                            <MeasurementField label="Birth Height" unit="cm" min={20} max={140}
+                                value={formHeight} onChange={setFormHeight} />
+                            <MeasurementField label="Birth Head Circumference (optional)" unit="cm" min={20} max={65}
+                                value={formBirthHead} onChange={setFormBirthHead} />
 
-                            <Text style={styles.modalLabel}>Blood Type</Text>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>Blood Type</Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 autoCapitalize="characters"
@@ -1413,260 +1710,73 @@ function MainAppShell({
                                 value={formBloodType}
                                 onChangeText={setFormBloodType}
                             />
-                            <Text style={styles.modalLabel}>Birth Hospital</Text>
+                            </RecordFormRow>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>Birth Hospital</Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 value={formHospital}
                                 onChangeText={setFormHospital}
                             />
-                            <Text style={styles.modalLabel}>Pediatrician</Text>
-                            <TextInput
-                                style={styles.modalInput}
+                            </RecordFormRow>
+                            <Field label="Pediatrician" prefix="Dr." placeholder="Doctor's name"
                                 value={formPediatrician}
-                                onChangeText={setFormPediatrician}
-                            />
-                            <Text style={styles.modalLabel}>OB-GYNE</Text>
-                            <TextInput
-                                style={styles.modalInput}
+                                onChangeText={(value) => setFormPediatrician(stripDoctorPrefix(value))}
+                                autoCapitalize="words" />
+                            <Field label="OB-GYNE" prefix="Dr." placeholder="Doctor's name"
                                 value={formObgyne}
-                                onChangeText={setFormObgyne}
-                            />
-                            <Text style={styles.modalLabel}>Emergency Contact</Text>
-                            <TextInput
-                                style={styles.modalInput}
-                                value={formEmergency}
-                                onChangeText={setFormEmergency}
-                            />
+                                onChangeText={(value) => setFormObgyne(stripDoctorPrefix(value))}
+                                autoCapitalize="words" />
+                            <Field label="Emergency Contact First Name" placeholder="First name"
+                                value={formEmergencyFirstName} onChangeText={setFormEmergencyFirstName}
+                                autoCapitalize="words" />
+                            <Field label="Emergency Contact Last Name" placeholder="Last name"
+                                value={formEmergencyLastName} onChangeText={setFormEmergencyLastName}
+                                autoCapitalize="words" />
+                            <Field label="Emergency Contact Relationship" placeholder="e.g. Mother"
+                                value={formEmergencyRelationship} onChangeText={setFormEmergencyRelationship}
+                                autoCapitalize="words" />
+                            <Field label="Emergency Contact Number" placeholder="Contact number"
+                                value={formEmergencyNumber} onChangeText={setFormEmergencyNumber}
+                                numericMode="digits" keyboardType="phone-pad" textContentType="telephoneNumber" />
 
-                            <Text style={styles.modalLabel}>Place of Birth</Text>
+                            <RecordFormRow label={<Text style={styles.modalLabel}>Place of Birth</Text>}>
+
                             <TextInput
                                 style={styles.modalInput}
                                 value={formPlaceOfBirth}
                                 onChangeText={setFormPlaceOfBirth}
                             />
+                            </RecordFormRow>
                             <TimeField
                                 label="Time of Birth"
                                 value={formTimeOfBirth}
                                 onChange={setFormTimeOfBirth}
                             />
-                            <Text style={styles.modalLabel}>Preferred Health Center</Text>
-                            <TextInput
-                                style={styles.modalInput}
-                                value={formHealthCenter}
-                                onChangeText={setFormHealthCenter}
-                            />
 
-                            <View style={styles.modalButtons}>
-                                <TouchableOpacity
-                                    onPress={() =>
-                                        setShowAddProfileModal(false)
-                                    }
-                                    style={styles.modalCancelBtn}
-                                >
-                                    <Text style={styles.modalCancelText}>
-                                        {t("cancel")}
-                                    </Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    onPress={handleAddProfile}
-                                    style={styles.modalSaveBtn}
-                                >
-                                    <Text style={styles.modalSaveText}>
-                                        {t("save")}
-                                    </Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    </ScrollView>
-                </View>
-                </KeyboardAvoider>
-            </Modal>
+                </RecordFormGroup>
+            </RecordFormSheet>
 
-            {/* Modal: EDIT BABY PROFILE */}
-            <Modal
-                visible={showEditProfileModal}
-                transparent
-                animationType="slide"
+            <AnchoredMenu
+                visible={currentView === "editBabyProfile" && bloodTypeMenuOpen}
+                anchor={bloodTypeMenuAnchor}
+                onClose={() => setBloodTypeMenuOpen(false)}
+                variant="select"
             >
-                <KeyboardAvoider>
-                <View style={styles.modalBg}>
-                    <ScrollView contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled">
-                        <View style={styles.modalCard}>
-                            <Text style={styles.modalTitle}>
-                                {t("profileEditTitle")}
-                            </Text>
-
-                            {renderAvatarPicker(activeProfile.avatarUrl)}
-
-                            <Text style={styles.modalLabel}>
-                                {t("profileNameLabel")}
-                            </Text>
-                            <TextInput
-                                style={styles.modalInput}
-                                value={formName}
-                                onChangeText={setFormName}
-                            />
-
-                            <Text style={styles.modalLabel}>Nickname</Text>
-                            <TextInput
-                                style={styles.modalInput}
-                                placeholder="e.g. Baby E"
-                                placeholderTextColor={colors.placeholder}
-                                value={formNickname}
-                                onChangeText={setFormNickname}
-                            />
-
-                            <DateField
-                                label={t("profileDobLabel")}
-                                value={formDob}
-                                onChange={setFormDob}
-                                maximumDate={new Date().toISOString().slice(0, 10)}
-                            />
-
-                            <Text style={styles.modalLabel}>
-                                {t("profileGenderLabel")}
-                            </Text>
-                            <View style={styles.genderContainer}>
-                                <TouchableOpacity
-                                    style={[
-                                        styles.genderButton,
-                                        formGender === "girl" &&
-                                            styles.genderButtonActive,
-                                    ]}
-                                    onPress={() => setFormGender("girl")}
-                                >
-                                    <Text
-                                        style={[
-                                            styles.genderButtonText,
-                                            formGender === "girl" &&
-                                                styles.genderButtonTextActive,
-                                        ]}
-                                    >
-                                        {t("female")}
-                                    </Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={[
-                                        styles.genderButton,
-                                        formGender === "boy" &&
-                                            styles.genderButtonActive,
-                                    ]}
-                                    onPress={() => setFormGender("boy")}
-                                >
-                                    <Text
-                                        style={[
-                                            styles.genderButtonText,
-                                            formGender === "boy" &&
-                                                styles.genderButtonTextActive,
-                                        ]}
-                                    >
-                                        {t("male")}
-                                    </Text>
-                                </TouchableOpacity>
-                            </View>
-
-                            <View style={modalTwoCol ? styles.formRow : styles.formStack}>
-                                <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
-                                    <Text style={styles.modalLabel}>
-                                        Current Weight (kg)
-                                    </Text>
-                                    <TextInput
-                                        keyboardType="numeric"
-                                        style={styles.modalInput}
-                                        value={formWeight}
-                                        onChangeText={setFormWeight}
-                                    />
-                                </View>
-                                <View style={modalTwoCol ? styles.formCell : styles.formCellFull}>
-                                    <Text style={styles.modalLabel}>
-                                        Current Height (cm)
-                                    </Text>
-                                    <TextInput
-                                        keyboardType="numeric"
-                                        style={styles.modalInput}
-                                        value={formHeight}
-                                        onChangeText={setFormHeight}
-                                    />
-                                </View>
-                            </View>
-
-                            <Text style={styles.modalLabel}>Blood Type</Text>
-                            <TextInput
-                                style={styles.modalInput}
-                                autoCapitalize="characters"
-                                placeholder="e.g. O+"
-                                placeholderTextColor={colors.placeholder}
-                                value={formBloodType}
-                                onChangeText={setFormBloodType}
-                            />
-                            <Text style={styles.modalLabel}>Birth Hospital</Text>
-                            <TextInput
-                                style={styles.modalInput}
-                                value={formHospital}
-                                onChangeText={setFormHospital}
-                            />
-                            <Text style={styles.modalLabel}>Pediatrician</Text>
-                            <TextInput
-                                style={styles.modalInput}
-                                value={formPediatrician}
-                                onChangeText={setFormPediatrician}
-                            />
-                            <Text style={styles.modalLabel}>OB-GYNE</Text>
-                            <TextInput
-                                style={styles.modalInput}
-                                value={formObgyne}
-                                onChangeText={setFormObgyne}
-                            />
-                            <Text style={styles.modalLabel}>Emergency Contact</Text>
-                            <TextInput
-                                style={styles.modalInput}
-                                value={formEmergency}
-                                onChangeText={setFormEmergency}
-                            />
-
-                            <Text style={styles.modalLabel}>Place of Birth</Text>
-                            <TextInput
-                                style={styles.modalInput}
-                                value={formPlaceOfBirth}
-                                onChangeText={setFormPlaceOfBirth}
-                            />
-                            <TimeField
-                                label="Time of Birth"
-                                value={formTimeOfBirth}
-                                onChange={setFormTimeOfBirth}
-                            />
-                            <Text style={styles.modalLabel}>Preferred Health Center</Text>
-                            <TextInput
-                                style={styles.modalInput}
-                                value={formHealthCenter}
-                                onChangeText={setFormHealthCenter}
-                            />
-
-                            <View style={styles.modalButtons}>
-                                <TouchableOpacity
-                                    onPress={() =>
-                                        setShowEditProfileModal(false)
-                                    }
-                                    style={styles.modalCancelBtn}
-                                >
-                                    <Text style={styles.modalCancelText}>
-                                        {t("cancel")}
-                                    </Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    onPress={handleEditProfile}
-                                    style={styles.modalSaveBtn}
-                                >
-                                    <Text style={styles.modalSaveText}>
-                                        {t("save")}
-                                    </Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    </ScrollView>
-                </View>
-                </KeyboardAvoider>
-            </Modal>
+                {BLOOD_TYPES.map((bloodType) => (
+                    <AnchoredMenuItem
+                        key={bloodType}
+                        label={bloodType}
+                        selected={formBloodType === bloodType}
+                        variant="select"
+                        accessibilityLabel={`Blood type ${bloodType}`}
+                        onPress={() => {
+                            setFormBloodType(bloodType);
+                            setBloodTypeMenuOpen(false);
+                        }}
+                    />
+                ))}
+            </AnchoredMenu>
 
             {/* Annual data-retention re-consent (Data Privacy Act of 2012, RA 10173) */}
             <Modal visible={consentDue} transparent animationType="fade">
@@ -1680,12 +1790,19 @@ function MainAppShell({
                                     Privacy Act of 2012 (RA 10173), do you still want BabyBook+ to keep
                                     retaining your and your child's data?
                                 </Text>
-                                <TouchableOpacity onPress={handleKeepData} style={styles.modalSaveBtn}>
-                                    <Text style={styles.modalSaveText}>Yes, keep my data for another year</Text>
+                                <TouchableOpacity
+                                    onPress={handleKeepData}
+                                    style={styles.modalSaveBtn}
+                                    disabled={!!consentAction}
+                                    accessibilityState={{ disabled: !!consentAction, busy: consentAction === "renew" }}
+                                >
+                                    {(<Text style={styles.modalSaveText}>Yes, keep my data for another year</Text>)}
                                 </TouchableOpacity>
                                 <TouchableOpacity
                                     onPress={() => setWithdrawConfirm(true)}
                                     style={{ marginTop: space.md, alignItems: "center", paddingVertical: 12 }}
+                                    disabled={!!consentAction}
+                                    accessibilityState={{ disabled: !!consentAction }}
                                 >
                                     <Text style={{ color: colors.danger, fontWeight: "700", fontSize: 13 }}>
                                         No — withdraw & delete my data
@@ -1699,12 +1816,19 @@ function MainAppShell({
                                     This permanently deletes your account and all of your child's records.
                                     This cannot be undone.
                                 </Text>
-                                <TouchableOpacity onPress={handleWithdrawData} style={[styles.modalSaveBtn, { backgroundColor: colors.danger }]}>
-                                    <Text style={styles.modalSaveText}>Permanently delete everything</Text>
+                                <TouchableOpacity
+                                    onPress={handleWithdrawData}
+                                    style={[styles.modalSaveBtn, { backgroundColor: colors.danger }]}
+                                    disabled={!!consentAction}
+                                    accessibilityState={{ disabled: !!consentAction, busy: consentAction === "delete" }}
+                                >
+                                    {(<Text style={styles.modalSaveText}>Permanently delete everything</Text>)}
                                 </TouchableOpacity>
                                 <TouchableOpacity
                                     onPress={() => setWithdrawConfirm(false)}
                                     style={{ marginTop: space.md, alignItems: "center", paddingVertical: 12 }}
+                                    disabled={!!consentAction}
+                                    accessibilityState={{ disabled: !!consentAction }}
                                 >
                                     <Text style={{ color: colors.textSecondary, fontWeight: "700", fontSize: 13 }}>Go back</Text>
                                 </TouchableOpacity>
@@ -1713,21 +1837,6 @@ function MainAppShell({
                     </View>
                 </View>
             </Modal>
-
-            <SideMenu
-                visible={menuOpen}
-                onClose={() => setMenuOpen(false)}
-                parentName={parentName}
-                parentAvatar={parentAvatar}
-                onNavigate={(key) => {
-                    changeView(key);
-                    setMenuOpen(false);
-                }}
-                onLogout={() => {
-                    setMenuOpen(false);
-                    handleLogOut();
-                }}
-            />
 
             {/* Baby switcher. An anchored menu, not a bottom sheet: it belongs
                 to the name that opened it and reads as an extension of it.
@@ -1746,7 +1855,7 @@ function MainAppShell({
                         note={childAlerts[p.id] ? "Needs attention" : undefined}
                         selected={p.id === activeProfile.id}
                         onPress={() => {
-                            setSelectedProfileId(p.id);
+                            selectProfile(p);
                             setSwitcherOpen(false);
                         }}
                         leading={
@@ -1796,16 +1905,21 @@ export default function App() {
     // effect below still restores a saved choice, so anyone who has already
     // chosen "system" or "dark" keeps it.
     const [schemeOverride, setSchemeOverride] = useState("light");
+    const [preferencesReady, setPreferencesReady] = useState(false);
 
     useEffect(() => {
         (async () => {
             try {
+                // Cleanup runs independently of the startup preference/splash gate.
+                void removeLegacyOfflineSummaries();
                 const saved = await storage.getItem("bb_theme_override");
                 if (saved) setThemeOverride(saved);
                 const savedScheme = await storage.getItem("bb_dark_mode");
                 if (savedScheme) setSchemeOverride(savedScheme);
             } catch (e) {
                 /* ignore */
+            } finally {
+                setPreferencesReady(true);
             }
         })();
     }, []);
@@ -1832,6 +1946,7 @@ export default function App() {
         <SafeAreaProvider>
             <LanguageProvider>
                 <ThemeProvider gender={themeGender} override={themeOverride} schemeOverride={schemeOverride}>
+                    <DatabaseLoadingProvider>
                     <ToastProvider>
                         <MainAppShell
                             onThemeGenderChange={setThemeGender}
@@ -1839,8 +1954,10 @@ export default function App() {
                             onThemeOverrideChange={changeThemeOverride}
                             schemeOverride={schemeOverride}
                             onSchemeOverrideChange={changeSchemeOverride}
+                            preferencesReady={preferencesReady}
                         />
                     </ToastProvider>
+                    </DatabaseLoadingProvider>
                 </ThemeProvider>
             </LanguageProvider>
         </SafeAreaProvider>
@@ -1881,8 +1998,8 @@ const makeStyles = (colors) => StyleSheet.create({
         borderBottomWidth: 1,
         borderBottomColor: colors.hairline,
     },
-    // The left side takes the slack and shrinks; the right side (three fixed
-    // 42pt buttons) never does. Previously both were unbounded, so whichever
+    // The left side takes the slack and shrinks; the right side (four fixed
+    // 44pt buttons) never does. Previously both were unbounded, so whichever
     // had more content won and the other overflowed the screen edge.
     headerLeft: {
         flexDirection: "row",
@@ -1894,33 +2011,9 @@ const makeStyles = (colors) => StyleSheet.create({
     headerRight: {
         flexDirection: "row",
         alignItems: "center",
+        gap: space.xs,
         flexShrink: 0,
     },
-    headerQrBtn: {
-        width: MIN_TOUCH,
-        height: MIN_TOUCH,
-        borderRadius: radius.lg,
-        borderCurve: "continuous",
-        backgroundColor: colors.softGreen,
-        alignItems: "center",
-        justifyContent: "center",
-        marginRight: space.md,
-    },
-    headerBadge: {
-        position: "absolute",
-        top: -4,
-        right: -4,
-        minWidth: 18,
-        height: 18,
-        borderRadius: 9,
-        paddingHorizontal: 4,
-        backgroundColor: colors.danger,
-        alignItems: "center",
-        justifyContent: "center",
-        borderWidth: 2,
-        borderColor: colors.surface,
-    },
-    headerBadgeText: { color: "#FFFFFF", fontSize: 11, fontWeight: "800" },
     babyNameBtn: {
         flexDirection: "row",
         alignItems: "center",
@@ -1986,74 +2079,14 @@ const makeStyles = (colors) => StyleSheet.create({
         marginLeft: -space.sm, // optical alignment with the screen content below
     },
     screenTitle: { ...type.heading, color: colors.text, flexShrink: 1 },
-    menuBtn: {
-        width: MIN_TOUCH,
-        height: MIN_TOUCH,
-        borderRadius: radius.lg,
-        borderCurve: "continuous",
-        backgroundColor: colors.softGreen,
-        alignItems: "center",
-        justifyContent: "center",
-    },
     content: {
         flex: 1,
     },
-    tabBar: {
-        backgroundColor: colors.surface,
-        borderTopWidth: 1,
-        borderTopColor: colors.hairline,
-        flexDirection: "row",
-        alignItems: "flex-start",
-        justifyContent: "space-around",
-        paddingTop: space.sm,
-        // paddingBottom is applied inline as space.md + insets.bottom, so the
-        // bar paints its own background behind the home indicator instead of
-        // ending above it.
-    },
-    tabItem: {
-        alignItems: "center",
-        justifyContent: "center",
+    blurTarget: {
         flex: 1,
-        minWidth: 0,
-        minHeight: MIN_TOUCH,
-        paddingHorizontal: 2,
-        gap: 3,
     },
-    tabPill: {
-        width: "100%",
-        maxWidth: 56,
-        height: 32,
-        borderRadius: radius.pill,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    tabPillActive: {
-        backgroundColor: colors.primarySoft,
-    },
-    tabLabel: {
-        ...type.caption,
-        fontWeight: "600",
-        color: colors.textMuted,
-        textAlign: "center",
-    },
-    tabLabelActive: {
-        color: colors.accentStrong,
-        fontWeight: "800",
-    },
-    fab: {
-        position: "absolute",
-        right: space.lg,
-        // `bottom` is applied inline from the measured tab-bar height — it was
-        // a hardcoded 92 that only cleared the bar at one font scale.
-        width: 56,
-        height: 56,
-        borderRadius: 28,
-        borderCurve: "continuous",
-        backgroundColor: colors.primary,
-        alignItems: "center",
-        justifyContent: "center",
-        ...shadow.accent,
-    },
+
+    fab: { position: "absolute", right: space.lg },
     modalBg: {
         flex: 1,
         backgroundColor: "rgba(28,25,23,0.55)",
@@ -2061,12 +2094,7 @@ const makeStyles = (colors) => StyleSheet.create({
         alignItems: "center",
         padding: space.xl,
     },
-    modalScroll: {
-        flexGrow: 1,
-        justifyContent: "center",
-        alignItems: "center",
-        width: "100%",
-    },
+
     avatarPickerWrap: {
         alignItems: "center",
         marginBottom: space.lg,
@@ -2133,40 +2161,27 @@ const makeStyles = (colors) => StyleSheet.create({
     },
     modalInput: {
         backgroundColor: colors.surfaceAlt,
-        borderWidth: 1,
+        borderWidth: 0,
         borderColor: colors.border,
         borderRadius: radius.lg,
         borderCurve: "continuous",
         paddingHorizontal: space.lg,
-        height: 52,
+        minHeight: 52,
+            paddingVertical: space.sm,
         fontSize: 16,
         color: colors.text,
         marginBottom: space.lg,
     },
-    // Paired form fields. `formStack` is the same two fields one per line, used
-    // whenever a column would fall below TEXT_COL_MIN — at which point a label
-    // like "Current Weight (kg)" no longer fits on one line beside its twin.
-    formRow: { flexDirection: "row", gap: space.sm },
-    formStack: { flexDirection: "column" },
-    formCell: { flex: 1, minWidth: 0 },
-    formCellFull: { width: "100%" },
-    modalButtons: {
+    dropdownText: { ...type.body, color: colors.text, flex: 1, minWidth: 0 },
+    dropdownPlaceholder: { color: colors.placeholder },
+    bloodTypeTrigger: {
+        minHeight: 52,
+        paddingHorizontal: space.md,
+        backgroundColor: "transparent",
         flexDirection: "row",
-        justifyContent: "flex-end",
-        flexWrap: "wrap",
-        gap: space.md,
-    },
-    modalCancelBtn: {
-        paddingVertical: 12,
-        paddingHorizontal: space.lg,
-        borderRadius: radius.pill,
-        borderCurve: "continuous",
-        backgroundColor: colors.surfaceAlt,
-    },
-    modalCancelText: {
-        fontSize: 14,
-        fontWeight: "700",
-        color: colors.textSecondary,
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: space.sm,
     },
     modalSaveBtn: {
         paddingVertical: 12,

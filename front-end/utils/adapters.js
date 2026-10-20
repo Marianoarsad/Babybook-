@@ -1,5 +1,10 @@
 // Maps between the backend's child shape (snake_case) and the app's profile
 // shape (camelCase, gender as "girl"/"boy").
+import numericInput from "./numericInput.cjs";
+import conditionRecords from "./conditions.cjs";
+
+const { digitsOnly } = numericInput;
+const { conditionAttachmentType } = conditionRecords;
 
 const GIRL_AVATAR =
     "https://images.unsplash.com/photo-1519689680058-324335c77eb2?q=80&w=300&auto=format&fit=crop";
@@ -18,6 +23,7 @@ export function childToProfile(c) {
     const fullName = [c.first_name, c.last_name].filter(Boolean).join(" ") || c.first_name || "Baby";
     const birthWeight = num(c.birth_weight);
     const birthHeight = num(c.birth_length);
+    const emergency = c.emergency_contact_details || {};
     return {
         id: String(c.id),
         name: fullName,
@@ -26,17 +32,30 @@ export function childToProfile(c) {
         nickname: c.nickname || "",
         placeOfBirth: c.place_of_birth || "",
         timeOfBirth: c.time_of_birth ? String(c.time_of_birth).slice(0, 5) : "",
-        preferredHealthCenter: c.preferred_health_center || "",
         dateOfBirth: c.date_of_birth ? String(c.date_of_birth).slice(0, 10) : "",
         gender: isGirl ? "girl" : "boy",
         sex: c.sex || (isGirl ? "Female" : "Male"),
         bloodType: c.blood_type || "",
         birthWeight: birthWeight ?? 3.0,
         birthHeight: birthHeight ?? 49.0,
+        birthHeadCircumference: num(c.birth_head_circumference),
         hospital: c.hospital || "",
-        obgynName: c.obgyne_name || "",
-        pediatricianName: c.pediatrician_name || "",
+        obgynName: formatDoctorName(c.obgyne_name),
+        obgynContactNumber: digitsOnly(c.obgyne_contact_number),
+        pediatricianName: formatDoctorName(c.pediatrician_name),
+        pediatricianContactNumber: digitsOnly(c.pediatrician_contact_number),
+        pediatricianClinicHospital: c.pediatrician_clinic_hospital || "",
         emergencyContact: c.emergency_contact || "",
+        emergencyContactDetails: {
+            firstName: emergency.first_name || "",
+            lastName: emergency.last_name || "",
+            relationship: emergency.relationship || "",
+            contactNumber: digitsOnly(emergency.contact_number),
+        },
+        hasRecordedAvatar: Boolean(c.avatar_url),
+        hasRecordedSex: Boolean(c.sex),
+        hasRecordedBirthWeight: Number.isFinite(birthWeight) && birthWeight > 0,
+        hasRecordedBirthHeight: Number.isFinite(birthHeight) && birthHeight > 0,
         avatarUrl: c.avatar_url || (isGirl ? GIRL_AVATAR : BOY_AVATAR),
         allergies: Array.isArray(c.allergies) ? c.allergies : [],
         hereditaryConditions: Array.isArray(c.hereditary_conditions) ? c.hereditary_conditions : [],
@@ -64,15 +83,33 @@ export function profileFormToChild(form, { includeBirth = true } = {}) {
         if (form.weight) body.birth_weight = num(form.weight);
         if (form.height) body.birth_length = num(form.height);
     }
+    // Explicit birth field, never a current measurement. Blank clears it.
+    if (form.birthHeadCircumference !== undefined) {
+        body.birth_head_circumference = num(form.birthHeadCircumference);
+    }
     if (form.bloodType) body.blood_type = form.bloodType;
     if (form.hospital) body.hospital = form.hospital;
-    if (form.pediatrician) body.pediatrician_name = form.pediatrician;
-    if (form.obgyne) body.obgyne_name = form.obgyne;
-    if (form.emergencyContact) body.emergency_contact = form.emergencyContact;
+    body.pediatrician_name = formatDoctorName(form.pediatrician) || null;
+    body.obgyne_name = formatDoctorName(form.obgyne) || null;
+    if (form.pediatricianContactNumber !== undefined) {
+        body.pediatrician_contact_number = digitsOnly(form.pediatricianContactNumber) || null;
+    }
+    if (form.pediatricianClinicHospital !== undefined) {
+        body.pediatrician_clinic_hospital = String(form.pediatricianClinicHospital || "").trim() || null;
+    }
+    if (form.obgynContactNumber !== undefined) {
+        body.obgyne_contact_number = digitsOnly(form.obgynContactNumber) || null;
+    }
+    const emergency = form.emergencyContactDetails || {};
+    body.emergency_contact_details = {
+        first_name: emergency.firstName || "",
+        last_name: emergency.lastName || "",
+        relationship: emergency.relationship || "",
+        contact_number: digitsOnly(emergency.contactNumber),
+    };
     if (form.nickname) body.nickname = form.nickname;
     if (form.placeOfBirth) body.place_of_birth = form.placeOfBirth;
     if (form.timeOfBirth) body.time_of_birth = form.timeOfBirth;
-    if (form.preferredHealthCenter) body.preferred_health_center = form.preferredHealthCenter;
     if (form.avatarUrl) body.avatar_url = form.avatarUrl;
     return body;
 }
@@ -88,14 +125,21 @@ export function nutritionToApp(n) {
         id: String(n.id),
         entryType: n.entry_type || "milk",
         milkType: n.milk_type || "",
-        feedMethod: n.feed_method || (quantity != null ? "bottle" : ""),
+        feedMethod: n.feed_method || (Number.isFinite(quantity) ? "bottle" : ""),
         formulaBrand: n.formula_brand || "",
+        formulaScoops:
+            n.formula_scoops != null && n.formula_scoops !== "" ? Number(n.formula_scoops) : null,
         quantity,
+        breastmilkQuantity:
+            n.breastmilk_quantity != null && n.breastmilk_quantity !== ""
+                ? Number(n.breastmilk_quantity)
+                : null,
         unit: n.unit || "",
         durationMinutes: n.duration_minutes != null && n.duration_minutes !== "" ? Number(n.duration_minutes) : null,
         // breast_side is deliberately not surfaced — the form doesn't collect
         // it and nothing renders it. See the column comment in schema.sql.
         foodIntroduced: n.food_introduced || "",
+        foodCategory: n.food_category || "",
         reactionSeverity: n.reaction_severity || "",
         reaction: n.reaction || "",
         date: n.entry_date ? String(n.entry_date).slice(0, 10) : "",
@@ -114,11 +158,17 @@ export function nutritionFormToRecord(form) {
     if (form.date) body.entry_date = form.date;
     if (form.time) body.entry_time = form.time;
     if ((form.entryType || "milk") === "milk") {
-        // Formula is by definition a bottle, so the form hides the choice.
-        const method = form.milkType === "Formula" ? "bottle" : form.feedMethod || "bottle";
+        const usesFormula = form.milkType === "Formula" || form.milkType === "Mixed";
+        // Formula and Mixed use the bottle-only fields in the form.
+        const method = usesFormula ? "bottle" : form.feedMethod || "bottle";
         body.milk_type = form.milkType || null;
         body.feed_method = method;
+        body.formula_scoops =
+            usesFormula && String(form.formulaScoops ?? "").trim() !== ""
+                ? Number(form.formulaScoops)
+                : null;
         body.food_introduced = null;
+        body.food_category = null;
         body.reaction_severity = null;
         body.reaction = null;
         if (method === "breast") {
@@ -130,10 +180,15 @@ export function nutritionFormToRecord(form) {
             // comment in schema.sql.
             body.breast_side = null;
             body.quantity = null;
+            body.breastmilk_quantity = null;
             body.unit = null;
             body.formula_brand = null;
         } else {
             body.quantity = form.quantity === "" || form.quantity == null ? null : Number(form.quantity);
+            body.breastmilk_quantity =
+                form.milkType === "Mixed" && form.breastmilkQuantity !== "" && form.breastmilkQuantity != null
+                    ? Number(form.breastmilkQuantity)
+                    : null;
             body.unit = form.unit || null;
             body.formula_brand =
                 form.milkType === "Formula" || form.milkType === "Mixed" ? form.formulaBrand || null : null;
@@ -142,13 +197,16 @@ export function nutritionFormToRecord(form) {
         }
     } else {
         body.food_introduced = form.foodIntroduced || null;
+        body.food_category = form.foodCategory || null;
         body.reaction_severity = form.reactionSeverity || null;
         // The description only means anything alongside an actual reaction.
-        body.reaction = form.reactionSeverity && form.reactionSeverity !== "none" ? form.reaction || null : null;
+        body.reaction = form.reactionSeverity !== "none" ? form.reaction || null : null;
         body.milk_type = null;
         body.feed_method = null;
         body.formula_brand = null;
+        body.formula_scoops = null;
         body.quantity = null;
+        body.breastmilk_quantity = null;
         body.unit = null;
         body.duration_minutes = null;
         body.breast_side = null;
@@ -170,7 +228,10 @@ export function toMilliliters(quantity, unit) {
 // totals zero and reads as a day with no feeding at all.
 export function feedVolumeMl(e) {
     if (!e || e.feedMethod === "breast") return 0;
-    return toMilliliters(e.quantity, e.unit);
+    const total =
+        Number(e.quantity || 0) +
+        (e.milkType === "Mixed" ? Number(e.breastmilkQuantity || 0) : 0);
+    return toMilliliters(total, e.unit);
 }
 
 // One-line description of a RAW nutrition_records row, for the four places
@@ -185,14 +246,34 @@ export function feedRowSummary(n) {
         return `Solid food${n.food_introduced ? ` • ${n.food_introduced}` : ""}`;
     }
     const base = n.milk_type || "Milk";
+    const scoops =
+        n.formula_scoops != null && n.formula_scoops !== ""
+            ? ` • ${Number(n.formula_scoops)} scoop${Number(n.formula_scoops) === 1 ? "" : "s"}`
+            : "";
     if (n.feed_method === "breast") {
         // Duration is optional, so "at the breast" is the fallback rather than
         // a bare milk type — the record still says what kind of feed it was.
         const mins = Number(n.duration_minutes);
-        return Number.isFinite(mins) && mins > 0 ? `${base} • ${mins} min` : `${base} • at the breast`;
+        return Number.isFinite(mins) && mins > 0 ? `${base} • ${mins} min${scoops}` : `${base} • at the breast${scoops}`;
     }
     const qty = n.quantity != null && n.quantity !== "" ? Number(n.quantity) : null;
-    return qty != null ? `${base} • ${qty} ${n.unit || "mL"}` : base;
+    const breastmilkQty =
+        n.breastmilk_quantity != null && n.breastmilk_quantity !== ""
+            ? Number(n.breastmilk_quantity)
+            : null;
+    if (base === "Mixed" && qty != null && breastmilkQty != null) {
+        return `${base} • ${qty} ${n.unit || "mL"} formula + ${breastmilkQty} ${n.unit || "mL"} breastmilk${scoops}`;
+    }
+    return qty != null ? `${base} • ${qty} ${n.unit || "mL"}${scoops}` : `${base}${scoops}`;
+}
+
+export function stripDoctorPrefix(value) {
+    return String(value || "").replace(/^(?:dr(?:\.\s*|\s+))+/i, "").trimStart();
+}
+
+export function formatDoctorName(value) {
+    const name = stripDoctorPrefix(value).trim();
+    return name ? `Dr. ${name}` : "";
 }
 
 // Backend checkup row -> app appointment shape (Growth appointments list).
@@ -218,8 +299,11 @@ export function milestoneToApp(m) {
         id: String(m.id),
         title: m.title,
         isCompleted: !!m.is_completed,
+        isFavorite: !!m.is_favorite,
+        _pending: !!m._pending,
         date: m.date_recorded ? String(m.date_recorded).slice(0, 10) : "",
         ageAchieved: m.age_achieved || "",
+        developmentCategory: m.development_category || "",
         description: m.description || "",
         photoUrl: m.photo_url || "",
     };
@@ -235,6 +319,9 @@ export function milestoneToApp(m) {
 export function medHistoryToIllness(r) {
     return {
         id: String(r.id),
+        category: r.category || "Illness",
+        allergyType: r.allergy_type || "",
+        attachmentType: conditionAttachmentType(r.category),
         title: r.title,
         date: r.date_recorded ? String(r.date_recorded).slice(0, 10) : "",
         resolved: !!r.resolved,
@@ -293,6 +380,8 @@ export function medicationDoseToApp(d) {
 export function memoryToApp(m) {
     return {
         id: String(m.id),
+        isFavorite: !!m.is_favorite,
+        developmentCategory: m.development_category || "",
         title: m.caption || "Memory",
         description: m.notes || "",
         date: m.date_recorded ? String(m.date_recorded).slice(0, 10) : "",
