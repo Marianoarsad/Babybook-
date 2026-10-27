@@ -71,30 +71,16 @@ describe("BabyBook+ API", () => {
         const child = await request(app).post("/api/children").set("Authorization", authorization).send({ first_name: "Period", last_name: "Fixture" });
         const id = child.body.id, base = `/api/children/${id}`, endpoint = `${base}/milk-type-periods`;
         await request(app).post(`${base}/nutrition`).set("Authorization", authorization).send({ entry_type: "milk", milk_type: "Formula", feed_method: "bottle", quantity: 120, unit: "mL", entry_date: "2026-10-15" });
-        const body = { milk_type: "Formula", start_date: "2026-10-09", end_date: null, notes: "Fictional private note" };
-        const create = () => request(app).post(endpoint).set("Authorization", authorization).set("X-Operation-Key", "milk_period_retry").send(body);
-        const first = await create(), retry = await create();
-        expect(first.status).toBe(201); expect(retry.body.id).toBe(first.body.id);
-        expect(first.body.notes).toBe(body.notes); expect(first.body.start_date).toBe(body.start_date);
-        expect((await pool.query("SELECT notes FROM milk_type_periods WHERE id=$1", [first.body.id])).rows[0].notes).toMatch(/^enc:v1:/);
         expect((await request(app).get(endpoint)).status).toBe(401);
-        const stranger = await request(app).post("/api/auth/register").send({ fullName: "Other Fixture", email: `otherperiod${Date.now()}@example.com`, password: "password123", consentAccepted: true });
-        for (const method of ["get", "put", "delete"]) {
-            const result = await request(app)[method](`${endpoint}/${first.body.id}`).set("Authorization", `Bearer ${stranger.body.token}`).send({ notes: "Unauthorized" });
-            expect([403, 404]).toContain(result.status);
+        expect((await request(app).get(endpoint).set("Authorization", authorization)).body).toEqual([]);
+        for (const method of ["post", "put", "delete"]) {
+            expect((await request(app)[method](endpoint).set("Authorization", authorization).send({ milk_type: "Formula", start_date: "2026-10-01" })).status).toBe(410);
         }
-        for (const patch of [{ end_date: "2026-10-08" }, { start_date: "2026-02-30" }, { milk_type: "Other" }, { start_date: null }]) {
-            expect((await request(app).put(`${endpoint}/${first.body.id}`).set("Authorization", authorization).send(patch)).status).toBe(400);
-        }
-        expect((await request(app).put(`${endpoint}/${first.body.id}`).set("Authorization", authorization).send({ end_date: "2026-10-15" })).status).toBe(200);
-        expect((await request(app).put(`${endpoint}/${first.body.id}`).set("Authorization", authorization).send({ start_date: "2026-10-16" })).status).toBe(400);
         const { buildSnapshot, authorizedSnapshot } = require("../src/utils/snapshot");
         const snapshot = await buildSnapshot({ id }, ["nutrition"]);
-        expect(snapshot.nutrition).toHaveLength(1); expect(snapshot.milkTypePeriods).toHaveLength(1);
-        expect(authorizedSnapshot(snapshot, ["profile"]).milkTypePeriods).toBeUndefined();
-        expect(snapshot.milkTypePeriods[0].notes).toBe(body.notes);
-        expect((await request(app).delete(`${endpoint}/${first.body.id}`).set("Authorization", authorization)).status).toBe(204);
-        expect((await request(app).get(endpoint).set("Authorization", authorization)).body).toHaveLength(0);
+        expect(snapshot.nutrition).toHaveLength(1);
+        expect(snapshot.milkTypePeriods).toBeUndefined();
+        expect(authorizedSnapshot({ ...snapshot, milkTypePeriods: [{ notes: "Retired" }] }, ["nutrition"]).milkTypePeriods).toBeUndefined();
         expect((await request(app).get(`${base}/nutrition`).set("Authorization", authorization)).body).toHaveLength(1);
         // Rehearse the additive migration in a temporary schema, preserving public data.
         const client = await pool.connect();
@@ -909,7 +895,7 @@ describe("BabyBook+ API", () => {
             const share = await createShare(keys);
             const res = await request(app).post("/api/consult/resolve").send({ code: share.qr_payload, professionalName: "All Categories" });
             expect(res.status).toBe(200); expect(res.body.recordKeys).toEqual(keys);
-            expect(Object.keys(res.body.payload).sort()).toEqual([...keys, "milkTypePeriods"].sort());
+            expect(Object.keys(res.body.payload).sort()).toEqual(keys.sort());
         });
 
         test("snapshots stay frozen; unreadable source/snapshot fails closed without an access log", async () => {

@@ -141,8 +141,6 @@ async function buildSnapshot(child, keys, visitReason) {
             [child.id]
         );
         snap.nutrition = rows.map((r) => decryptRow(r, ["formula_brand", "food_introduced", "reaction", "notes"]));
-        const periods = await query("SELECT id, milk_type, start_date, end_date, notes FROM milk_type_periods WHERE child_id = $1 ORDER BY start_date DESC, id DESC", [child.id]);
-        snap.milkTypePeriods = periods.rows.map(r => decryptRow(r, ["notes"]));
     }
 
     if (keys.includes("medicalHistory")) {
@@ -183,7 +181,6 @@ function authorizedSnapshot(payload, recordKeys) {
     for (const key of recordKeys) {
         if (Object.hasOwn(RECORD_LABELS, key) && Object.hasOwn(payload, key)) result[key] = payload[key];
     }
-    if (recordKeys.includes("nutrition") && Object.hasOwn(payload, "milkTypePeriods")) result.milkTypePeriods = payload.milkTypePeriods;
     if (typeof payload.visitReason === "string") result.visitReason = payload.visitReason.slice(0, VISIT_REASON_MAX);
     assertReadableSnapshot(result);
     return result;

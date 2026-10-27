@@ -45,18 +45,6 @@ function validateVaccination(data, { existing }) {
     }
 }
 
-function validateMilkTypePeriod(data, { isCreate }) {
-    if ((isCreate || Object.hasOwn(data, "milk_type")) && !VALID_MILK.includes(data.milk_type)) {
-        throw new ApiError(400, "Choose Breastmilk, Formula or Mixed");
-    }
-    if ((isCreate || Object.hasOwn(data, "start_date")) && !validISODate(data.start_date)) {
-        throw new ApiError(400, "A valid start date is required");
-    }
-    if (data.end_date != null && !validISODate(data.end_date)) throw new ApiError(400, "Invalid end date");
-    if (data.end_date && data.start_date && data.end_date < data.start_date) throw new ApiError(400, "End date must be on or after start date");
-    if (data.notes != null && typeof data.notes !== "string") throw new ApiError(400, "Notes must be text");
-}
-
 function validateDecimal(value, label, max) {
     if (!blank(value) && !isNumberWithin(value, { min: 0.01, max, maxDecimals: 2 })) {
         throw new ApiError(400, `${label} must be a positive number with no more than 2 decimal places`);
@@ -294,14 +282,6 @@ const RESOURCES = [
         encrypted: ["formula_brand", "food_introduced", "reaction", "notes"],
     },
     {
-        path: "milk-type-periods",
-        table: "milk_type_periods",
-        columns: ["milk_type", "start_date", "end_date", "notes"],
-        orderBy: "start_date DESC, id DESC",
-        encrypted: ["notes"],
-        validate: validateMilkTypePeriod,
-    },
-    {
         path: "reminders",
         table: "reminders",
         columns: ["reminder_type", "title", "reminder_date", "status", "vaccination_id", "checkup_id"],
@@ -324,6 +304,12 @@ const RESOURCES = [
         validate: validatePlanStatus,
     },
 ];
+
+// Old clients may still refresh this retired collection; no new periods can be saved.
+router.use("/:childId/milk-type-periods", requireAuth, requireChildOwnership, (req, res, next) => {
+    if (req.method === "GET" && req.path === "/") return res.json([]);
+    next(new ApiError(410, "Milk type periods have been retired. Record individual milk feedings instead."));
+});
 
 for (const r of RESOURCES) {
     router.use(
